@@ -478,12 +478,24 @@ kb_grant_working_permissions() {
   cp "$src" "$dest"
 }
 
-#   handoff "<the prompt>" [working directory]
+# handoff "<the prompt>" [working directory]
+#
+# Set KB_EXTRA_DIRS to a space-separated list of folders outside the working
+# directory that the assistant must be able to read. The permission profile's
+# Read(**) is scoped to the project folder, so an installer whose instructions
+# live somewhere else (the kit, the shared step sheets) still gets a permission
+# prompt for every one of them - which on a server is the same as a refusal.
 handoff() {
   local prompt="$1" workdir="${2:-$PWD}"
   [ -n "${KB_CLAUDE_BIN:-}" ] || die "handoff called before ensure_claude_code."
   kb_skip_claude_first_run "$workdir"
   [ -n "${KB_PERMISSION_PROFILE:-}" ] && kb_grant_working_permissions "$KB_PERMISSION_PROFILE"
+
+  local -a extra=()
+  local d
+  for d in ${KB_EXTRA_DIRS:-}; do
+    [ -d "$d" ] && extra+=(--add-dir "$d")
+  done
 
   if have_tty; then
     log "Everything the machine can do on its own is done. Starting the setup conversation..."
@@ -491,9 +503,9 @@ handoff() {
     cd "$workdir" || die "No folder at $workdir."
     kb_resolve_tty
     if [ "$KB_TTY" = "device" ]; then
-      exec "$KB_CLAUDE_BIN" "$prompt" < /dev/tty
+      exec "$KB_CLAUDE_BIN" "${extra[@]}" "$prompt" < /dev/tty
     else
-      exec "$KB_CLAUDE_BIN" "$prompt"
+      exec "$KB_CLAUDE_BIN" "${extra[@]}" "$prompt"
     fi
   fi
 
@@ -505,7 +517,7 @@ to you through (this looks like a piped or automated run).
 
 To finish, run:
 
-  cd $workdir && $KB_CLAUDE_BIN
+  cd $workdir && $KB_CLAUDE_BIN ${extra[*]}
 
 Then paste this one line:
 
