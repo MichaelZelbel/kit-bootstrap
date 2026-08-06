@@ -458,20 +458,24 @@ kb_skip_claude_first_run() {
 #
 # Never clobbers an existing settings.json - it is backed up first, the way the
 # Hermes kit does it, because a machine may already be somebody's working setup.
+#
+# WRITE ONLY KEYS THAT ARE IN THE SCHEMA. This file is Claude Code's own, and it
+# rewrites it. A profile carrying an explanatory "_comment" array and a custom
+# marker key was silently replaced with a two-line file of Claude Code's own
+# settings the moment it started, which took the permissions with it and put the
+# reader back to approving every file read one at a time. Verified on Ubuntu
+# 24.04: identical profile minus those two keys survives untouched. So the
+# explanation lives in settings/README.md, and "is this ours?" is answered by
+# comparing the file with the source rather than by tagging it.
 kb_grant_working_permissions() {
   local src="$1" dest="$HOME/.claude/settings.json"
   [ -f "$src" ] || { warn "No permission profile at $src; Claude Code will ask before every step."; return 0; }
   mkdir -p "$HOME/.claude"
-  if [ -f "$dest" ] && ! grep -q '"kit-bootstrap-profile"' "$dest" 2>/dev/null; then
+  if [ -f "$dest" ] && ! cmp -s "$dest" "$src"; then
     cp "$dest" "$dest.before-install"
     log "Kept your existing Claude settings as settings.json.before-install"
   fi
-  # tag it so a second run recognises its own file and does not keep making backups
-  if command -v jq >/dev/null 2>&1; then
-    jq '. + {"kit-bootstrap-profile": true}' "$src" > "$dest" 2>/dev/null || cp "$src" "$dest"
-  else
-    cp "$src" "$dest"
-  fi
+  cp "$src" "$dest"
 }
 
 #   handoff "<the prompt>" [working directory]

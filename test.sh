@@ -114,7 +114,9 @@ if command -v jq >/dev/null 2>&1; then
   printf '%s' '{"permissions":{"allow":["Read(**)"]},"mine":"do not lose this"}' > "$_p/.claude/settings.json"
   ( HOME="$_p"; kb_grant_working_permissions "settings/server-profile.json" ) >/dev/null 2>&1
   t "profile is installed"          "$(jq -r '.permissions.allow | index("Bash(*)") != null' "$_p/.claude/settings.json")" "true"
-  t "profile is tagged as ours"     "$(jq -r '."kit-bootstrap-profile"' "$_p/.claude/settings.json")"                      "true"
+  # Claude Code REWRITES this file and drops it entirely if it carries keys
+  # outside the published schema. That cost the whole profile once already.
+  t "profile has only schema keys"  "$(jq -r 'keys | map(select(. != "$schema" and . != "permissions")) | length' "$_p/.claude/settings.json")" "0"
   t "the old settings are kept"     "$(jq -r '.mine' "$_p/.claude/settings.json.before-install")"                          "do not lose this"
   # a second run must not overwrite the backup with our own file
   ( HOME="$_p"; kb_grant_working_permissions "settings/server-profile.json" ) >/dev/null 2>&1

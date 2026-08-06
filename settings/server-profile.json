@@ -1,19 +1,5 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "_comment": [
-    "Permission profile for an assistant living on a server it owns an account on.",
-    "",
-    "This is Chapter 25's own lesson written as a file. On a laptop the leash is a",
-    "question: it asks, you answer. On a server at three in the morning there is",
-    "nobody to answer, so a question is the same as a refusal, and the whole job",
-    "dies waiting. The leash has to be the walls instead: an account that can reach",
-    "almost nothing, with permission to act inside it granted in advance.",
-    "",
-    "So `allow` is broad and `deny` is the short list of things that are never a",
-    "good idea even inside your own home directory. Adapted from the Hermes DevOps",
-    "Kit's conservative profile, which is where this list was built and proven; the",
-    "audit hooks belong to that product and are not here."
-  ],
   "permissions": {
     "defaultMode": "default",
     "allow": [
