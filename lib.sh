@@ -104,6 +104,18 @@ need_tools() {
 # which we then make untrue two lines later. The warning is a false alarm and it
 # scares people mid-install.
 ensure_claude_code() {
+  # Anthropic's installer refuses to run under `sudo` from a normal user's
+  # shell, and it is right to: it installs into $HOME, which under sudo is
+  # root's home, so the binary lands somewhere the person's own shell cannot
+  # see it. Plain root with no sudo is fine and explicitly allowed. Catch the
+  # bad case here, where we can say something useful, instead of letting the
+  # reader meet a refusal from a script they did not know they were running.
+  if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    die "This is running under sudo, and Claude Code installs into your home folder.
+   Under sudo that would be root's home, and the 'claude' command would then not
+   work from your own account. Run the same command again WITHOUT sudo."
+  fi
+
   if ! command -v claude >/dev/null 2>&1; then
     if [ -x "$HOME/.local/bin/claude" ]; then
       log "Claude Code is already on this machine. Making it reachable."
