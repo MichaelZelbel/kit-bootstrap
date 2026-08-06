@@ -47,6 +47,16 @@ eval "$(curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap
 A fix pushed to `v1` reaches every reader on their next run. Nothing is
 republished, no gist is re-pasted.
 
+One thing to know before you test a fix: **`raw.githubusercontent.com` caches a
+branch URL for a few minutes.** Measured 2026-08-06, a push to `v1` took about
+40 seconds to appear, and `Cache-Control: no-cache` did not bypass it. If you
+need the new file *now*, request it by commit sha instead, which is never served
+stale:
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/$(git rev-parse origin/v1)/lib.sh"
+```
+
 **Vendored at build time** — for the paid kits, which ship as one self-contained
 offline tarball. Their `build.sh` already pins and copies two other repos in
 (the OSS watchdog and the Chrome bridge); this is the same move with one more
