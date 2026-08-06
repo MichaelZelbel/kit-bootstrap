@@ -4,11 +4,8 @@
     "defaultMode": "default",
     "allow": [
       "Read(**)",
-      "Write(**)",
       "Edit(**)",
       "Bash(*)",
-      "Glob(**)",
-      "Grep(**)",
       "WebSearch",
       "WebFetch"
     ],
@@ -66,16 +63,12 @@
       "Bash(history -c)",
       "Bash(unset HISTFILE)",
       "Bash(export HISTFILE=/dev/null)",
-      "Write(/etc/passwd)",
-      "Write(/etc/shadow)",
-      "Write(/etc/sudoers)",
-      "Write(/etc/ssh/sshd_config)",
-      "Write(/root/.ssh/authorized_keys)",
       "Edit(/etc/passwd)",
       "Edit(/etc/shadow)",
       "Edit(/etc/sudoers)",
       "Edit(/etc/ssh/sshd_config)",
-      "Edit(/root/.ssh/authorized_keys)"
+      "Edit(/root/.ssh/authorized_keys)",
+      "Edit(/home/*/.ssh/authorized_keys)"
     ]
   }
 }

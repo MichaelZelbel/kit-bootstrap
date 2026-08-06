@@ -85,17 +85,23 @@ out="$( (KB_CLAUDE_BIN=/bin/true; ensure_claude_signin) 2>&1 )"
 case "$out" in *"no terminal"*) t "headless sign-in fails honestly" yes yes ;;
                *) t "headless sign-in fails honestly" "$out" yes ;; esac
 
-# EXTRA DIRECTORIES. The step sheets the installer must read live outside the
-# folder it works in, and the profile's Read(**) only covers the working folder.
-# Without --add-dir it asks permission for every sheet it opens, which on a
-# server is a refusal. Non-existent entries must be dropped, not passed on.
-mkdir -p /tmp/kb_a /tmp/kb_b
-out="$( ( KB_CLAUDE_BIN=/bin/claude; KB_EXTRA_DIRS="/tmp/kb_a /tmp/kb_b /tmp/kb_missing"; handoff "P" /tmp ) 2>&1 | grep 'cd /tmp' )"
-case "$out" in *"--add-dir /tmp/kb_a"*) t "an existing extra folder is passed" yes yes ;;
-               *) t "an existing extra folder is passed" "$out" yes ;; esac
-case "$out" in *kb_missing*) t "a missing folder is dropped" "$out" "dropped" ;;
-               *) t "a missing folder is dropped" dropped dropped ;; esac
-rmdir /tmp/kb_a /tmp/kb_b
+# EXTRA DIRECTORIES. The step sheets the installer must follow live outside the
+# folder Claude is started in, and Read(**) only covers that folder. They go into
+# the settings file, NOT onto the command line: --add-dir takes a variable number
+# of values, so a trailing prompt argument is swallowed as one more directory. On
+# a live box that left Claude Code sitting at an empty prompt, doing nothing.
+if command -v jq >/dev/null 2>&1; then
+  _e=$(mktemp -d); mkdir -p "$_e/.claude" "$_e/kb_a" "$_e/kb_b"
+  ( HOME="$_e"; KB_EXTRA_DIRS="$_e/kb_a $_e/kb_b $_e/kb_missing"
+    kb_grant_working_permissions "settings/server-profile.json" ) >/dev/null 2>&1
+  t "existing extra folders are recorded"     "$(jq -r '.permissions.additionalDirectories | length' "$_e/.claude/settings.json")" "2"
+  t "a missing folder is dropped"     "$(jq -r '.permissions.additionalDirectories | map(select(endswith("kb_missing"))) | length' "$_e/.claude/settings.json")" "0"
+  # Claude Code ignores Write() and Glob() rules entirely and says so on startup;
+  # only Edit() and Read() are matched. A deny rule that never fires is worse
+  # than no deny rule, because it reads like protection.
+  t "no rule type that Claude Code ignores"     "$(jq -r '[.permissions.allow[], .permissions.deny[]] | map(select(startswith("Write(") or startswith("Glob("))) | length' "$_e/.claude/settings.json")" "0"
+  rm -rf "$_e"
+fi
 
 # THE FIRST-RUN GATES. A fresh Claude Code asks three questions before it will
 # read a prompt, and one of them starts a SECOND sign-in seconds after the first

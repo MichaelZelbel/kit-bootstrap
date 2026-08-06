@@ -468,14 +468,31 @@ kb_skip_claude_first_run() {
 # explanation lives in settings/README.md, and "is this ours?" is answered by
 # comparing the file with the source rather than by tagging it.
 kb_grant_working_permissions() {
-  local src="$1" dest="$HOME/.claude/settings.json"
+  local src="$1" dest="$HOME/.claude/settings.json" tmp d
   [ -f "$src" ] || { warn "No permission profile at $src; Claude Code will ask before every step."; return 0; }
   mkdir -p "$HOME/.claude"
+
+  # Folders outside the one Claude is started in go in the settings, not on the
+  # command line. `--add-dir` takes a variable number of values, so a trailing
+  # prompt argument is swallowed as one more directory and never runs: on a live
+  # box Claude Code opened at an empty prompt and just sat there.
+  if [ -n "${KB_EXTRA_DIRS:-}" ] && command -v jq >/dev/null 2>&1; then
+    local dirs="[]"
+    for d in ${KB_EXTRA_DIRS}; do
+      [ -d "$d" ] && dirs="$(printf '%s' "$dirs" | jq --arg d "$d" '. + [$d]')"
+    done
+    tmp="$(mktemp)"
+    jq --argjson dirs "$dirs" '.permissions.additionalDirectories = $dirs' "$src" > "$tmp" 2>/dev/null \
+      && src="$tmp"
+  fi
+
   if [ -f "$dest" ] && ! cmp -s "$dest" "$src"; then
     cp "$dest" "$dest.before-install"
     log "Kept your existing Claude settings as settings.json.before-install"
   fi
   cp "$src" "$dest"
+  [ -n "${tmp:-}" ] && rm -f "$tmp"
+  return 0
 }
 
 # handoff "<the prompt>" [working directory]
@@ -491,11 +508,8 @@ handoff() {
   kb_skip_claude_first_run "$workdir"
   [ -n "${KB_PERMISSION_PROFILE:-}" ] && kb_grant_working_permissions "$KB_PERMISSION_PROFILE"
 
-  local -a extra=()
-  local d
-  for d in ${KB_EXTRA_DIRS:-}; do
-    [ -d "$d" ] && extra+=(--add-dir "$d")
-  done
+  # Extra folders are handled in the settings file above, deliberately NOT with
+  # --add-dir. See kb_grant_working_permissions for why.
 
   if have_tty; then
     log "Everything the machine can do on its own is done. Starting the setup conversation..."
@@ -503,9 +517,9 @@ handoff() {
     cd "$workdir" || die "No folder at $workdir."
     kb_resolve_tty
     if [ "$KB_TTY" = "device" ]; then
-      exec "$KB_CLAUDE_BIN" "${extra[@]}" "$prompt" < /dev/tty
+      exec "$KB_CLAUDE_BIN" "$prompt" < /dev/tty
     else
-      exec "$KB_CLAUDE_BIN" "${extra[@]}" "$prompt"
+      exec "$KB_CLAUDE_BIN" "$prompt"
     fi
   fi
 
@@ -517,7 +531,7 @@ to you through (this looks like a piped or automated run).
 
 To finish, run:
 
-  cd $workdir && $KB_CLAUDE_BIN ${extra[*]}
+  cd $workdir && $KB_CLAUDE_BIN
 
 Then paste this one line:
 
