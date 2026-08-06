@@ -1,0 +1,10 @@
+# This repo is authored on Windows and runs on Linux servers, fetched straight
+# from raw.githubusercontent.com and piped into bash.
+#
+# Windows line endings would be catastrophic here and not obviously so: bash
+# reads the carriage return as part of the command, and a reader on a fresh
+# server gets "command not found: git\r" or a `die` message that ends in a
+# character their terminal draws on top of the line. Force LF on everything.
+* text=auto eol=lf
+*.sh text eol=lf
+*.md text eol=lf
