@@ -187,9 +187,65 @@ ensure_gh() {
 }
 
 # --- Asking the person in front of us ----------------------------------------
-# `[ -r /dev/tty ]` is not enough to know we can talk to a human: in a piped or
-# headless run the test passes and the open still fails. So actually open it.
-have_tty() { { : < /dev/tty; } >/dev/null 2>&1; }
+# There are two different ways to reach a human, and an installer like this hits
+# both in a single run:
+#
+#   1. Started as `curl … | bash`: our stdin is the pipe carrying the script, so
+#      reading from it would eat the rest of the script. We must open /dev/tty.
+#   2. After `su - ai`: /dev/tty is owned by the login that opened it (root), so
+#      the new user CANNOT open it. But the file descriptors handed over by the
+#      exec still point at the terminal and still work.
+#
+# Checking only for (1) is what a plain `: < /dev/tty` test does, and it reports
+# "no terminal" for every run that has switched user - which is every real run of
+# this installer. Found on a live Ubuntu 24.04 box, where the install stopped at
+# the sign-in with a terminal sitting right there. So resolve which channel we
+# have, once, and use that everywhere.
+# These two are separate functions so the decision below can be tested without a
+# real terminal, which is the only reason the bug survived to a live box.
+kb_stdin_is_tty()   { [ -t 0 ]; }
+kb_can_open_tty()   { { : < /dev/tty; } >/dev/null 2>&1; }
+
+KB_TTY=""
+kb_resolve_tty() {
+  [ -n "$KB_TTY" ] && return 0
+  # Order matters. Ask "do I already have one?" BEFORE "can I open one?",
+  # because after su the answer to the second is no and the first is yes.
+  if kb_stdin_is_tty; then KB_TTY="inherited"
+  elif kb_can_open_tty; then KB_TTY="device"
+  else KB_TTY="none"; fi
+}
+have_tty() { kb_resolve_tty; [ "$KB_TTY" != "none" ]; }
+
+# Say something to the human, whichever channel we have.
+kb_tell() {
+  kb_resolve_tty
+  case "$KB_TTY" in
+    inherited) printf '%s\n' "$*" >&2 ;;
+    device)    printf '%s\n' "$*" > /dev/tty ;;
+  esac
+}
+
+# Read one line from the human into the named variable.
+kb_read() {
+  kb_resolve_tty
+  case "$KB_TTY" in
+    inherited) IFS= read -r "$1" || true ;;
+    device)    IFS= read -r "$1" < /dev/tty || true ;;
+    *)         eval "$1=''" ;;
+  esac
+}
+
+# Run an interactive command (a sign-in that prints a code and waits) on
+# whichever channel reaches the human.
+kb_run_interactive() {
+  kb_resolve_tty
+  case "$KB_TTY" in
+    inherited) "$@" ;;
+    device)    "$@" < /dev/tty > /dev/tty 2>&1 ;;
+    *)         return 1 ;;
+  esac
+}
 
 # --- The two sign-ins, which MUST happen here and not later ------------------
 # Both of these print a code and wait for a human to come back. That only works
@@ -213,8 +269,7 @@ ensure_claude_signin() {
   have_tty || die "Claude Code is not signed in, and there is no terminal to sign in through.
    Run this installer directly on the machine instead of piping it through something."
 
-  cat > /dev/tty <<'EOF'
-
+  kb_tell "
   ---------------------------------------------------------------
   Claude Code needs to be signed in to your account.
 
@@ -230,10 +285,9 @@ ensure_claude_signin() {
   Read the approval screen before you accept it. It says the
   server's work is paid out of the subscription you already have.
   ---------------------------------------------------------------
+"
 
-EOF
-
-  "$KB_CLAUDE_BIN" setup-token < /dev/tty > /dev/tty 2>&1 \
+  kb_run_interactive "$KB_CLAUDE_BIN" setup-token \
     || die "Sign-in did not finish. Run '$KB_CLAUDE_BIN setup-token' by hand and read what it says."
 
   "$KB_CLAUDE_BIN" auth status 2>/dev/null | grep -q '"loggedIn": *true' \
@@ -254,8 +308,7 @@ ensure_gh_auth() {
 
   have_tty || die "GitHub is not signed in, and there is no terminal to sign in through."
 
-  cat > /dev/tty <<'EOF'
-
+  kb_tell "
   ---------------------------------------------------------------
   Now the same thing for GitHub, which is where your folder is
   backed up.
@@ -267,10 +320,9 @@ ensure_gh_auth() {
   any key into a website. Signing in this way also sets up the
   permission this machine needs to push your files back.
   ---------------------------------------------------------------
+"
 
-EOF
-
-  gh auth login --hostname github.com --git-protocol https --web --skip-ssh-key < /dev/tty > /dev/tty 2>&1 \
+  kb_run_interactive gh auth login --hostname github.com --git-protocol https --web --skip-ssh-key \
     || die "GitHub sign-in did not finish. Run 'gh auth login' by hand and read what it says."
 
   gh auth status >/dev/null 2>&1 || die "Sign-in ran but GitHub still reports this machine is not signed in."
@@ -283,11 +335,11 @@ ask() {
   local prompt="$1" default="${2:-}" answer=""
   have_tty || { printf '%s' "$default"; return 0; }
   if [ -n "$default" ]; then
-    printf "\033[1;34m[%s]\033[0m %s [%s]: " "$KB_TAG" "$prompt" "$default" > /dev/tty
+    kb_tell "$(printf "\033[1;34m[%s]\033[0m %s [%s]: " "$KB_TAG" "$prompt" "$default")"
   else
-    printf "\033[1;34m[%s]\033[0m %s: " "$KB_TAG" "$prompt" > /dev/tty
+    kb_tell "$(printf "\033[1;34m[%s]\033[0m %s: " "$KB_TAG" "$prompt")"
   fi
-  IFS= read -r answer < /dev/tty || true
+  kb_read answer
   printf '%s' "${answer:-$default}"
 }
 
@@ -322,7 +374,11 @@ reexec_as_user() {
   chmod 0755 "$carry"
 
   log "Switching to the '$target' account. Everything from here runs without root."
-  if have_tty; then
+  # Hand the terminal over. After this the new user cannot OPEN /dev/tty, because
+  # it belongs to the login that opened it. These inherited descriptors keep
+  # working, and kb_resolve_tty on the other side detects exactly that.
+  kb_resolve_tty
+  if [ "$KB_TTY" = "device" ]; then
     exec su - "$target" -c "KB_REEXEC=1 bash '$carry'" < /dev/tty
   else
     exec su - "$target" -c "KB_REEXEC=1 bash '$carry'"
@@ -343,7 +399,12 @@ handoff() {
     log "Everything the machine can do on its own is done. Starting the setup conversation..."
     echo
     cd "$workdir" || die "No folder at $workdir."
-    exec "$KB_CLAUDE_BIN" "$prompt" < /dev/tty
+    kb_resolve_tty
+    if [ "$KB_TTY" = "device" ]; then
+      exec "$KB_CLAUDE_BIN" "$prompt" < /dev/tty
+    else
+      exec "$KB_CLAUDE_BIN" "$prompt"
+    fi
   fi
 
   cat <<EOF

@@ -53,6 +53,27 @@ if ask_yes "Proceed" "y"; then t "ask_yes honours a y default" yes yes; else t "
 if ask_yes "Proceed" "n"; then t "ask_yes honours an n default" yes no; else t "ask_yes honours an n default" no no; fi
 if have_tty; then t "have_tty is false when piped" true false; else t "have_tty is false when piped" false false; fi
 
+# THE su REGRESSION, all four cases.
+#
+# On a real box the installer switches to the assistant's account, and from there
+# /dev/tty cannot be OPENED (it belongs to the login that opened it) while the
+# inherited descriptors still work. The old check only tried to open, so every
+# real run reported "no terminal" and stopped at the sign-in with a terminal
+# sitting right there. Found on Ubuntu 24.04, 2026-08-06.
+#
+# The two conditions are their own functions precisely so this can be tested
+# without a real terminal - which is the only reason the bug reached a live box.
+resolve_with() {   # resolve_with <stdin-is-tty> <can-open-tty>
+  ( _in="$1"; _open="$2"
+    kb_stdin_is_tty() { [ "$_in"   = yes ]; }
+    kb_can_open_tty() { [ "$_open" = yes ]; }
+    KB_TTY=""; kb_resolve_tty; printf '%s' "$KB_TTY" )
+}
+t "after su: stdin is the tty, /dev/tty refuses to open" "$(resolve_with yes no )" "inherited"
+t "curl | bash as root: stdin is the pipe, /dev/tty opens" "$(resolve_with no  yes)" "device"
+t "plain interactive shell: both are true, prefer inherited" "$(resolve_with yes yes)" "inherited"
+t "genuinely headless: neither" "$(resolve_with no  no )" "none"
+
 # Called out of order, the message must name the cause rather than crash.
 out="$( (handoff "x") 2>&1 )"; rc=$?
 t "handoff before ensure_claude_code exits 1" "$rc" "1"
