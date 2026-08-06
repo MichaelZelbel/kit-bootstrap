@@ -431,10 +431,11 @@ kb_skip_claude_first_run() {
   [ -f "$cfg" ] || echo '{}' > "$cfg"
   tmp="$(mktemp)"
   jq --arg v "$ver" --arg d "$workdir" '
-      .hasCompletedOnboarding = true
-    | .lastOnboardingVersion  = $v
-    | .theme                  = (.theme // "dark")
-    | .projects               = ((.projects // {}) * { ($d): (((.projects // {})[$d] // {})
+      .hasCompletedOnboarding    = true
+    | .lastOnboardingVersion     = $v
+    | .theme                     = (.theme // "dark")
+    | .fullscreenUpsellSeenCount = ((.fullscreenUpsellSeenCount // 0) + 9)
+    | .projects                  = ((.projects // {}) * { ($d): (((.projects // {})[$d] // {})
         + { hasTrustDialogAccepted: true, projectOnboardingSeenCount: 1 }) })
   ' "$cfg" > "$tmp" 2>/dev/null && mv "$tmp" "$cfg" || {
     rm -f "$tmp"
@@ -447,11 +448,38 @@ kb_skip_claude_first_run() {
   }
 }
 
+# Give the assistant permission to work, in advance.
+#
+# Chapter 25 of the book teaches exactly this and it applies to the installer
+# itself: on a laptop the leash is a question, and on a server there is nobody
+# awake to answer it, so a question is a refusal. Without this the reader is
+# asked to approve every single file read, one at a time, during their own
+# install. Safety comes from the account being able to reach almost nothing.
+#
+# Never clobbers an existing settings.json - it is backed up first, the way the
+# Hermes kit does it, because a machine may already be somebody's working setup.
+kb_grant_working_permissions() {
+  local src="$1" dest="$HOME/.claude/settings.json"
+  [ -f "$src" ] || { warn "No permission profile at $src; Claude Code will ask before every step."; return 0; }
+  mkdir -p "$HOME/.claude"
+  if [ -f "$dest" ] && ! grep -q '"kit-bootstrap-profile"' "$dest" 2>/dev/null; then
+    cp "$dest" "$dest.before-install"
+    log "Kept your existing Claude settings as settings.json.before-install"
+  fi
+  # tag it so a second run recognises its own file and does not keep making backups
+  if command -v jq >/dev/null 2>&1; then
+    jq '. + {"kit-bootstrap-profile": true}' "$src" > "$dest" 2>/dev/null || cp "$src" "$dest"
+  else
+    cp "$src" "$dest"
+  fi
+}
+
 #   handoff "<the prompt>" [working directory]
 handoff() {
   local prompt="$1" workdir="${2:-$PWD}"
   [ -n "${KB_CLAUDE_BIN:-}" ] || die "handoff called before ensure_claude_code."
   kb_skip_claude_first_run "$workdir"
+  [ -n "${KB_PERMISSION_PROFILE:-}" ] && kb_grant_working_permissions "$KB_PERMISSION_PROFILE"
 
   if have_tty; then
     log "Everything the machine can do on its own is done. Starting the setup conversation..."

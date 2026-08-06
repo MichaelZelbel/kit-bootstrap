@@ -25,6 +25,8 @@ echo "== every documented function is defined"
 missing="$(bash -c 'eval "$(cat lib.sh)"
 for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          ensure_claude_code kb_persist_path ensure_gh have_tty ask ask_yes \
+         kb_stdin_is_tty kb_can_open_tty kb_resolve_tty kb_tell kb_read \
+         kb_run_interactive kb_skip_claude_first_run kb_grant_working_permissions \
          ensure_claude_signin ensure_gh_auth reexec_as_user handoff; do
   declare -F "$f" >/dev/null || printf "%s " "$f"
 done')"
@@ -104,6 +106,20 @@ if command -v jq >/dev/null 2>&1; then
   t "another project's settings survive"    "$(_j '.projects["/other"].allowedTools[0]')"           "Read"
   t "an existing theme is not overwritten"  "$(_j '.theme')"                                       "light"
   rm -rf "$_d"
+
+  # THE PERMISSION PROFILE. Without it the reader approves every file read, one
+  # at a time, during their own install - the exact "on a server, ask-me-first
+  # means no" trap the book teaches. An existing settings.json must survive.
+  _p=$(mktemp -d); mkdir -p "$_p/.claude"
+  printf '%s' '{"permissions":{"allow":["Read(**)"]},"mine":"do not lose this"}' > "$_p/.claude/settings.json"
+  ( HOME="$_p"; kb_grant_working_permissions "settings/server-profile.json" ) >/dev/null 2>&1
+  t "profile is installed"          "$(jq -r '.permissions.allow | index("Bash(*)") != null' "$_p/.claude/settings.json")" "true"
+  t "profile is tagged as ours"     "$(jq -r '."kit-bootstrap-profile"' "$_p/.claude/settings.json")"                      "true"
+  t "the old settings are kept"     "$(jq -r '.mine' "$_p/.claude/settings.json.before-install")"                          "do not lose this"
+  # a second run must not overwrite the backup with our own file
+  ( HOME="$_p"; kb_grant_working_permissions "settings/server-profile.json" ) >/dev/null 2>&1
+  t "a second run keeps the backup" "$(jq -r '.mine' "$_p/.claude/settings.json.before-install")"                          "do not lose this"
+  rm -rf "$_p"
 fi
 
 echo
