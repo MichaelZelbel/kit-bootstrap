@@ -408,10 +408,50 @@ reexec_as_user() {
 # for everybody, and the rest is a conversation. This is that handover, plus the
 # headless fallback each one used to hand-roll.
 #
+# A freshly installed Claude Code stops for THREE first-run questions before it
+# will look at a prompt, and an installer that hands over without answering them
+# strands the person in a wizard they were never told about:
+#
+#   1. a theme picker
+#   2. "Claude account or Console account?" - asked even when auth login has
+#      already succeeded, and answering it starts a SECOND sign-in
+#   3. "Do you trust this folder?", asked per directory
+#
+# All three are settings, so answer them here. Signing in and then being asked to
+# sign in again is the one that really hurts: on a live run it sent the reader
+# back to a fresh OAuth URL seconds after they had finished the first one.
+#
+# On (3): pre-accepting the trust prompt is right in this context and only this
+# one. The folder is the person's own repository, which they just named, and this
+# installer is what put it there and what is starting Claude in it.
+kb_skip_claude_first_run() {
+  local workdir="$1" cfg="$HOME/.claude.json" ver tmp
+  command -v jq >/dev/null 2>&1 || return 0
+  ver="$("$KB_CLAUDE_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  [ -f "$cfg" ] || echo '{}' > "$cfg"
+  tmp="$(mktemp)"
+  jq --arg v "$ver" --arg d "$workdir" '
+      .hasCompletedOnboarding = true
+    | .lastOnboardingVersion  = $v
+    | .theme                  = (.theme // "dark")
+    | .projects               = ((.projects // {}) * { ($d): (((.projects // {})[$d] // {})
+        + { hasTrustDialogAccepted: true, projectOnboardingSeenCount: 1 }) })
+  ' "$cfg" > "$tmp" 2>/dev/null && mv "$tmp" "$cfg" || {
+    rm -f "$tmp"
+    # Soft failure on purpose: a wizard the reader has to click through is a far
+    # better outcome than a broken install. But say so, because otherwise the
+    # three questions arrive with no explanation of where they came from.
+    warn "Could not pre-answer Claude Code's first-run questions. It may ask you
+   about a colour theme, which account to use, and whether you trust this folder.
+   Answer them and it will carry on."
+  }
+}
+
 #   handoff "<the prompt>" [working directory]
 handoff() {
   local prompt="$1" workdir="${2:-$PWD}"
   [ -n "${KB_CLAUDE_BIN:-}" ] || die "handoff called before ensure_claude_code."
+  kb_skip_claude_first_run "$workdir"
 
   if have_tty; then
     log "Everything the machine can do on its own is done. Starting the setup conversation..."

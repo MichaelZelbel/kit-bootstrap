@@ -83,6 +83,29 @@ out="$( (KB_CLAUDE_BIN=/bin/true; ensure_claude_signin) 2>&1 )"
 case "$out" in *"no terminal"*) t "headless sign-in fails honestly" yes yes ;;
                *) t "headless sign-in fails honestly" "$out" yes ;; esac
 
+# THE FIRST-RUN GATES. A fresh Claude Code asks three questions before it will
+# read a prompt, and one of them starts a SECOND sign-in seconds after the first
+# finished. Answering them must not clobber anything already in the config.
+if command -v jq >/dev/null 2>&1; then
+  _d=$(mktemp -d)
+  printf '%s' '{"existingKey":"keep me","theme":"light","projects":{"/other":{"allowedTools":["Read"]}}}' > "$_d/.claude.json"
+  # The folder key is deliberately NOT written like a unix path here. On Git Bash
+  # under Windows, jq is a native binary, so an argument that looks like an
+  # absolute unix path is rewritten on the way in ("/home/ai/hub" becomes
+  # "C:/Program Files/Git/home/ai/hub"), and turning that rewriting off breaks the
+  # filename argument instead. The function does not care about the format, so the
+  # test uses a name MSYS leaves alone. On the Linux servers this runs on, real
+  # paths are passed and nothing is rewritten.
+  ( HOME="$_d"; KB_CLAUDE_BIN=/bin/echo; kb_skip_claude_first_run "TESTFOLDER" )
+  _j() { jq -r "$1" "$_d/.claude.json"; }
+  t "onboarding marked complete"            "$(_j '.hasCompletedOnboarding')"                      "true"
+  t "the folder is pre-trusted"             "$(_j '.projects.TESTFOLDER.hasTrustDialogAccepted')"  "true"
+  t "unrelated keys survive"                "$(_j '.existingKey')"                                 "keep me"
+  t "another project's settings survive"    "$(_j '.projects["/other"].allowedTools[0]')"           "Read"
+  t "an existing theme is not overwritten"  "$(_j '.theme')"                                       "light"
+  rm -rf "$_d"
+fi
+
 echo
 echo "  $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
