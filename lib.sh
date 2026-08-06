@@ -257,13 +257,23 @@ kb_run_interactive() {
 
 # Signs Claude Code in to the reader's own Anthropic account.
 #
-# `auth login`, NOT `setup-token`. This was the other way round until a live run
-# on Ubuntu 24.04 showed what `setup-token` actually does: it mints a long-lived
-# token, PRINTS IT TO THE SCREEN, and stores nothing. Afterwards `auth status`
-# still reports loggedIn:false and there is no credentials file. So it never
-# signed the machine in, and it put a year-long credential into the terminal
-# scrollback of a machine the reader just rented. `auth login` does the same
-# no-browser code dance and persists the result, showing nothing.
+# `auth login`, not `setup-token`. Both work; they are different jobs.
+#
+# `setup-token` mints a long-lived token and PRINTS IT for you to store yourself,
+# typically as CLAUDE_CODE_OAUTH_TOKEN. That is a perfectly good pattern and it
+# is what the book's own server does, because brief.sh sources ~/.hub-env with
+# `set -a` and so picks the variable up. It does not, on its own, sign the
+# machine in: right after it runs, `auth status` still says loggedIn:false.
+#
+# This installer used `setup-token` first and then checked "is this machine
+# signed in?", which is a question `setup-token` never claimed to answer. That
+# check failed, correctly, because nothing had captured the printed token.
+#
+# `auth login` is the better fit HERE for two reasons that have nothing to do
+# with the other command being wrong: nothing has to be scraped out of an
+# interactive program's output, and no secret is ever put on screen. Verified on
+# Ubuntu 24.04 that the credential it writes works for a completely clean,
+# non-interactive run - which is what cron does at three in the morning.
 ensure_claude_signin() {
   [ -n "${KB_CLAUDE_BIN:-}" ] || die "ensure_claude_signin called before ensure_claude_code."
 
