@@ -256,8 +256,14 @@ kb_run_interactive() {
 # done here, up front, on the real terminal.
 
 # Signs Claude Code in to the reader's own Anthropic account.
-# `setup-token` and not `auth login` on purpose: a server runs jobs at three in
-# the morning with nobody logged in, so it needs the long-lived token.
+#
+# `auth login`, NOT `setup-token`. This was the other way round until a live run
+# on Ubuntu 24.04 showed what `setup-token` actually does: it mints a long-lived
+# token, PRINTS IT TO THE SCREEN, and stores nothing. Afterwards `auth status`
+# still reports loggedIn:false and there is no credentials file. So it never
+# signed the machine in, and it put a year-long credential into the terminal
+# scrollback of a machine the reader just rented. `auth login` does the same
+# no-browser code dance and persists the result, showing nothing.
 ensure_claude_signin() {
   [ -n "${KB_CLAUDE_BIN:-}" ] || die "ensure_claude_signin called before ensure_claude_code."
 
@@ -287,11 +293,13 @@ ensure_claude_signin() {
   ---------------------------------------------------------------
 "
 
-  kb_run_interactive "$KB_CLAUDE_BIN" setup-token \
-    || die "Sign-in did not finish. Run '$KB_CLAUDE_BIN setup-token' by hand and read what it says."
+  kb_run_interactive "$KB_CLAUDE_BIN" auth login --claudeai \
+    || die "Sign-in did not finish. Run '$KB_CLAUDE_BIN auth login' by hand and read what it says."
 
   "$KB_CLAUDE_BIN" auth status 2>/dev/null | grep -q '"loggedIn": *true' \
-    || die "Sign-in ran but Claude Code still reports it is not signed in."
+    || die "Sign-in ran but Claude Code still reports it is not signed in.
+   If you used 'setup-token' by hand, that is why: it prints a token and stores
+   nothing. Run '$KB_CLAUDE_BIN auth login' instead."
   ok "Claude Code is signed in"
 }
 
