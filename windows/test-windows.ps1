@@ -189,6 +189,17 @@ Check "an offline update still lets the rest of the run finish" {
     Set-Content (Join-Path $d 'AGENTS.md') 'x'
     Update-KitHub -Hub $d 3>$null; $true
 }
+Check "a hub with no remote is not called out of date" {
+    # A hub made five minutes ago has nowhere to be out of date FROM, so
+    # "could not pull, this may be out of date" is alarming and untrue.
+    $d = New-TestDir 'noremote'; git -C $d init -q
+    Set-Content (Join-Path $d 'AGENTS.md') 'x'
+    # 6>&1 as well as 3>&1: Write-Host goes to the INFORMATION stream, not the
+    # output or warning ones, so a test that only catches warnings sees nothing
+    # and calls a working message a failure.
+    $out = (Update-KitHub -Hub $d 3>&1 6>&1 | Out-String)
+    (-not $out.Contains('could not pull')) -and $out.Contains('lives only on this computer')
+}
 
 Write-Host ""
 Write-Host "-- the PATH, and finding the tools"

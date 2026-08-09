@@ -109,18 +109,57 @@ all. That is the same drift this repo exists to prevent, one level up: the split
 had been made by AUDIENCE (author versus reader) when the real difference is the
 JOB. So the join job lives here now and both sides call it.
 
-| File | Runs on | What it does |
+There are two front doors, one per kind of computer, and **they do the same job**:
+look at the machine, then install or update without asking which is needed.
+
+| File | Runs on | What it is |
 |---|---|---|
-| `windows/HubSetup.exe` | Windows | **the front door.** An ordinary installer: double-click it |
-| `join.sh` | Linux, macOS | joins this machine to a hub that already exists |
-| `join.ps1` | Windows | the same as a script, for automation and for the .exe to call |
+| `windows/HubSetup.exe` | Windows | the front door: an ordinary installer, double-click it |
+| `setup-hub.sh` | macOS, Linux | the front door: one command, the native way there |
+| `join.ps1` / `join.sh` | both | the join-only half, and the library the two front doors call |
 
 All of them are safe to run again and none ever deletes a memory.
 
+**The front doors differ on purpose, and that is the whole point.** A terminal
+command IS the native way to install software on macOS and Linux - Homebrew
+installs itself exactly that way - and it is NOT the native way on Windows, where
+people expect a file. Making both identical would mean annoying one group to
+please the other. What is kept identical is the *promise*: one thing to run, no
+decisions, it works out the rest.
+
+Getting that wrong once already cost a day. On 2026-08-09 the Windows side gained
+two abilities the bash side did not get: installing prerequisites, and creating a
+hub from nothing. `join.sh` only ever joined, and stopped with an error when there
+was no hub to join. So a Mac reader on a fresh machine got an error while a
+Windows reader got a finished setup. The two halves are twins now, function for
+function, and both test suites carry the same cases. **Change one, change the
+other.**
+
+## macOS and Linux: setup-hub.sh
+
 ```bash
-# Linux / macOS
-curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v1/join.sh | bash -s -- ~/hub
+curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v1/setup-hub.sh | bash
 ```
+
+Options, all optional, after `bash -s --`:
+
+| Option | What it does |
+|---|---|
+| `--hub <path>` | where the hub is, or should go (default `~/hub`) |
+| `--repo <git url>` | a hub you already keep somewhere, to fetch |
+| `--starter-repo <url>` | the product whose starter folder a brand-new hub begins as |
+| `--starter-path <name>` | the folder inside that repo (default `starter-hub`) |
+| `--skip-prereqs` | install nothing, just wire it up |
+
+A product points the last two at itself and ships a one-line wrapper under its own
+name, the same way the `.exe` does. `teach-it-once-kit/install-hub.sh` is that
+wrapper for the book.
+
+**macOS is handled rather than assumed away.** `need_tools` only knows `apt-get`
+and dies on anything else, which on a Mac is a wall, so `kb_install_one` picks apt
+or brew by looking at the machine. Homebrew is deliberately **not** installed for
+them: it is a large change that asks for their password, so they get the one line
+and the reason instead of a surprise.
 
 ## Windows: HubSetup.exe
 
@@ -205,6 +244,13 @@ next to the book or kit that sends people to it, all built from this floor.
 cd windows
 powershell -ExecutionPolicy Bypass -File test-windows.ps1
 ```
+
+And the bash half, `bash test.sh`. **Run it on real Linux or a Mac, not only in
+Git Bash on Windows.** Doing that for the first time on 2026-08-10 found two
+things that had passed for months by luck: five cases assumed the machine had no
+terminal, and hung forever on one that did; and twelve more were dropped by a
+`jq` guard that printed nothing, so a machine without `jq` ran 12 fewer tests and
+still said ALL PASS. Every skip announces itself now.
 
 **Run that under Windows PowerShell 5.1 at least once, not only under 7.** The
 .exe runs 5.1, and the first two bugs the suite ever caught were both "works in

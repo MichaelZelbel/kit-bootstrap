@@ -692,6 +692,14 @@ kb_update_hub() {
     warn "$hub is not a git folder, so there is nothing to pull. Continuing."
     return 0
   fi
+  # A hub made on this machine five minutes ago has no remote yet, and telling its
+  # owner it "could not pull" and "may be out of date" is alarming and untrue:
+  # there is nowhere to be out of date FROM. Say the useful thing instead, which is
+  # the one step that would make their folder reach their other machines.
+  if ! git -C "$hub" remote get-url origin >/dev/null 2>&1; then
+    ok "this hub lives only on this computer for now. Give it a home on GitHub when you are ready, and it will travel to your other machines."
+    return 0
+  fi
   br="$(git -C "$hub" rev-parse --abbrev-ref HEAD 2>/dev/null)"
   [ -n "$br" ] && [ "$br" != "HEAD" ] || br=main
   if git -C "$hub" pull --rebase --autostash -q origin "$br" 2>/dev/null; then

@@ -182,6 +182,16 @@ function Update-KitHub {
         Write-KbWarn "$Hub is not a git folder, so there is nothing to pull. Continuing."
         return
     }
+    # A hub made on this machine five minutes ago has no remote yet, and telling
+    # its owner it "could not pull" and "may be out of date" is alarming and
+    # untrue: there is nowhere to be out of date FROM. Say the useful thing
+    # instead, which is the step that would make their folder reach their other
+    # machines.
+    git -C $Hub remote get-url origin *> $null
+    if ($LASTEXITCODE -ne 0) {
+        Write-KbOk "this hub lives only on this computer for now. Give it a home on GitHub when you are ready, and it will travel to your other machines."
+        return
+    }
     $branch = (git -C $Hub rev-parse --abbrev-ref HEAD 2>$null)
     if (-not $branch -or $branch -eq 'HEAD') { $branch = 'main' }
     git -C $Hub pull --rebase --autostash -q origin $branch 2>$null

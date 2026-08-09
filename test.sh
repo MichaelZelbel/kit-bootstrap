@@ -29,7 +29,9 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_run_interactive kb_skip_claude_first_run kb_grant_working_permissions \
          ensure_claude_signin ensure_gh_auth reexec_as_user handoff \
          kb_ai_memory_path kb_seed_memory_index kb_link_ai_memory \
-         kb_hub_looks_real kb_find_hub kb_update_hub kb_install_hub_cli; do
+         kb_hub_looks_real kb_find_hub kb_update_hub kb_install_hub_cli \
+         kb_os kb_can_sudo kb_note_missing kb_install_one kb_install_claude_code \
+         kb_install_prereqs kb_copy_starter_hub kb_new_hub; do
   declare -F "$f" >/dev/null || printf "%s " "$f"
 done')"
 [ -z "$missing" ] || { echo "  MISSING: $missing"; exit 1; }
@@ -50,12 +52,25 @@ out="$(need_tools bash 2>&1)"; rc=$?
 t "need_tools says nothing when all present" "$out" ""
 t "need_tools exits 0 when all present"      "$rc"  "0"
 
-# No terminal in a heredoc, so every ask must fall back instead of hanging.
-t "ask falls back to its default"      "$(ask 'Repo name' 'my-hub')" "my-hub"
-t "ask with no default returns empty"  "$(ask 'Anything')"           ""
-if ask_yes "Proceed" "y"; then t "ask_yes honours a y default" yes yes; else t "ask_yes honours a y default" no yes; fi
-if ask_yes "Proceed" "n"; then t "ask_yes honours an n default" yes no; else t "ask_yes honours an n default" no no; fi
-if have_tty; then t "have_tty is false when piped" true false; else t "have_tty is false when piped" false false; fi
+# These five assert what happens with NO terminal, so they must FORCE that state
+# instead of assuming the machine has none.
+#
+# They used to assume it, and the assumption held only by luck. Git Bash on
+# Windows has no terminal here, so the suite passed; WSL and any Mac or Linux
+# terminal DOES have one, so `ask` resolved to /dev/tty and sat there forever
+# waiting for an answer nobody was there to give. Found 2026-08-10, running the
+# suite on real Linux for the first time. A test that hangs on half the machines
+# it is meant to protect is not protecting them.
+#
+# Same override technique as resolve_with below, for the same reason: the two
+# conditions are separate functions precisely so they can be faked.
+no_tty() { ( kb_stdin_is_tty(){ false; }; kb_can_open_tty(){ false; }; KB_TTY=""; "$@" ) }
+
+t "ask falls back to its default"      "$(no_tty ask 'Repo name' 'my-hub')" "my-hub"
+t "ask with no default returns empty"  "$(no_tty ask 'Anything')"           ""
+if no_tty ask_yes "Proceed" "y"; then t "ask_yes honours a y default" yes yes; else t "ask_yes honours a y default" no yes; fi
+if no_tty ask_yes "Proceed" "n"; then t "ask_yes honours an n default" yes no; else t "ask_yes honours an n default" no no; fi
+if no_tty have_tty; then t "have_tty is false with no terminal" true false; else t "have_tty is false with no terminal" false false; fi
 
 # THE su REGRESSION, all four cases.
 #
@@ -83,7 +98,12 @@ out="$( (handoff "x") 2>&1 )"; rc=$?
 t "handoff before ensure_claude_code exits 1" "$rc" "1"
 case "$out" in *"before ensure_claude_code"*) t "that error names the cause" yes yes ;;
                *) t "that error names the cause" "$out" yes ;; esac
-out="$( (KB_CLAUDE_BIN=/bin/true; ensure_claude_signin) 2>&1 )"
+# Forced headless, for the same reason as the ask cases above: this asserts what
+# happens on a machine with NO terminal, and on one that HAS a terminal it takes a
+# different and equally correct branch. Assuming instead of forcing is why this
+# passed on Windows and failed on Linux.
+out="$( ( kb_stdin_is_tty(){ false; }; kb_can_open_tty(){ false; }; KB_TTY=""
+          KB_CLAUDE_BIN=/bin/true; ensure_claude_signin ) 2>&1 )"
 case "$out" in *"no terminal"*) t "headless sign-in fails honestly" yes yes ;;
                *) t "headless sign-in fails honestly" "$out" yes ;; esac
 
@@ -92,7 +112,13 @@ case "$out" in *"no terminal"*) t "headless sign-in fails honestly" yes yes ;;
 # the settings file, NOT onto the command line: --add-dir takes a variable number
 # of values, so a trailing prompt argument is swallowed as one more directory. On
 # a live box that left Claude Code sitting at an empty prompt, doing nothing.
-if command -v jq >/dev/null 2>&1; then
+# A skip must SAY so. These blocks need jq, and when it is absent they used to
+# vanish without a word: 12 cases silently not running, and the suite still
+# printing ALL PASS. Found 2026-08-10 on Ubuntu, which ships no jq. A silent
+# skip reads exactly like a pass, which is the one thing a test must never do.
+if ! command -v jq >/dev/null 2>&1; then
+  printf '  skip  the settings-file cases (no jq on this machine: apt-get install jq)\n'
+else
   _e=$(mktemp -d); mkdir -p "$_e/.claude" "$_e/kb_a" "$_e/kb_b"
   ( HOME="$_e"; KB_EXTRA_DIRS="$_e/kb_a $_e/kb_b $_e/kb_missing"
     kb_grant_working_permissions "settings/server-profile.json" ) >/dev/null 2>&1
@@ -108,7 +134,9 @@ fi
 # THE FIRST-RUN GATES. A fresh Claude Code asks three questions before it will
 # read a prompt, and one of them starts a SECOND sign-in seconds after the first
 # finished. Answering them must not clobber anything already in the config.
-if command -v jq >/dev/null 2>&1; then
+if ! command -v jq >/dev/null 2>&1; then
+  printf '  skip  the first-run and permission-profile cases (no jq on this machine)\n'
+else
   _d=$(mktemp -d)
   printf '%s' '{"existingKey":"keep me","theme":"light","projects":{"/other":{"allowedTools":["Read"]}}}' > "$_d/.claude.json"
   # The folder key is deliberately NOT written like a unix path here. On Git Bash
@@ -244,6 +272,82 @@ t "a hub that ships no tools stays quiet" "$(HOME="$_f" kb_install_hub_cli "$_f/
 # Not a git folder: say so and carry on, never abort the whole install.
 t "updating a non-git folder is not fatal" \
   "$(HOME="$_f" kb_update_hub "$_f/notahub" >/dev/null 2>&1; echo $?)" "0"
+
+# --- THE CREATE PATH ---------------------------------------------------------
+# Added 2026-08-09 (D-105). For one day Windows could make a hub from nothing and
+# this side could not, so a Mac reader on a fresh machine got an error while a
+# Windows reader got a finished setup. These are the bash twins of the cases in
+# windows/test-windows.ps1. When you change one side, change both.
+#
+# No network here, per the promise at the top of this file: the starter is a local
+# git repo made on the spot, which tests the same code path a real one would.
+_c="$(mktemp -d)"
+_starter="$_c/product"
+mkdir -p "$_starter/starter-hub/context" "$_starter/starter-hub/skills"
+printf '# the real one\n' > "$_starter/starter-hub/AGENTS.md"
+printf 'about\n'          > "$_starter/starter-hub/context/about-me.md"
+printf 'plan\n'           > "$_starter/starter-hub/skills/plan-my-day.md"
+( cd "$_starter" && git init -q . && git add -A && \
+  git -c user.email=t@t -c user.name=t commit -q -m starter ) >/dev/null 2>&1
+
+( HOME="$_c" kb_new_hub "$_c/made" "" "$_starter" ) >/dev/null 2>&1
+t "a new hub gets the product starter files" \
+  "$([ -f "$_c/made/context/about-me.md" ] && [ -f "$_c/made/skills/plan-my-day.md" ] && echo yes)" "yes"
+t "the starter's own AGENTS.md is used, never an invented one" \
+  "$(head -1 "$_c/made/AGENTS.md" 2>/dev/null)" "# the real one"
+t "a new hub is a real hub afterwards" \
+  "$(kb_hub_looks_real "$_c/made" && echo yes)" "yes"
+
+# Running it twice must not tread on a sentence they have written about themselves.
+printf '# mine, edited\n' > "$_c/made/AGENTS.md"
+( HOME="$_c" kb_new_hub "$_c/made" "" "$_starter" ) >/dev/null 2>&1
+t "a second run keeps what they have written" \
+  "$(head -1 "$_c/made/AGENTS.md")" "# mine, edited"
+
+# The product ships its own memory index; a blank one must not replace it.
+mkdir -p "$_starter/starter-hub/memory"
+printf '# Memory index - the product wrote this\n' > "$_starter/starter-hub/memory/MEMORY.md"
+( cd "$_starter" && git add -A && git -c user.email=t@t -c user.name=t commit -q -m mem ) >/dev/null 2>&1
+( HOME="$_c" kb_new_hub "$_c/kept" "" "$_starter" ) >/dev/null 2>&1
+t "the starter's memory index survives" \
+  "$(head -1 "$_c/kept/memory/MEMORY.md" 2>/dev/null)" "# Memory index - the product wrote this"
+
+# A folder with somebody's holiday photos in it is not a hub and must be refused.
+mkdir -p "$_c/occupied"; printf 'x\n' > "$_c/occupied/holiday.jpg"
+t "a folder with other files in it is refused" \
+  "$(HOME="$_c" kb_new_hub "$_c/occupied" "" "$_starter" >/dev/null 2>&1; echo $?)" "1"
+
+# An unreachable starter still leaves a working hub, and says so.
+( HOME="$_c" kb_new_hub "$_c/nostarter" "" "$_c/does-not-exist" ) >/dev/null 2>&1
+t "an unreachable starter still leaves a usable hub" \
+  "$(kb_hub_looks_real "$_c/nostarter" && echo yes)" "yes"
+t "and it warns rather than pretending it worked" \
+  "$(HOME="$_c" kb_new_hub "$_c/nostarter2" "" "$_c/does-not-exist" 2>&1 | grep -c 'does NOT have the files')" "1"
+
+# Cloning a hub they already keep somewhere.
+( HOME="$_c" kb_new_hub "$_c/cloned" "$_starter" ) >/dev/null 2>&1
+t "an existing hub is cloned from its address" \
+  "$([ -d "$_c/cloned/.git" ] && [ -f "$_c/cloned/starter-hub/AGENTS.md" ] && echo yes)" "yes"
+t "an address that is not a repository fails cleanly" \
+  "$(HOME="$_c" kb_new_hub "$_c/bad" "$_c/ghost" >/dev/null 2>&1; echo $?)" "1"
+
+# A brand new hub has no remote. Saying "could not pull, you may be out of date"
+# is alarming and untrue - there is nowhere to be out of date FROM.
+t "a hub with no remote is not called out of date" \
+  "$(HOME="$_c" kb_update_hub "$_c/made" 2>&1 | grep -c 'could not pull')" "0"
+t "it says the useful thing instead" \
+  "$(HOME="$_c" kb_update_hub "$_c/made" 2>&1 | grep -c 'lives only on this computer')" "1"
+
+# OS detection must answer something we actually branch on.
+case "$(kb_os)" in
+  macos|linux-apt|linux-other|other) t "kb_os names a system we handle" yes yes ;;
+  *) t "kb_os names a system we handle" "$(kb_os)" "one of macos/linux-apt/linux-other/other" ;;
+esac
+# An already-present tool must short-circuit and never reach a package manager.
+t "an already-present tool is not reinstalled" \
+  "$(kb_install_one bash definitely-not-a-package definitely-not-a-package Bash >/dev/null 2>&1; echo $?)" "0"
+rm -rf "$_c"
+
 rm -rf "$_f"
 
 echo
