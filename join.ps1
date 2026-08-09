@@ -98,28 +98,153 @@ function Join-KitMemory {
     Write-KbOk "memory: $link now points at $mem, so every machine shares it"
 }
 
+# =============================================================================
+# FINDING A HUB THAT IS ALREADY HERE, AND PUTTING ITS COMMANDS WITHIN REACH
+#
+# Added 2026-08-09. `hub map` on the Windows work PC answered with a file path
+# from the rented server, and fixing the tool itself only got halfway: there was
+# no `hub` command on that machine at all. The server has one because its deploy
+# script copies the tools into /usr/local/bin. Nothing did the same for a laptop.
+# =============================================================================
+
+function Test-KitHub {
+    <#  Is this a hub, or just a folder called hub? Checked before every answer so
+        discovery cannot hand back an empty directory that matched on its name. #>
+    param([string]$Dir)
+    if (-not $Dir -or -not (Test-Path (Join-Path $Dir '.git'))) { return $false }
+    return ((Test-Path (Join-Path $Dir 'memory')) -or (Test-Path (Join-Path $Dir 'AGENTS.md')) -or
+            (Test-Path (Join-Path $Dir 'CLAUDE.md')))
+}
+
+function Find-KitHub {
+    <#  The hub already installed on this machine, or $null. A machine that has one
+        knows where it is in more than one way, so look before asking the reader.
+        Plain foreach loops on purpose: `return` inside a ForEach-Object only ends
+        that one item, so a pipeline here would keep searching after it had won. #>
+    param([string]$Hint)
+
+    foreach ($c in @($Hint, $env:HUB_DIR, $env:HUB)) {
+        if (Test-KitHub $c) { return (Resolve-Path $c).Path }
+    }
+    # A machine joined once before already told us: the assistant's memory folder is
+    # a junction straight into the hub. Read where it points. The folder's own name is
+    # no help - every one of : \ . and a space became the same dash on the way in.
+    $projects = @(Get-ChildItem (Join-Path $HOME '.claude\projects') -Directory -ErrorAction SilentlyContinue)
+    foreach ($p in $projects) {
+        $item = Get-Item (Join-Path $p.FullName 'memory') -Force -ErrorAction SilentlyContinue
+        if (-not $item -or -not $item.LinkType) { continue }
+        $t = @($item.Target)[0]
+        if (-not $t) { continue }
+        $d = Split-Path $t -Parent
+        if (Test-KitHub $d) { return (Resolve-Path $d).Path }
+    }
+
+    foreach ($c in @('C:\hub', (Join-Path $HOME 'hub'), (Join-Path $HOME 'Documents\hub'),
+                     (Join-Path $HOME 'dev\hub'))) {
+        if (Test-KitHub $c) { return (Resolve-Path $c).Path }
+    }
+    return $null
+}
+
+function Update-KitHub {
+    <#  Bring an existing installation up to date. Never fatal: a machine with no
+        network should still finish wiring itself and just say it is behind. #>
+    param([Parameter(Mandatory)][string]$Hub)
+    if (-not (Test-Path (Join-Path $Hub '.git'))) {
+        Write-KbWarn "$Hub is not a git folder, so there is nothing to pull. Continuing."
+        return
+    }
+    $branch = (git -C $Hub rev-parse --abbrev-ref HEAD 2>$null)
+    if (-not $branch -or $branch -eq 'HEAD') { $branch = 'main' }
+    git -C $Hub pull --rebase --autostash -q origin $branch 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-KbOk "updated your hub to $(git -C $Hub log -1 --format='%h %s' 2>$null)"
+    } else {
+        Write-KbWarn "could not pull (no network, or a conflict to sort out by hand). Continuing with the copy already on this machine, which may be out of date."
+    }
+}
+
+function Get-KitGitBash {
+    <#  `bash` on the Windows PATH is normally the WSL launcher, and WSL cannot open
+        C:\hub\... the way these tools expect - it sees /mnt/c. Git Bash is the one
+        that can. git is already a prerequisite, so derive it from where git is
+        rather than trusting whatever PATH resolves. #>
+    $git = (Get-Command git -ErrorAction SilentlyContinue).Source
+    if ($git) {
+        $root = Split-Path (Split-Path $git -Parent) -Parent
+        foreach ($rel in 'bin\bash.exe', 'usr\bin\bash.exe') {
+            $c = Join-Path $root $rel
+            if (Test-Path $c) { return $c }
+        }
+    }
+    foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe", "${env:ProgramFiles(x86)}\Git\bin\bash.exe")) {
+        if (Test-Path $c) { return $c }
+    }
+    return $null
+}
+
+function Install-KitHubCli {
+    <#  Put the hub's own commands on this machine's PATH.
+
+        ALL of them, not just `hub`. `hub memory search` is a wrapper that runs
+        `hub-memory-lookup` by bare name, so a PATH holding only `hub` gives you a
+        command that exists and then fails, which is the worst of the three states.
+        Quiet on a hub that ships no tools, which is every reader's hub. #>
+    param([Parameter(Mandatory)][string]$Hub)
+
+    $src = Join-Path $Hub 'agents\hub-cli'
+    if (-not (Test-Path (Join-Path $src 'hub'))) { return }
+
+    $bash = Get-KitGitBash
+    if (-not $bash) {
+        Write-KbWarn "could not find Git Bash, so the hub commands were NOT installed. Install Git for Windows (winget install --id Git.Git) and run this again."
+        return
+    }
+
+    $bin = Join-Path $HOME '.local\bin'
+    New-Item -ItemType Directory -Force $bin | Out-Null
+    $n = 0
+    Get-ChildItem $src -File |
+        Where-Object { ($_.Name -eq 'hub' -or $_.Name -like 'hub-*') -and $_.Extension -notin '.env', '.md' } |
+        ForEach-Object {
+            $target = $_.FullName -replace '\\', '/'
+            @('@echo off', "`"$bash`" `"$target`" %*") |
+                Set-Content -Path (Join-Path $bin "$($_.Name).cmd") -Encoding ascii
+            $n++
+        }
+
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    if (($userPath -split ';') -notcontains $bin) {
+        $joined = if ($userPath) { "$bin;$userPath" } else { $bin }
+        [Environment]::SetEnvironmentVariable('Path', $joined, 'User')
+        Write-KbOk "added $bin to your PATH (open a new terminal for it to take)"
+    }
+    $env:Path = "$bin;$env:Path"
+    Write-KbOk "commands: $n hub tools now run from anywhere, e.g. hub map lovable"
+}
+
 if ($AsLibrary) { return }
 
 # ---------------------------------------------------------------- run standalone
-if (-not $Hub) { $Hub = if ($env:HUB) { $env:HUB } else { Join-Path $HOME 'hub' } }
-if (-not (Test-Path $Hub)) {
-    Write-Error "There is no folder at $Hub. Clone your hub there first, then run this again. If your hub is somewhere else, pass the path: join.ps1 C:\path\to\your\hub"
+# Which hub? A machine that has one already knows where it is, so look before asking.
+$Hub = Find-KitHub -Hint $Hub
+if (-not $Hub) {
+    Write-Error "I could not find a hub on this machine. I looked where you pointed me, at the folder your assistant's memory is linked to, and in the usual places (C:\hub, $HOME\hub). If yours is somewhere else, pass the path: join.ps1 C:\path\to\your\hub . If you have not got one yet, clone it first, then run this again."
     exit 1
 }
-$Hub = (Resolve-Path $Hub).Path
 
 Write-KbSay "Joining this machine to the hub at $Hub"
 
-if (Test-Path (Join-Path $Hub '.git')) {
-    $branch = (git -C $Hub rev-parse --abbrev-ref HEAD 2>$null)
-    git -C $Hub pull --rebase --autostash -q origin $branch 2>$null
-    if ($LASTEXITCODE -eq 0) { Write-KbOk "pulled the latest version of your hub" }
-    else { Write-KbWarn "could not pull (no network, or a conflict to sort out by hand). Continuing with the copy already on this machine, which may be out of date." }
-} else {
-    Write-KbWarn "$Hub is not a git folder, so there is nothing to pull. Continuing."
-}
+# Get the latest of everything, because a join that leaves you on last month's memory
+# looks exactly like a join that worked. This is also what brings an older
+# installation on a machine you have not touched in a while up to date.
+Update-KitHub -Hub $Hub
 
 Join-KitMemory -Hub $Hub
+
+# The hub's own commands, so `hub map ...` works from any folder on this machine
+# instead of only on the server where the deploy script installs them.
+Install-KitHubCli -Hub $Hub
 
 $skills = Join-Path $Hub '.claude\skills'
 $agents = Join-Path $Hub '.agents\skills'

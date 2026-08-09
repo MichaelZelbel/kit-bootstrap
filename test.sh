@@ -28,7 +28,8 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_stdin_is_tty kb_can_open_tty kb_resolve_tty kb_tell kb_read \
          kb_run_interactive kb_skip_claude_first_run kb_grant_working_permissions \
          ensure_claude_signin ensure_gh_auth reexec_as_user handoff \
-         kb_ai_memory_path kb_seed_memory_index kb_link_ai_memory; do
+         kb_ai_memory_path kb_seed_memory_index kb_link_ai_memory \
+         kb_hub_looks_real kb_find_hub kb_update_hub kb_install_hub_cli; do
   declare -F "$f" >/dev/null || printf "%s " "$f"
 done')"
 [ -z "$missing" ] || { echo "  MISSING: $missing"; exit 1; }
@@ -196,6 +197,54 @@ else
   echo "  skip  the memory-link cases (this shell cannot make symlinks; run on Linux)"
 fi
 rm -rf "$_probe"
+
+# FINDING A HUB THAT IS ALREADY INSTALLED, AND WIRING ITS COMMANDS.
+# Added 2026-08-09 after `hub map` on the work PC answered with a path from the
+# rented server. Two holes: the tool did not know which copy it was reading, and
+# there was no `hub` command on that machine at all. This half is the second hole.
+
+_f=$(mktemp -d)
+mkdir -p "$_f/notahub" "$_f/hub/.git" "$_f/hub/memory" "$_f/hub/agents/hub-cli"
+t "a folder that is not a hub is refused"  "$(kb_hub_looks_real "$_f/notahub" && echo yes || echo no)" "no"
+t "a real hub is recognised"               "$(kb_hub_looks_real "$_f/hub" && echo yes || echo no)"     "yes"
+t "a folder that does not exist is refused" "$(kb_hub_looks_real "$_f/nope" && echo yes || echo no)"   "no"
+t "the hint is used when it is a real hub" "$(HOME="$_f" kb_find_hub "$_f/hub")" "$(cd "$_f/hub" && pwd -P)"
+# A wrong hint must never be handed back as if it were right. It has to keep looking,
+# so the check is "did NOT return the bad path", not "returned nothing" - this machine
+# may well have a real hub at C:\hub for it to find instead, and that is a fine answer.
+_bad="$(HOME="$_f" HUB_DIR= HUB= kb_find_hub "$_f/notahub")"
+t "a hint that is not a hub is not trusted" "$([ "$_bad" = "$_f/notahub" ] && echo trusted || echo no)" "no"
+
+# "Nothing found" only means anything on a machine that genuinely has no hub in any
+# of the usual homes. On Michael's own machines one is always there, so this case
+# skips itself rather than failing for the wrong reason.
+_empty=$(mktemp -d)
+if HOME="$_empty" HUB_DIR= HUB= kb_find_hub >/dev/null 2>&1; then
+  echo "  skip  the no-hub-anywhere case (this machine has a hub in a usual place)"
+else
+  t "no hub anywhere fails, it does not guess" \
+    "$(HOME="$_empty" HUB_DIR= HUB= kb_find_hub || echo NOTFOUND)" "NOTFOUND"
+fi
+rm -rf "$_empty"
+
+# THE ONE THAT MATTERS. `hub memory search` is a wrapper that runs
+# `hub-memory-lookup` by bare name. Wiring only `hub` gives a command that exists
+# and then fails, which is worse than no command at all.
+printf '#!/bin/sh\necho hub\n'      > "$_f/hub/agents/hub-cli/hub"
+printf '#!/bin/sh\necho lookup\n'   > "$_f/hub/agents/hub-cli/hub-memory-lookup"
+printf 'MODEL=x\n'                  > "$_f/hub/agents/hub-cli/models.env"
+( HOME="$_f" kb_install_hub_cli "$_f/hub" ) >/dev/null 2>&1
+t "the hub command is wired"          "$([ -e "$_f/.local/bin/hub" ] && echo yes)"               "yes"
+t "the sibling tools are wired too"   "$([ -e "$_f/.local/bin/hub-memory-lookup" ] && echo yes)" "yes"
+t "a config file is not wired as a command" "$([ -e "$_f/.local/bin/models.env" ] && echo yes || echo no)" "no"
+# A hub with no tools is every reader's hub. It must not warn or half-wire.
+mkdir -p "$_f/bare/.git" "$_f/bare/memory"
+( HOME="$_f" kb_install_hub_cli "$_f/bare" ) >/dev/null 2>&1
+t "a hub that ships no tools stays quiet" "$(HOME="$_f" kb_install_hub_cli "$_f/bare" 2>&1)" ""
+# Not a git folder: say so and carry on, never abort the whole install.
+t "updating a non-git folder is not fatal" \
+  "$(HOME="$_f" kb_update_hub "$_f/notahub" >/dev/null 2>&1; echo $?)" "0"
+rm -rf "$_f"
 
 echo
 echo "  $pass passed, $fail failed"

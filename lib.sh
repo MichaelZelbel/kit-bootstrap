@@ -628,3 +628,101 @@ kb_link_ai_memory() {
   ln -sfn "$mem" "$link"
   ok "memory: $link now points at $mem, so every machine shares it"
 }
+
+# =============================================================================
+# FINDING A HUB THAT ALREADY EXISTS, AND PUTTING ITS TOOLS WITHIN REACH
+#
+# Written 2026-08-09, after `hub map` on the Windows work PC answered with a file
+# path from the rented server. Two separate holes had to be filled, and only the
+# first one was obvious:
+#
+#   1. The tool did not know which copy of the hub it was reading. Fixed in the
+#      tool itself.
+#   2. There was no `hub` command on that machine at all. The rented server gets
+#      one because its deploy script copies the tools into /usr/local/bin; no
+#      other machine ran anything that did the same. So the fix in (1) would have
+#      changed nothing for someone sitting at a laptop typing `hub map`.
+#
+# Hole 2 is install work, so per D-092 it lives here and nowhere else.
+# =============================================================================
+
+# kb_hub_looks_real <dir>
+# Is this folder a hub, or just a folder called hub? Checked before every answer
+# so discovery cannot hand back an empty directory that happens to match a name.
+kb_hub_looks_real() {
+  local d="${1:-}"
+  [ -n "$d" ] && [ -d "$d/.git" ] || return 1
+  [ -d "$d/memory" ] || [ -f "$d/AGENTS.md" ] || [ -f "$d/CLAUDE.md" ]
+}
+
+# kb_find_hub [hint]
+# Print the hub already installed on this machine, or nothing. This is what makes
+# "run the installer again on my other laptop" work without typing a path: the
+# machine already knows where its hub is, in more than one way, so ask it.
+kb_find_hub() {
+  local c d
+  for c in "${1:-}" "${HUB_DIR:-}" "${HUB:-}"; do
+    [ -n "$c" ] || continue
+    kb_hub_looks_real "$c" && { (cd "$c" && pwd -P); return 0; }
+  done
+  # A machine joined once before already told us: the assistant's memory folder is
+  # a link straight into the hub. Walking INTO the link and asking where we landed
+  # beats reading the folder's mangled name, which cannot be turned back into a
+  # path (every one of : \ . and a space became the same dash).
+  for c in "$HOME"/.claude/projects/*/memory; do
+    [ -d "$c" ] || continue
+    d="$(cd "$c" 2>/dev/null && pwd -P)" || continue
+    d="$(dirname "$d")"
+    kb_hub_looks_real "$d" && { printf '%s' "$d"; return 0; }
+  done
+  # The usual homes, last. /c/hub is how Git Bash on Windows spells C:\hub.
+  for c in "$HOME/hub" /root/hub /c/hub "$HOME/Documents/hub" "$HOME/dev/hub"; do
+    kb_hub_looks_real "$c" && { (cd "$c" && pwd -P); return 0; }
+  done
+  return 1
+}
+
+# kb_update_hub <hub-dir>
+# Bring an existing installation up to date. Never fatal: a machine with no network
+# should still finish wiring itself, it should just say plainly that it is behind.
+kb_update_hub() {
+  local hub="${1:-}" br
+  [ -n "$hub" ] || { warn "kb_update_hub needs the hub folder"; return 1; }
+  if [ ! -d "$hub/.git" ]; then
+    warn "$hub is not a git folder, so there is nothing to pull. Continuing."
+    return 0
+  fi
+  br="$(git -C "$hub" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+  [ -n "$br" ] && [ "$br" != "HEAD" ] || br=main
+  if git -C "$hub" pull --rebase --autostash -q origin "$br" 2>/dev/null; then
+    ok "updated your hub to $(git -C "$hub" log -1 --format='%h %s' 2>/dev/null)"
+  else
+    warn "could not pull (no network, or a conflict to sort out by hand).
+     Continuing with the copy already on this machine, which may be out of date."
+  fi
+}
+
+# kb_install_hub_cli <hub-dir>
+# Put the hub's own command-line tools on this machine's PATH.
+#
+# ALL of them, not just `hub`. `hub memory search` is a one-line wrapper that runs
+# `hub-memory-lookup` by bare name, so a PATH holding only `hub` gives you a command
+# that exists and then fails — the worst of the three possible states. Nothing to do
+# on a hub that ships no tools, which is every reader's hub, so this stays quiet there.
+kb_install_hub_cli() {
+  local hub="${1:-}" src bindir n
+  src="$hub/agents/hub-cli"
+  [ -d "$src" ] || return 0
+  [ -f "$src/hub" ] || return 0
+  bindir="$HOME/.local/bin"
+  mkdir -p "$bindir"
+  n=0
+  for f in "$src"/hub "$src"/hub-*; do
+    [ -f "$f" ] || continue
+    case "$f" in *.env|*.md) continue ;; esac
+    chmod +x "$f" 2>/dev/null || true
+    ln -sfn "$f" "$bindir/$(basename "$f")" && n=$((n + 1))
+  done
+  kb_persist_path
+  ok "commands: $n hub tools are now on your PATH from $bindir (open a new terminal for it to take)"
+}

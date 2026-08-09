@@ -41,28 +41,27 @@ else
          exit 1; }
 fi
 
-HUB="${1:-${HUB:-$HOME/hub}}"
-HUB="$(cd "$HUB" 2>/dev/null && pwd)" || die "There is no folder at ${1:-${HUB:-$HOME/hub}}.
-Clone your hub there first, then run this again. If your hub is somewhere else,
-pass the path: bash join.sh /path/to/your/hub"
+# Which hub? A machine that has one already knows where it is, so look before asking.
+# Only when nothing is found do we make the reader type a path.
+HUB="$(kb_find_hub "${1:-}")" || die "I could not find a hub on this machine.
+I looked where you pointed me, at the folder your assistant's memory is linked to,
+and in the usual places (~/hub, /root/hub, C:\\hub). If yours is somewhere else,
+pass the path: bash join.sh /path/to/your/hub
+If you have not got one yet, clone it first, then run this again."
 
 say "Joining this machine to the hub at $HUB"
 
 # 1. Get the latest of everything, because a join that leaves you on last month's
-#    memory looks exactly like a join that worked.
-if [ -d "$HUB/.git" ]; then
-  if git -C "$HUB" pull --rebase --autostash -q origin "$(git -C "$HUB" rev-parse --abbrev-ref HEAD)" 2>/dev/null; then
-    ok "pulled the latest version of your hub"
-  else
-    warn "could not pull (no network, or a conflict to sort out by hand).
-     Continuing with the copy already on this machine, which may be out of date."
-  fi
-else
-  warn "$HUB is not a git folder, so there is nothing to pull. Continuing."
-fi
+#    memory looks exactly like a join that worked. This is also what updates an
+#    older installation on a machine you have not touched in a while.
+kb_update_hub "$HUB"
 
 # 2. The shared memory. This is the whole point of joining.
 kb_link_ai_memory "$HUB"
+
+# 2b. The hub's own commands, so `hub map ...` works from any folder on this
+#     machine instead of only on the server where the deploy script installs them.
+kb_install_hub_cli "$HUB"
 
 # 3. Skills, if this hub keeps them where the assistants other than Claude Code
 #    can be pointed at them. Harmless when it has none.
