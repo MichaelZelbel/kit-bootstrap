@@ -735,6 +735,65 @@ kb_install_hub_cli() {
   ok "commands: $n hub tools are now on your PATH from $bindir (open a new terminal for it to take)"
 }
 
+# kb_install_hub_tools <hub-dir> <tools-repo> [<tools-path>]
+# Put the kit's own small programs on this computer.
+#
+# WHY THESE ARE NOT IN THE HUB FOLDER. The hub is a folder of text files and the book says so
+# in Chapter 4: "Nothing here needs a terminal." A Node program and a Python program sitting in
+# it would be the first two things in there that are not text files a person can read. So they
+# are installed the way an assistant is installed, on the machine, and they write into the
+# folder from outside. Same reasoning as kb_install_hub_cli one function up.
+#
+# WHY THEY ARE NOT COPIED INTO A PRIVATE FOLDER EITHER. Before 2026-08-10 the only copy of the
+# prompt collector lived in one person's own hub, so the program the book promises its readers
+# existed nowhere they could get it, and the author was running a version nobody else had. One
+# copy, in the kit, installed identically on every machine, is the whole point of this function.
+#
+# Quiet on a kit that ships no `tools/` folder, which is every other product that uses this file.
+kb_install_hub_tools() {
+  local hub="${1:-}" repo="${2:-}" sub="${3:-tools}" tmp bindir f base n=0
+  [ -n "$hub" ] || return 0
+  [ -n "$repo" ] || return 0          # nothing to fetch from: not an error, just nothing to do
+
+  tmp="$(mktemp -d 2>/dev/null)" || return 0
+  if ! git clone --depth 1 --quiet "$repo" "$tmp" >/dev/null 2>&1; then
+    rm -rf "$tmp"
+    warn "prompt archive: I could not fetch the kit's programs from $repo, so the daily job has nothing to run yet. Check this computer can reach the internet and run this again."
+    return 0
+  fi
+  if [ ! -d "$tmp/$sub" ]; then rm -rf "$tmp"; return 0; fi
+
+  bindir="$HOME/.local/bin"
+  mkdir -p "$bindir" "$HOME/.hub"
+  for f in "$tmp/$sub"/*; do
+    [ -f "$f" ] || continue
+    base="$(basename "$f")"
+    case "$base" in *.md) continue ;; esac
+    cp -f "$f" "$bindir/$base" 2>/dev/null || continue
+    chmod +x "$bindir/$base" 2>/dev/null || true
+    n=$((n + 1))
+  done
+  rm -rf "$tmp"
+  [ "$n" -gt 0 ] || return 0
+
+  # The launcher. Not a symlink and not the .js file's own shebang: this way the program is
+  # started by the node on PATH at the time it runs, and it finds its other half by sitting in
+  # the same folder, which is the one thing a scheduled job can always be told.
+  if [ -f "$bindir/prompt-harvest.js" ]; then
+    printf '#!/bin/sh\nexec node "$(dirname "$0")/prompt-harvest.js" "$@"\n' > "$bindir/hub-prompt-harvest"
+    chmod +x "$bindir/hub-prompt-harvest" 2>/dev/null || true
+  fi
+
+  # Where the hub is, recorded once, so a job started by the schedule with almost no
+  # environment never has to guess. The programs read this file already.
+  if [ ! -f "$HOME/.hub/device.env" ] || ! grep -q '^[[:space:]]*HUB_DIR=' "$HOME/.hub/device.env" 2>/dev/null; then
+    printf 'HUB_DIR=%s\n' "$hub" >> "$HOME/.hub/device.env"
+  fi
+
+  kb_persist_path
+  ok "prompt archive: installed the program that files what you type to an AI ($bindir)"
+}
+
 # kb_install_prompt_harvest <hub-dir>
 # Make this machine file what its owner types to an AI, by itself, every day.
 #
@@ -753,9 +812,18 @@ kb_install_hub_cli() {
 # whoever is running the tests. A command name compiled into the code is a command no test
 # can safely reach.
 kb_install_prompt_harvest() {
-  local hub="${1:-}" cron node cur line
-  [ -f "$hub/bin/prompt-harvest.js" ] || return 0
+  local hub="${1:-}" cron node cur line runner
   cron="${KB_CRONTAB:-crontab}"
+
+  # The installed program first, the hub's own copy second. The second is only for a hub set up
+  # before the programs were installed on the machine, so nothing breaks between the two.
+  if [ -x "$HOME/.local/bin/hub-prompt-harvest" ]; then
+    runner="$HOME/.local/bin/hub-prompt-harvest"
+  elif [ -f "$hub/bin/prompt-harvest.js" ]; then
+    runner=""
+  else
+    return 0
+  fi
 
   node="$(command -v node 2>/dev/null || true)"
   if [ -z "$node" ]; then
@@ -777,13 +845,17 @@ kb_install_prompt_harvest() {
   # Hourly, not nightly, and the job itself does nothing if it already ran today. A fixed time
   # in the small hours is right for a server and wrong for a laptop, because the laptop is shut.
   mkdir -p "$HOME/.hub"
-  line="17 * * * * \"$node\" \"$hub/bin/prompt-harvest.js\" --once-a-day >> \"$HOME/.hub/prompt-harvest.log\" 2>&1"
+  if [ -n "$runner" ]; then
+    line="17 * * * * \"$runner\" --once-a-day >> \"$HOME/.hub/prompt-harvest.log\" 2>&1"
+  else
+    line="17 * * * * \"$node\" \"$hub/bin/prompt-harvest.js\" --once-a-day >> \"$HOME/.hub/prompt-harvest.log\" 2>&1"
+  fi
   if { [ -n "$cur" ] && printf '%s\n' "$cur"
        printf '%s\n%s\n' "# Keep the hub's record of what you type to an AI on this computer up to date." "$line"
      } | "$cron" - 2>/dev/null; then
     ok "prompt archive: this computer now files what you type to an AI, once a day"
   else
-    warn "prompt archive: I could not add the daily job to this computer's schedule. Run it by hand when you want it: node \"$hub/bin/prompt-harvest.js\""
+    warn "prompt archive: I could not add the daily job to this computer's schedule. Run it by hand when you want it: ${runner:-node \"$hub/bin/prompt-harvest.js\"}"
   fi
 }
 

@@ -57,7 +57,7 @@ New-Item -ItemType Directory -Force $Root | Out-Null
 Write-Host "-- the library loads and offers what the installer calls"
 foreach ($fn in 'Find-KitHub', 'Test-KitHub', 'Update-KitHub', 'Join-KitMemory', 'Install-KitHubCli',
                  'Install-KitPrereqs', 'New-KitHub', 'Update-KitPath', 'Set-KbTextFile', 'Test-KitCommand',
-                 'Install-KitPromptHarvest') {
+                 'Install-KitPromptHarvest', 'Install-KitHubTools') {
     Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
 }
 
@@ -245,6 +245,51 @@ Check "a memory already in the old place is carried over, never lost" {
     if ($item -and $item.LinkType) { (Get-Item $link -Force).Delete() }
     Remove-Item (Split-Path $link -Parent) -Recurse -Force -ErrorAction SilentlyContinue
     $carried -and $kept
+}
+
+Write-Host ""
+Write-Host "-- the kit's own programs, installed on the machine"
+# Added 2026-08-10. The collector used to exist in exactly one person's own hub, so the
+# program the book promises its readers ("a program fills it") was nowhere they could get
+# it. It lives in the kit now and is installed ON THE PC, never copied into the hub folder,
+# because Chapter 4 promises the hub is a folder of text files and that nothing in it needs
+# a terminal. These are the Windows twins of the cases in test.sh. Change one, change both.
+function New-TestKit {
+    param([string]$Path)
+    New-Item -ItemType Directory -Force (Join-Path $Path 'tools') | Out-Null
+    Set-Content (Join-Path $Path 'tools\prompt-harvest.js')   'console.log(1)'
+    Set-Content (Join-Path $Path 'tools\hub-prompt-archive')  'print(1)'
+    Set-Content (Join-Path $Path 'tools\README.md')           '# not a program'
+    git -C $Path init -q
+    git -C $Path add -A 2>&1 | Out-Null
+    git -C $Path -c user.email='t@t' -c user.name='t' commit -q -m 'tools' 2>&1 | Out-Null
+}
+Check "no kit named means nothing installed and nothing said" {
+    $out = Install-KitHubTools -Hub (New-TestDir 'tools-none') -ToolsRepo '' 3>&1 4>&1 | Out-String
+    $out.Trim() -eq ''
+}
+Check "the two programs land on the PC and a README does not" {
+    $kit = New-TestDir 'kit'; New-TestKit -Path $kit
+    $hub = New-TestDir 'tools-hub'
+    $home0 = $HOME
+    try {
+        $env:HOME = New-TestDir 'tools-home'
+        Set-Variable -Name HOME -Value $env:HOME -Scope Global -Force
+        Install-KitHubTools -Hub $hub -ToolsRepo $kit | Out-Null
+        $bin = Join-Path $HOME '.local\bin'
+        (Test-Path (Join-Path $bin 'hub-prompt-archive')) -and
+        (Test-Path (Join-Path $bin 'prompt-harvest.js')) -and
+        (Test-Path (Join-Path $bin 'hub-prompt-harvest.cmd')) -and
+        -not (Test-Path (Join-Path $bin 'README.md')) -and
+        # THE ONE THAT MATTERS: nothing was put inside the hub folder.
+        (@(Get-ChildItem $hub -Recurse -File -ErrorAction SilentlyContinue |
+           Where-Object { $_.Name -in 'hub-prompt-archive', 'prompt-harvest.js' }).Count -eq 0) -and
+        # A scheduled job gets almost no environment, so where the hub is must be written down.
+        (@(Get-Content (Join-Path $HOME '.hub\device.env') | Where-Object { $_ -match '^HUB_DIR=' }).Count -eq 1)
+    } finally {
+        Set-Variable -Name HOME -Value $home0 -Scope Global -Force
+        $env:HOME = $home0
+    }
 }
 
 Write-Host ""

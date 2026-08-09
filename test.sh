@@ -31,7 +31,8 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_ai_memory_path kb_seed_memory_index kb_link_ai_memory \
          kb_hub_looks_real kb_find_hub kb_update_hub kb_install_hub_cli \
          kb_os kb_can_sudo kb_note_missing kb_install_one kb_install_claude_code \
-         kb_install_prereqs kb_copy_starter_hub kb_new_hub kb_install_prompt_harvest; do
+         kb_install_prereqs kb_copy_starter_hub kb_new_hub kb_install_prompt_harvest \
+         kb_install_hub_tools; do
   declare -F "$f" >/dev/null || printf "%s " "$f"
 done')"
 [ -z "$missing" ] || { echo "  MISSING: $missing"; exit 1; }
@@ -318,6 +319,54 @@ t "and it keeps what was already in the schedule" \
 printf '20 4 * * * /root/hub/routines/prompt-harvest.sh\n' > "$_cronfile"
 ( HOME="$_f" KB_CRONTAB="$_f/fakecrontab" kb_install_prompt_harvest "$_f/hub" ) >/dev/null 2>&1
 t "an existing hand-written job is left alone" "$(wc -l < "$_cronfile" | tr -d ' ')" "1"
+
+# --- THE PROGRAMS THEMSELVES, INSTALLED ON THE MACHINE -----------------------
+# Added 2026-08-10. The collector used to exist in exactly one person's own hub, so the
+# program the book promises its readers ("a program fills it") was nowhere they could get
+# it. It lives in the kit now and is installed ON THE MACHINE, never copied into the hub
+# folder, because Chapter 4 promises the hub is a folder of text files and that nothing in
+# it needs a terminal. These are the bash twins of the cases in windows/test-windows.ps1.
+# When you change one side, change both.
+_kit="$_f/kit"; mkdir -p "$_kit/tools" "$_f/hub2/memory"
+printf 'console.log(1)\n'                    > "$_kit/tools/prompt-harvest.js"
+printf '#!/usr/bin/env python3\nprint(1)\n'  > "$_kit/tools/hub-prompt-archive"
+printf '# not a program\n'                   > "$_kit/tools/README.md"
+git -C "$_kit" init -q >/dev/null 2>&1
+git -C "$_kit" add -A >/dev/null 2>&1
+git -C "$_kit" -c user.email=t@t -c user.name=t commit -qm tools >/dev/null 2>&1
+
+# No kit named: nothing to fetch, nothing said. That is every other product using this file.
+t "no kit named means nothing installed and nothing said" \
+  "$(HOME="$_f" kb_install_hub_tools "$_f/hub2" "" 2>&1)" ""
+
+( HOME="$_f" kb_install_hub_tools "$_f/hub2" "$_kit" ) >/dev/null 2>&1
+t "the collector is installed on the machine" \
+  "$([ -f "$_f/.local/bin/hub-prompt-archive" ] && echo yes || echo no)" "yes"
+t "the runner is installed beside it, which is how it finds it" \
+  "$([ -f "$_f/.local/bin/prompt-harvest.js" ] && echo yes || echo no)" "yes"
+t "there is one command that starts it" \
+  "$([ -x "$_f/.local/bin/hub-prompt-harvest" ] && echo yes || echo no)" "yes"
+t "a README is not installed as a program" \
+  "$([ -e "$_f/.local/bin/README.md" ] && echo yes || echo no)" "no"
+
+# THE ONE THAT MATTERS. Chapter 4 promises the hub is a folder of text files. A Node program
+# and a Python program appearing in it would be the first two things in there that are not.
+# A hub of its own, because the scheduling cases above deliberately put a harvester in $_f/hub.
+t "nothing was put inside the hub folder" \
+  "$(find "$_f/hub2" \( -name 'hub-prompt-archive' -o -name 'prompt-harvest.js' \) 2>/dev/null | grep -c .)" "0"
+
+# A job started by the schedule gets almost no environment, so where the hub is must be
+# written down rather than guessed at.
+t "where the hub is was written down for the scheduled job" \
+  "$(grep -c "^HUB_DIR=" "$_f/.hub/device.env" 2>/dev/null)" "1"
+t "and a second run does not write it twice" \
+  "$(HOME="$_f" kb_install_hub_tools "$_f/hub2" "$_kit" >/dev/null 2>&1; grep -c '^HUB_DIR=' "$_f/.hub/device.env")" "1"
+
+# With the programs on the machine, the schedule must run THOSE, not a copy inside a hub.
+: > "$_cronfile"
+( HOME="$_f" KB_CRONTAB="$_f/fakecrontab" kb_install_prompt_harvest "$_f/hub2" ) >/dev/null 2>&1
+t "the schedule runs the installed program, not one inside the hub" \
+  "$(grep -c 'hub-prompt-harvest' "$_cronfile")" "1"
 
 # --- THE CREATE PATH ---------------------------------------------------------
 # Added 2026-08-09 (D-105). For one day Windows could make a hub from nothing and

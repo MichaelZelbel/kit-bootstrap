@@ -261,6 +261,79 @@ function Install-KitHubCli {
     Write-KbOk "commands: $n hub tools now run from anywhere, e.g. hub map lovable"
 }
 
+function Install-KitHubTools {
+    <#  Put the kit's own small programs on this PC. The Windows twin of
+        kb_install_hub_tools in lib.sh.
+
+        WHY THESE ARE NOT IN THE HUB FOLDER. The hub is a folder of text files
+        and the book says so in Chapter 4: "Nothing here needs a terminal." A
+        Node program and a Python program sitting in it would be the first two
+        things in there that are not text a person can read. So they are
+        installed the way an assistant is installed, on the machine, and they
+        write into the folder from outside.
+
+        WHY THEY ARE NOT COPIED INTO A PRIVATE FOLDER EITHER. Before 2026-08-10
+        the only copy of the prompt collector lived in one person's own hub, so
+        the program the book promises its readers existed nowhere they could get
+        it. One copy, in the kit, installed identically on every machine.
+
+        Quiet on a kit that ships no tools folder, which is every other product. #>
+    param(
+        [Parameter(Mandatory)][string]$Hub,
+        [string]$ToolsRepo,
+        [string]$ToolsPath = 'tools'
+    )
+
+    if (-not $ToolsRepo) { return }
+
+    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("kb-tools-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    try {
+        git clone --depth 1 --quiet $ToolsRepo $tmp 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-KbWarn "prompt archive: I could not fetch the kit's programs from $ToolsRepo, so the daily job has nothing to run yet. Check this PC can reach the internet and run this again."
+            return
+        }
+        $src = Join-Path $tmp $ToolsPath
+        if (-not (Test-Path $src)) { return }
+
+        $bin = Join-Path $HOME '.local\bin'
+        New-Item -ItemType Directory -Force $bin | Out-Null
+        New-Item -ItemType Directory -Force (Join-Path $HOME '.hub') | Out-Null
+        $n = 0
+        Get-ChildItem $src -File | Where-Object { $_.Extension -ne '.md' } | ForEach-Object {
+            Copy-Item $_.FullName (Join-Path $bin $_.Name) -Force
+            $n++
+        }
+        if ($n -eq 0) { return }
+
+        # The launcher. A .cmd rather than a shortcut, because a scheduled task and a
+        # terminal both understand one, and %~dp0 is how it finds its other half: the
+        # collector sits in the same folder and is never looked for anywhere else.
+        $js = Join-Path $bin 'prompt-harvest.js'
+        if (Test-Path $js) {
+            @('@echo off', "node `"%~dp0prompt-harvest.js`" %*") |
+                Set-Content -Path (Join-Path $bin 'hub-prompt-harvest.cmd') -Encoding ascii
+        }
+
+        # Where the hub is, recorded once, so a job started by the schedule with almost
+        # no environment never has to guess. The programs read this file already.
+        $devEnv = Join-Path $HOME '.hub\device.env'
+        $has = (Test-Path $devEnv) -and ((Get-Content $devEnv) -match '^\s*HUB_DIR=')
+        if (-not $has) { Add-Content -Path $devEnv -Value "HUB_DIR=$Hub" -Encoding ascii }
+
+        Update-KitPath
+        $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+        if (($userPath -split ';') -notcontains $bin) {
+            $joined = if ($userPath) { "$bin;$userPath" } else { $bin }
+            [Environment]::SetEnvironmentVariable('Path', $joined, 'User')
+        }
+        $env:Path = "$bin;$env:Path"
+        Write-KbOk "prompt archive: installed the program that files what you type to an AI ($bin)"
+    } finally {
+        Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Install-KitPromptHarvest {
     <#  Make this PC file what its owner types to an AI, by itself, every day.
         The Windows twin of kb_install_prompt_harvest in lib.sh: same promise,
@@ -285,7 +358,11 @@ function Install-KitPromptHarvest {
         [string]$TaskName = 'Hub prompt archive'
     )
 
-    $js = Join-Path $Hub 'bin\prompt-harvest.js'
+    # The installed program first, the hub's own copy second. The second is only for a
+    # hub set up before the programs were installed on the machine, so nothing breaks
+    # between the two.
+    $installed = Join-Path $HOME '.localin\prompt-harvest.js'
+    $js = if (Test-Path $installed) { $installed } else { Join-Path $Hub 'bin\prompt-harvest.js' }
     if (-not (Test-Path $js)) { return }
 
     $node = (Get-Command node -ErrorAction SilentlyContinue).Source
@@ -570,6 +647,7 @@ Join-KitMemory -Hub $Hub
 Install-KitHubCli -Hub $Hub
 
 # The daily job that files what you type to an AI on this machine into the hub.
+Install-KitHubTools -Hub $Hub -ToolsRepo $env:KB_TOOLS_REPO
 Install-KitPromptHarvest -Hub $Hub
 
 $skills = Join-Path $Hub '.claude\skills'

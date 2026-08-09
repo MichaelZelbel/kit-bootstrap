@@ -63,7 +63,12 @@ kb_link_ai_memory "$HUB"
 #     machine instead of only on the server where the deploy script installs them.
 kb_install_hub_cli "$HUB"
 
-# 2c. The daily job that files what you type to an AI on this machine into the hub.
+# 2c. The kit's own programs, on this machine rather than in the hub folder (the hub is a
+#     folder of text files, and these are software). KB_TOOLS_REPO lets a product name its
+#     own kit; without one there is nothing to fetch and the step does nothing.
+kb_install_hub_tools "$HUB" "${KB_TOOLS_REPO:-}"
+
+# 2d. The daily job that files what you type to an AI on this machine into the hub.
 #     Joining a machine has to wire this, because a job you install by hand only ever
 #     covers the machine you were sitting at when you thought of it.
 kb_install_prompt_harvest "$HUB"

@@ -86,7 +86,7 @@ fi
 # Newer than the network copy is a real state, not a theoretical one: this script
 # and the v1 branch are published by two separate acts, so either can be ahead.
 for fn in kb_install_prereqs kb_new_hub kb_copy_starter_hub kb_link_ai_memory kb_install_hub_cli \
-          kb_install_prompt_harvest; do
+          kb_install_hub_tools kb_install_prompt_harvest; do
   if ! command -v "$fn" >/dev/null 2>&1; then
     echo "[stop] the install code on this computer is incomplete ($fn is missing)." >&2
     echo "       Run the newest command from https://github.com/MichaelZelbel/kit-bootstrap" >&2
@@ -139,6 +139,7 @@ fi
 # -----------------------------------------------------------------------------
 kb_link_ai_memory   "$HUB"    # the one memory every machine shares
 kb_install_hub_cli  "$HUB"    # the hub's own commands, on PATH, from any folder
+kb_install_hub_tools "$HUB" "$STARTER_REPO"   # the kit's own programs, on this machine
 kb_install_prompt_harvest "$HUB"  # the daily job that files what you type to an AI here
 
 if [ -d "$HUB/.claude/skills" ] && [ ! -e "$HUB/.agents/skills" ]; then
