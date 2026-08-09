@@ -111,20 +111,87 @@ JOB. So the join job lives here now and both sides call it.
 
 | File | Runs on | What it does |
 |---|---|---|
+| `windows/HubSetup.exe` | Windows | **the front door.** An ordinary installer: double-click it |
 | `join.sh` | Linux, macOS | joins this machine to a hub that already exists |
-| `join.ps1` | Windows | the same, with junctions, which need no admin rights |
+| `join.ps1` | Windows | the same as a script, for automation and for the .exe to call |
 
-Both are safe to run again and neither ever deletes a memory.
+All of them are safe to run again and none ever deletes a memory.
 
 ```bash
 # Linux / macOS
 curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v1/join.sh | bash -s -- ~/hub
 ```
 
+## Windows: HubSetup.exe
+
+Download it from the [latest release](https://github.com/MichaelZelbel/kit-bootstrap/releases/latest)
+and double-click. There is nothing to type.
+
+It works out which of the two jobs this PC needs by looking, and never by asking:
+
+- **a hub is already here** → brings it up to date, re-checks the wiring
+- **no hub here** → asks where to put one, and whether to fetch a repository you
+  already have, then makes it
+
+It also installs what is missing underneath: Git, Node.js and Claude Code.
+
+Why an .exe rather than the one-line command that used to be the answer: the
+command was fine for whoever wrote it and a wall for everybody else, and
+everybody else is who the book is for. Nobody else's software asks a person to
+paste a line of PowerShell.
+
+**It asks for no administrator rights of its own.** That is correctness rather
+than manners. Elevating puts the process in a different account, and the
+shared-memory link would then be written into the wrong user's profile while
+still reporting success. Windows raises its own prompt when it installs Git or
+Node.js, which is separate and normal.
+
+### The warning Windows will show, and why
+
+The first time anybody runs it, Windows says **"Windows protected your PC"** and
+offers only a *Don't run* button. Click **More info**, then **Run anyway**.
+
+This is Microsoft SmartScreen, and it is not a virus warning. It appears on every
+program from a publisher it has not seen enough copies of. The only thing that
+removes it is a code-signing certificate, which costs a few hundred euros a year
+from a certificate authority. Until there is one, that click is the price, and
+telling readers about it up front is better than letting it frighten them.
+
+### Building it
+
 ```powershell
-# Windows
-irm https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v1/join.ps1 -OutFile join.ps1
-powershell -ExecutionPolicy Bypass -File .\join.ps1 C:\path\to\your\hub
+cd windows
+powershell -ExecutionPolicy Bypass -File build-installer.ps1   # -> dist\HubSetup.exe
+```
+
+The compiler is [Inno Setup](https://jrsoftware.org/isinfo.php), free, and the
+build script fetches it if the PC has not got it.
+
+Publish it as a release asset, never as a file in the repository:
+
+```powershell
+gh release create v1.0.0 dist\HubSetup.exe --repo MichaelZelbel/kit-bootstrap `
+  --title "Hub installer v1.0.0" --notes "..."
+```
+
+### Testing it
+
+```powershell
+cd windows
+powershell -ExecutionPolicy Bypass -File test-windows.ps1
+```
+
+**Run that under Windows PowerShell 5.1 at least once, not only under 7.** The
+.exe runs 5.1, and the first two bugs the suite ever caught were both "works in
+7, throws in 5.1": `Set-Content -Encoding utf8NoBOM` does not exist in 5.1, and
+5.1 still asks for a version of TLS that GitHub refuses. That is the shape of bug
+which reaches every reader and never the author.
+
+To test the installer itself without a wizard appearing:
+
+```powershell
+.\dist\HubSetup.exe /VERYSILENT /SUPPRESSMSGBOXES
+type "$env:LOCALAPPDATA\Hub\setup-log.txt"
 ```
 
 ### What joining actually does
