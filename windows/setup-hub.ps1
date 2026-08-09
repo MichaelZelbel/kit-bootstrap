@@ -23,6 +23,12 @@
 param(
     [string]$Hub,
     [string]$RepoUrl,
+    # Which product this installer is for. A brand-new hub is copied from that
+    # repository's starter folder rather than written from imagination, so what a
+    # reader ends up with is the folder their book actually walks them through.
+    # Another kit building its own .exe overrides these two and changes nothing else.
+    [string]$StarterRepo = 'https://github.com/MichaelZelbel/teach-it-once-kit.git',
+    [string]$StarterPath = 'starter-hub',
     [switch]$SkipPrereqs,
     [switch]$NoPause
 )
@@ -104,7 +110,8 @@ if (-not (Get-Command Install-KitPrereqs -ErrorAction SilentlyContinue)) {
         . $Bundled -AsLibrary
     }
 }
-foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Find-KitHub', 'Join-KitMemory', 'Install-KitHubCli', 'Update-KitPath') {
+foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-KitHub',
+                 'Join-KitMemory', 'Install-KitHubCli', 'Update-KitPath') {
     if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
         Stop-Setup "the install code on this PC is incomplete ($fn is missing). Download the newest installer from https://github.com/MichaelZelbel/kit-bootstrap/releases/latest and run that."
     }
@@ -143,7 +150,8 @@ if ($found) {
     $isNew = $true
     if (-not $Hub) { $Hub = 'C:\hub' }
     Write-KbSay "No hub on this PC yet, so I am making one"
-    try { New-KitHub -Path $Hub -RepoUrl $RepoUrl } catch { Stop-Setup $_.Exception.Message }
+    try { New-KitHub -Path $Hub -RepoUrl $RepoUrl -StarterRepo $StarterRepo -StarterPath $StarterPath }
+    catch { Stop-Setup $_.Exception.Message }
     $Hub = (Resolve-Path $Hub).Path
 }
 

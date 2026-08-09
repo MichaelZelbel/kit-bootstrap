@@ -128,6 +128,58 @@ Check "an address that is not a repository is refused, not half-done" {
 }
 
 Write-Host ""
+Write-Host "-- a new hub copies the product's starter folder, it never invents one"
+Check "the starter folder's files are laid down" {
+    # A local fixture, so this case does not need the network to mean anything.
+    $sr = Join-Path $Root 'starter-src'
+    New-Item -ItemType Directory -Force (Join-Path $sr 'starter-hub\context') | Out-Null
+    New-Item -ItemType Directory -Force (Join-Path $sr 'starter-hub\skills') | Out-Null
+    Set-Content (Join-Path $sr 'starter-hub\AGENTS.md') '# the real one'
+    Set-Content (Join-Path $sr 'starter-hub\context\about-me.md') 'about'
+    Set-Content (Join-Path $sr 'starter-hub\skills\plan-my-day.md') 'plan'
+    git -C $sr init -q
+    git -C $sr add -A 2>&1 | Out-Null
+    git -C $sr -c user.email='t@t' -c user.name='t' commit -q -m 'starter' 2>&1 | Out-Null
+
+    $d = Join-Path $Root 'fromstarter'
+    New-KitHub -Path $d -StarterRepo $sr | Out-Null
+    (Test-Path (Join-Path $d 'context\about-me.md')) -and (Test-Path (Join-Path $d 'skills\plan-my-day.md'))
+}
+Check "the starter's own AGENTS.md wins, no invented one overwrites it" {
+    (Get-Content (Join-Path $Root 'fromstarter\AGENTS.md') -Raw).Contains('the real one')
+}
+Check "the starter's own memory index is kept, not replaced by a blank one" {
+    $sr = Join-Path $Root 'starter-src'
+    New-Item -ItemType Directory -Force (Join-Path $sr 'starter-hub\memory') | Out-Null
+    Set-Content (Join-Path $sr 'starter-hub\memory\MEMORY.md') '# Memory index -- the product wrote this'
+    git -C $sr add -A 2>&1 | Out-Null
+    git -C $sr -c user.email='t@t' -c user.name='t' commit -q -m 'memory' 2>&1 | Out-Null
+    $d = Join-Path $Root 'keepindex'
+    New-KitHub -Path $d -StarterRepo $sr | Out-Null
+    (Get-Content (Join-Path $d 'memory\MEMORY.md') -Raw).Contains('the product wrote this')
+}
+Check "a starter that cannot be fetched still leaves a usable hub, and warns" {
+    $d = Join-Path $Root 'nostarter'
+    $warned = $false
+    try { New-KitHub -Path $d -StarterRepo (Join-Path $Root 'ghost-repo') -WarningVariable w -WarningAction SilentlyContinue | Out-Null
+          $warned = @($w).Count -gt 0 } catch { }
+    (Test-KitHub $d) -and $warned
+}
+Check "the real book kit's starter folder is reachable and has what the book names" {
+    # The one case that must hit the network: it checks the DEFAULT a reader gets.
+    $d = Join-Path $Root 'realstarter'
+    $got = Copy-KitStarterHub -Path $d -StarterRepo 'https://github.com/MichaelZelbel/teach-it-once-kit.git'
+    if (-not $got) { Write-Host "        (skipped: no network)"; return $true }
+    $missing = @()
+    foreach ($f in 'AGENTS.md', 'context\about-me.md', 'context\people.md', 'context\voice.md',
+                    'procedures.md', 'decisions.md', 'memory\MEMORY.md', 'skills\plan-my-day.md') {
+        if (-not (Test-Path (Join-Path $d $f))) { $missing += $f }
+    }
+    if ($missing.Count) { Write-Host "        missing: $($missing -join ', ')" }
+    $missing.Count -eq 0
+}
+
+Write-Host ""
 Write-Host "-- updating one that is already here"
 Check "updating a folder that is not git is a warning, not a crash" {
     Update-KitHub -Hub (New-TestDir 'notgit') 3>$null; $true

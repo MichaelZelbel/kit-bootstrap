@@ -343,15 +343,65 @@ function Install-KitPrereqs {
     return $missing
 }
 
+function Copy-KitStarterHub {
+    <#  Lay down a product's real starter folder, fetched from its own public
+        repository.
+
+        This function exists because of a bug worth remembering. The first version
+        of New-KitHub INVENTED a hub: a short AGENTS.md written from scratch and an
+        empty memory index. Meanwhile the book's kit already ships `starter-hub/`,
+        a proper one with context/, skills/, procedures.md, decisions.md, inbox/
+        and prompts/, which the chapters then walk the reader through filling in.
+        So a reader who installed on a fresh PC would have got a folder that did
+        not match the book they were holding, and every instruction like "open
+        context/about-me.md" would have failed on a file that was not there.
+
+        Nothing here may invent content that a product already ships. Generic on
+        purpose: the caller says which repository and which folder, so this stays
+        the shared floor rather than one book's private helper. #>
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$StarterRepo,
+        [string]$StarterPath = 'starter-hub'
+    )
+
+    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("kit-starter-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    try {
+        git clone --depth 1 --quiet $StarterRepo $tmp 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { return $false }
+
+        $src = Join-Path $tmp $StarterPath
+        if (-not (Test-Path $src)) { return $false }
+
+        New-Item -ItemType Directory -Force $Path | Out-Null
+        # -Force so hidden files come too, and never overwriting: a second run must
+        # not tread on a sentence the person has already written about themselves.
+        Get-ChildItem $src -Force | ForEach-Object {
+            $dest = Join-Path $Path $_.Name
+            if (-not (Test-Path $dest)) { Copy-Item $_.FullName $dest -Recurse -Force }
+        }
+        return $true
+    } catch {
+        return $false
+    } finally {
+        Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function New-KitHub {
     <#  There is no hub on this PC. Make one.
 
         Two shapes, because people arrive in two states: they already keep a hub
         in a git repository somewhere and this is simply another machine, or they
-        have nothing at all and today is day one. #>
+        have nothing at all and today is day one.
+
+        On day one the folder is copied from the product's own starter, never
+        written from imagination. See Copy-KitStarterHub for what that cost us. #>
     param(
         [Parameter(Mandatory)][string]$Path,
-        [string]$RepoUrl
+        [string]$RepoUrl,
+        [string]$StarterRepo,
+        [string]$StarterPath = 'starter-hub'
     )
 
     if (Test-Path $Path) {
@@ -374,11 +424,33 @@ function New-KitHub {
 
     Write-KbSay "Starting a new hub at $Path"
     New-Item -ItemType Directory -Force $Path | Out-Null
+
+    $gotStarter = $false
+    if ($StarterRepo) {
+        Write-Host "   fetching the starter folder..."
+        $gotStarter = Copy-KitStarterHub -Path $Path -StarterRepo $StarterRepo -StarterPath $StarterPath
+        if ($gotStarter) {
+            Write-KbOk "your hub starts with the real starter folder, the one the book fills in chapter by chapter"
+        } else {
+            # Loud, and with the way out in the same breath. A hub of the wrong
+            # shape sends somebody looking for files the book names and they do
+            # not have, which is a worse hour than being told plainly here.
+            Write-KbWarn @"
+I could not fetch the starter folder from $StarterRepo
+so I am making a bare hub instead. It works, but it does NOT have the files the
+book walks you through (context/, skills/, procedures.md and the rest).
+To put that right: open $StarterRepo in a browser, use the green Code button ->
+Download ZIP, and copy the starter-hub folder from inside it into $Path
+"@
+        }
+    }
+
     if (-not (Test-Path (Join-Path $Path '.git'))) {
         git -C $Path init -q
         if ($LASTEXITCODE -ne 0) { throw "Could not start a git folder at $Path." }
     }
     Initialize-KitMemoryIndex -Hub $Path
+    if ($gotStarter) { Write-KbOk "your hub is now at $Path"; return }
 
     $agents = Join-Path $Path 'AGENTS.md'
     if (-not (Test-Path $agents)) {
