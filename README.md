@@ -124,8 +124,21 @@ curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v1/join
 
 ## Windows: HubSetup.exe
 
-Download it from the [latest release](https://github.com/MichaelZelbel/kit-bootstrap/releases/latest)
-and double-click. There is nothing to type.
+**This repository holds the source. It is not where anybody downloads it from.**
+
+The built installer is published on the repository the reader is already sent to
+by their book, which for *Teach It Once* is
+[teach-it-once-kit](https://github.com/MichaelZelbel/teach-it-once-kit/releases/latest).
+
+That split matters, and it is the same distinction as everywhere else here: where
+the code lives is not the same question as where a person downloads from. This
+repo's front page is about drift between four installers and rules for editing
+`lib.sh`. It is written for whoever maintains the floor. A reader landing here to
+run an unsigned `.exe` would find a page about somebody else's refactoring
+problem, at the exact moment Windows is asking them to trust the file. The
+product's own repository answers that question; this one cannot.
+
+Download and double-click. There is nothing to type.
 
 It works out which of the two jobs this PC needs by looking, and never by asking:
 
@@ -167,12 +180,24 @@ powershell -ExecutionPolicy Bypass -File build-installer.ps1   # -> dist\HubSetu
 The compiler is [Inno Setup](https://jrsoftware.org/isinfo.php), free, and the
 build script fetches it if the PC has not got it.
 
-Publish it as a release asset, never as a file in the repository:
+Publish it as a release asset on **the product's** repository, never as a file
+committed here:
 
 ```powershell
-gh release create v1.0.0 dist\HubSetup.exe --repo MichaelZelbel/kit-bootstrap `
-  --title "Hub installer v1.0.0" --notes "..."
+gh release create v1.0.0 dist\HubSetup.exe --repo MichaelZelbel/teach-it-once-kit `
+  --title "Windows installer v1.0.0" --notes "..."
 ```
+
+A second kit that wants its own Windows installer builds from this same floor and
+overrides two parameters, changing nothing else:
+
+```powershell
+# in that kit's own hub-setup.iss, on the [Run] line
+-StarterRepo "https://github.com/MichaelZelbel/<their-kit>.git" -StarterPath "starter-hub"
+```
+
+Publish it on *their* repository under *their* name. One .exe per product, each
+next to the book or kit that sends people to it, all built from this floor.
 
 ### Testing it
 
