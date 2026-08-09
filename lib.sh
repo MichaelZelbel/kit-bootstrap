@@ -735,6 +735,58 @@ kb_install_hub_cli() {
   ok "commands: $n hub tools are now on your PATH from $bindir (open a new terminal for it to take)"
 }
 
+# kb_install_prompt_harvest <hub-dir>
+# Make this machine file what its owner types to an AI, by itself, every day.
+#
+# WHY THIS BELONGS IN THE INSTALLER. The hub keeps a drawer of everything he has typed to any
+# assistant, so months later he can ask "how did I get that result in June" and be answered
+# with the words he actually used. Filling that drawer needs something on each machine to run
+# once a day, and until 2026-08-10 nothing installed it: the server had a line in its schedule
+# because somebody typed one there by hand, and every other computer had nothing. A wiring
+# step you perform by hand covers the machine you happened to be sitting at, which is the same
+# lesson this kit already learned about the memory folder. So joining a machine wires this too.
+#
+# It is deliberately quiet on a hub that ships no harvester, which is every reader's hub for
+# now: there is nothing to schedule, so there is nothing to say.
+#
+# KB_CRONTAB exists so the test suite can watch this work without editing the schedule of
+# whoever is running the tests. A command name compiled into the code is a command no test
+# can safely reach.
+kb_install_prompt_harvest() {
+  local hub="${1:-}" cron node cur line
+  [ -f "$hub/bin/prompt-harvest.js" ] || return 0
+  cron="${KB_CRONTAB:-crontab}"
+
+  node="$(command -v node 2>/dev/null || true)"
+  if [ -z "$node" ]; then
+    warn "prompt archive: Node.js is not on this computer, so what you type to an AI here cannot be filed. Install Node.js and run this again."
+    return 0
+  fi
+  if ! command -v "$cron" >/dev/null 2>&1; then
+    warn "prompt archive: this computer has no cron, so nothing can run the daily job. What you type here will only be filed when you run it yourself: node \"$hub/bin/prompt-harvest.js\""
+    return 0
+  fi
+
+  cur="$("$cron" -l 2>/dev/null || true)"
+  case "$cur" in
+    *prompt-harvest*)
+      ok "prompt archive: already scheduled on this computer"
+      return 0 ;;
+  esac
+
+  # Hourly, not nightly, and the job itself does nothing if it already ran today. A fixed time
+  # in the small hours is right for a server and wrong for a laptop, because the laptop is shut.
+  mkdir -p "$HOME/.hub"
+  line="17 * * * * \"$node\" \"$hub/bin/prompt-harvest.js\" --once-a-day >> \"$HOME/.hub/prompt-harvest.log\" 2>&1"
+  if { [ -n "$cur" ] && printf '%s\n' "$cur"
+       printf '%s\n%s\n' "# Keep the hub's record of what you type to an AI on this computer up to date." "$line"
+     } | "$cron" - 2>/dev/null; then
+    ok "prompt archive: this computer now files what you type to an AI, once a day"
+  else
+    warn "prompt archive: I could not add the daily job to this computer's schedule. Run it by hand when you want it: node \"$hub/bin/prompt-harvest.js\""
+  fi
+}
+
 # =============================================================================
 # THE TWO HALVES A PERSON'S OWN COMPUTER NEEDED, AND ONLY WINDOWS HAD
 #

@@ -261,6 +261,63 @@ function Install-KitHubCli {
     Write-KbOk "commands: $n hub tools now run from anywhere, e.g. hub map lovable"
 }
 
+function Install-KitPromptHarvest {
+    <#  Make this PC file what its owner types to an AI, by itself, every day.
+        The Windows twin of kb_install_prompt_harvest in lib.sh: same promise,
+        native mechanism. Linux and Mac get a line in cron; Windows gets a
+        scheduled task, because that is what Windows has.
+
+        WHY THIS BELONGS IN THE INSTALLER. The hub keeps a drawer of everything
+        he has typed to any assistant, so months later he can ask "how did I get
+        that result in June" and be answered with the words he actually used.
+        Filling it needs something on each machine to run once a day, and until
+        2026-08-10 nothing installed it: one computer had a job because somebody
+        typed one there by hand, and the rest had nothing. A wiring step you
+        perform by hand only ever covers the machine you were sitting at.
+
+        Quiet on a hub that ships no harvester, which is every reader's hub for
+        now: nothing to schedule, so nothing to say.
+
+        TaskName is a parameter so the test suite can register and remove its own
+        task instead of touching the real one. #>
+    param(
+        [Parameter(Mandatory)][string]$Hub,
+        [string]$TaskName = 'Hub prompt archive'
+    )
+
+    $js = Join-Path $Hub 'bin\prompt-harvest.js'
+    if (-not (Test-Path $js)) { return }
+
+    $node = (Get-Command node -ErrorAction SilentlyContinue).Source
+    if (-not $node) {
+        Write-KbWarn "prompt archive: Node.js is not on this computer, so what you type to an AI here cannot be filed. Install Node.js and run this again."
+        return
+    }
+    if (-not (Get-Command Register-ScheduledTask -ErrorAction SilentlyContinue)) {
+        Write-KbWarn "prompt archive: this Windows has no Task Scheduler commands, so nothing can run the daily job. Run it yourself when you want it: node `"$js`""
+        return
+    }
+
+    if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
+        Write-KbOk "prompt archive: already scheduled on this computer"
+        return
+    }
+
+    try {
+        # Hourly, not nightly, and the job does nothing if it already ran today. A fixed
+        # time in the small hours is right for a server and wrong for a laptop that is shut.
+        $action = New-ScheduledTaskAction -Execute $node -Argument "`"$js`" --once-a-day" -WorkingDirectory $Hub
+        $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) `
+            -RepetitionInterval (New-TimeSpan -Hours 1) -RepetitionDuration (New-TimeSpan -Days 3650)
+        $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+        Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings `
+            -Description 'Files what you type to an AI on this computer into your hub.' -Force | Out-Null
+        Write-KbOk "prompt archive: this computer now files what you type to an AI, once a day"
+    } catch {
+        Write-KbWarn "prompt archive: I could not add the daily job to this computer's schedule ($($_.Exception.Message)). Run it by hand when you want it: node `"$js`""
+    }
+}
+
 # =============================================================================
 # THE THINGS A WINDOWS PC NEEDS BEFORE ANY OF THE ABOVE CAN WORK
 #
@@ -511,6 +568,9 @@ Join-KitMemory -Hub $Hub
 # The hub's own commands, so `hub map ...` works from any folder on this machine
 # instead of only on the server where the deploy script installs them.
 Install-KitHubCli -Hub $Hub
+
+# The daily job that files what you type to an AI on this machine into the hub.
+Install-KitPromptHarvest -Hub $Hub
 
 $skills = Join-Path $Hub '.claude\skills'
 $agents = Join-Path $Hub '.agents\skills'

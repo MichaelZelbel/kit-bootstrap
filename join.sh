@@ -63,6 +63,11 @@ kb_link_ai_memory "$HUB"
 #     machine instead of only on the server where the deploy script installs them.
 kb_install_hub_cli "$HUB"
 
+# 2c. The daily job that files what you type to an AI on this machine into the hub.
+#     Joining a machine has to wire this, because a job you install by hand only ever
+#     covers the machine you were sitting at when you thought of it.
+kb_install_prompt_harvest "$HUB"
+
 # 3. Skills, if this hub keeps them where the assistants other than Claude Code
 #    can be pointed at them. Harmless when it has none.
 if [ -d "$HUB/.claude/skills" ] && [ ! -e "$HUB/.agents/skills" ]; then

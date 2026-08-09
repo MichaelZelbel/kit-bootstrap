@@ -56,7 +56,8 @@ New-Item -ItemType Directory -Force $Root | Out-Null
 
 Write-Host "-- the library loads and offers what the installer calls"
 foreach ($fn in 'Find-KitHub', 'Test-KitHub', 'Update-KitHub', 'Join-KitMemory', 'Install-KitHubCli',
-                 'Install-KitPrereqs', 'New-KitHub', 'Update-KitPath', 'Set-KbTextFile', 'Test-KitCommand') {
+                 'Install-KitPrereqs', 'New-KitHub', 'Update-KitPath', 'Set-KbTextFile', 'Test-KitCommand',
+                 'Install-KitPromptHarvest') {
     Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
 }
 
@@ -244,6 +245,45 @@ Check "a memory already in the old place is carried over, never lost" {
     if ($item -and $item.LinkType) { (Get-Item $link -Force).Delete() }
     Remove-Item (Split-Path $link -Parent) -Recurse -Force -ErrorAction SilentlyContinue
     $carried -and $kept
+}
+
+Write-Host ""
+Write-Host "-- the daily job that files what you type to an AI"
+# Added 2026-08-10. The hub keeps a drawer of everything its owner has typed to an
+# assistant, and filling it needs a job on each machine. Nothing installed that job:
+# one computer had one because somebody typed it into that computer's schedule by
+# hand, and every other computer quietly kept nothing. These are the Windows twins of
+# the cases in test.sh. When you change one side, change both.
+$TaskForTests = 'Hub prompt archive TEST'
+Check "a hub with no harvester stays quiet" {
+    $bare = New-TestDir 'noharvest'
+    $out = Install-KitPromptHarvest -Hub $bare -TaskName $TaskForTests 3>&1 4>&1 | Out-String
+    ($out.Trim() -eq '') -and -not (Get-ScheduledTask -TaskName $TaskForTests -ErrorAction SilentlyContinue)
+}
+Check "a hub with a harvester gets a job that runs it, and only once a day" {
+    $hub = New-TestDir 'harvest'
+    New-Item -ItemType Directory -Force (Join-Path $hub 'bin') | Out-Null
+    Set-Content (Join-Path $hub 'bin\prompt-harvest.js') 'console.log(1)'
+    try {
+        Install-KitPromptHarvest -Hub $hub -TaskName $TaskForTests | Out-Null
+        $task = Get-ScheduledTask -TaskName $TaskForTests -ErrorAction SilentlyContinue
+        $args = if ($task) { ($task.Actions | ForEach-Object { $_.Arguments }) -join ' ' } else { '' }
+        [bool]$task -and ($args -match 'prompt-harvest\.js') -and ($args -match '--once-a-day')
+    } finally {
+        Unregister-ScheduledTask -TaskName $TaskForTests -Confirm:$false -ErrorAction SilentlyContinue
+    }
+}
+Check "running the installer twice does not stack up two jobs" {
+    $hub = New-TestDir 'harvest2'
+    New-Item -ItemType Directory -Force (Join-Path $hub 'bin') | Out-Null
+    Set-Content (Join-Path $hub 'bin\prompt-harvest.js') 'console.log(1)'
+    try {
+        Install-KitPromptHarvest -Hub $hub -TaskName $TaskForTests | Out-Null
+        Install-KitPromptHarvest -Hub $hub -TaskName $TaskForTests | Out-Null
+        @(Get-ScheduledTask -TaskName $TaskForTests -ErrorAction SilentlyContinue).Count -eq 1
+    } finally {
+        Unregister-ScheduledTask -TaskName $TaskForTests -Confirm:$false -ErrorAction SilentlyContinue
+    }
 }
 
 Write-Host ""

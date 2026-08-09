@@ -111,7 +111,7 @@ if (-not (Get-Command Install-KitPrereqs -ErrorAction SilentlyContinue)) {
     }
 }
 foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-KitHub',
-                 'Join-KitMemory', 'Install-KitHubCli', 'Update-KitPath') {
+                 'Join-KitMemory', 'Install-KitHubCli', 'Install-KitPromptHarvest', 'Update-KitPath') {
     if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
         Stop-Setup "the install code on this PC is incomplete ($fn is missing). Download the newest installer from https://github.com/MichaelZelbel/kit-bootstrap/releases/latest and run that."
     }
@@ -161,6 +161,7 @@ if ($found) {
 # -----------------------------------------------------------------------------
 Join-KitMemory     -Hub $Hub    # the one memory every machine shares
 Install-KitHubCli  -Hub $Hub    # the hub's own commands, on PATH, from any folder
+Install-KitPromptHarvest -Hub $Hub   # the daily job that files what you type to an AI here
 
 $skills = Join-Path $Hub '.claude\skills'
 $agents = Join-Path $Hub '.agents\skills'

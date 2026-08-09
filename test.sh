@@ -31,7 +31,7 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_ai_memory_path kb_seed_memory_index kb_link_ai_memory \
          kb_hub_looks_real kb_find_hub kb_update_hub kb_install_hub_cli \
          kb_os kb_can_sudo kb_note_missing kb_install_one kb_install_claude_code \
-         kb_install_prereqs kb_copy_starter_hub kb_new_hub; do
+         kb_install_prereqs kb_copy_starter_hub kb_new_hub kb_install_prompt_harvest; do
   declare -F "$f" >/dev/null || printf "%s " "$f"
 done')"
 [ -z "$missing" ] || { echo "  MISSING: $missing"; exit 1; }
@@ -272,6 +272,52 @@ t "a hub that ships no tools stays quiet" "$(HOME="$_f" kb_install_hub_cli "$_f/
 # Not a git folder: say so and carry on, never abort the whole install.
 t "updating a non-git folder is not fatal" \
   "$(HOME="$_f" kb_update_hub "$_f/notahub" >/dev/null 2>&1; echo $?)" "0"
+
+# --- THE DAILY JOB THAT FILES WHAT YOU TYPE TO AN AI -------------------------
+# Added 2026-08-10. The hub keeps a drawer of everything its owner has typed to an
+# assistant, and filling it needs a job on each machine. Nothing installed that job:
+# one computer had one because somebody typed it into that computer's schedule by
+# hand, and every other computer quietly kept nothing. These are the bash twins of
+# the cases in windows/test-windows.ps1. When you change one side, change both.
+#
+# A fake crontab, so the suite never edits the schedule of whoever is running it.
+_cronfile="$_f/crontab.txt"; : > "$_cronfile"
+cat > "$_f/fakecrontab" <<FAKE
+#!/bin/sh
+case "\$1" in
+  -l) cat "$_cronfile" ;;
+  -)  cat > "$_cronfile" ;;
+esac
+FAKE
+chmod +x "$_f/fakecrontab"
+export PATH="$_f:$PATH"
+
+# A hub that ships no harvester is every reader's hub. Nothing to schedule, nothing said.
+t "a hub with no harvester stays quiet" \
+  "$(HOME="$_f" KB_CRONTAB="$_f/fakecrontab" kb_install_prompt_harvest "$_f/bare" 2>&1)" ""
+t "and it schedules nothing" "$([ -s "$_cronfile" ] && echo yes || echo no)" "no"
+
+mkdir -p "$_f/hub/bin"
+printf 'console.log(1)\n' > "$_f/hub/bin/prompt-harvest.js"
+( HOME="$_f" KB_CRONTAB="$_f/fakecrontab" kb_install_prompt_harvest "$_f/hub" ) >/dev/null 2>&1
+t "a hub with a harvester gets a daily job" \
+  "$(grep -c 'prompt-harvest.js' "$_cronfile")" "1"
+t "the job is told not to work twice in one day" \
+  "$(grep -c ' --once-a-day' "$_cronfile")" "1"
+
+# Running the installer again is a normal thing to do. It must not stack up jobs.
+printf 'BEFORE=keep\n' >> "$_cronfile"
+( HOME="$_f" KB_CRONTAB="$_f/fakecrontab" kb_install_prompt_harvest "$_f/hub" ) >/dev/null 2>&1
+t "a second run does not add a second job" \
+  "$(grep -c 'prompt-harvest.js' "$_cronfile")" "1"
+t "and it keeps what was already in the schedule" \
+  "$(grep -c 'BEFORE=keep' "$_cronfile")" "1"
+
+# A machine already carrying the server's hand-written line is already covered, whatever
+# shape that line has. Recognise it instead of writing a second one beside it.
+printf '20 4 * * * /root/hub/routines/prompt-harvest.sh\n' > "$_cronfile"
+( HOME="$_f" KB_CRONTAB="$_f/fakecrontab" kb_install_prompt_harvest "$_f/hub" ) >/dev/null 2>&1
+t "an existing hand-written job is left alone" "$(wc -l < "$_cronfile" | tr -d ' ')" "1"
 
 # --- THE CREATE PATH ---------------------------------------------------------
 # Added 2026-08-09 (D-105). For one day Windows could make a hub from nothing and
