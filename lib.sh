@@ -726,3 +726,205 @@ kb_install_hub_cli() {
   kb_persist_path
   ok "commands: $n hub tools are now on your PATH from $bindir (open a new terminal for it to take)"
 }
+
+# =============================================================================
+# THE TWO HALVES A PERSON'S OWN COMPUTER NEEDED, AND ONLY WINDOWS HAD
+#
+# Added 2026-08-09 (D-105). That morning the Windows installer grew two abilities
+# this file never got: fetching what the machine is missing, and MAKING a hub when
+# there is none. So for a day, a reader on a Mac who ran the Mac command on a
+# fresh machine got an error telling them to go and make a hub first, while a
+# reader on Windows got a finished setup. Michael spotted the asymmetry from the
+# outside and asked whether the .exe was the odd one out. It was not: the bash
+# half was simply behind.
+#
+# Everything below is the bash twin of a function in join.ps1. When you change one,
+# change the other, and add the case to BOTH test.sh and windows/test-windows.ps1.
+# =============================================================================
+
+# What kind of computer is this, in terms of how software gets installed here.
+kb_os() {
+  case "$(uname -s 2>/dev/null)" in
+    Darwin) printf 'macos' ;;
+    Linux)  if command -v apt-get >/dev/null 2>&1; then printf 'linux-apt'; else printf 'linux-other'; fi ;;
+    *)      printf 'other' ;;
+  esac
+}
+
+# Can we become root at all? Asked BEFORE reaching for sudo_cmd, because that one
+# calls die, and a missing prerequisite must never kill a run that could still
+# wire up everything else and tell the person what is left.
+kb_can_sudo() { [ "$(id -u)" -eq 0 ] || command -v sudo >/dev/null 2>&1; }
+
+# Anything that could not be installed, so the end of the run can name it.
+KB_MISSING=""
+kb_note_missing() { KB_MISSING="$KB_MISSING $1"; }
+
+# kb_install_one <command> <apt-package> <brew-package> <human name>
+# Returns 0 only when the command is genuinely reachable afterwards, because
+# "the package manager exited 0" and "the tool works" are not the same claim.
+kb_install_one() {
+  local cmd="$1" aptpkg="$2" brewpkg="$3" human="$4"
+  command -v "$cmd" >/dev/null 2>&1 && { ok "$human is already here"; return 0; }
+
+  case "$(kb_os)" in
+    linux-apt)
+      if ! kb_can_sudo; then
+        warn "$human is missing, and this account cannot install software (no root, no sudo).
+   Ask whoever runs this machine to install $human, then run this again."
+        kb_note_missing "$human"; return 1
+      fi
+      log "Installing $human..."
+      if [ "${KB_APT_UPDATED:-0}" -eq 0 ]; then
+        sudo_cmd apt-get update -y >/dev/null 2>&1 || warn "Could not refresh the software list; trying the install anyway."
+        KB_APT_UPDATED=1
+      fi
+      sudo_cmd apt-get install -y "$aptpkg" >/dev/null 2>&1
+      ;;
+    macos)
+      if ! command -v brew >/dev/null 2>&1; then
+        # Homebrew is not installed for them here on purpose: it is a large change
+        # to their machine and it asks for their password. Their decision, not ours.
+        warn "$human is missing, and this Mac has no Homebrew, which is what fetches it.
+   Install Homebrew first - it is one line from https://brew.sh - then run this again."
+        kb_note_missing "$human"; return 1
+      fi
+      log "Installing $human..."
+      brew install "$brewpkg" >/dev/null 2>&1
+      ;;
+    *)
+      warn "$human is missing and I do not know how software is installed on this system.
+   Install $human yourself, then run this again."
+      kb_note_missing "$human"; return 1
+      ;;
+  esac
+
+  if command -v "$cmd" >/dev/null 2>&1; then ok "$human installed"; return 0; fi
+  warn "$human did not become usable after installing it. Open a new terminal and try again."
+  kb_note_missing "$human"; return 1
+}
+
+# The assistant itself. Anthropic ship an installer for macOS and Linux, so use
+# theirs rather than inventing a second way to install their product.
+kb_install_claude_code() {
+  if command -v claude >/dev/null 2>&1; then ok "Claude Code is already here"; return 0; fi
+  if [ -x "$HOME/.local/bin/claude" ]; then
+    export PATH="$HOME/.local/bin:$PATH"; kb_persist_path
+    ok "Claude Code is already here"; return 0
+  fi
+  log "Installing Claude Code..."
+  export PATH="$HOME/.local/bin:$PATH"
+  curl -fsSL https://claude.ai/install.sh 2>/dev/null | bash >/dev/null 2>&1
+  kb_persist_path
+  if command -v claude >/dev/null 2>&1; then ok "Claude Code installed"; return 0; fi
+  warn "Claude Code did not become usable. Open a new terminal and run: claude --version"
+  kb_note_missing "Claude Code"; return 1
+}
+
+# Everything a hub needs on somebody's own computer. Reports what is still missing
+# in KB_MISSING instead of stopping, because a half-wired machine that says which
+# half is far more useful than one that quit on the first problem.
+kb_install_prereqs() {
+  say "Checking what this computer needs"
+  KB_MISSING=""
+  # git: a hub IS a git folder. node: several hub tools are node programs.
+  kb_install_one git  git    git   "Git"     || true
+  kb_install_one node nodejs node  "Node.js" || true
+  kb_install_claude_code || true
+  KB_MISSING="${KB_MISSING# }"
+}
+
+# kb_copy_starter_hub <path> <starter-repo> [folder-inside-it]
+#
+# Lay down a product's real starter folder, fetched from its own public repo.
+#
+# This exists because of a bug worth remembering. The first version of the Windows
+# create path INVENTED a hub: a short AGENTS.md written from scratch. Meanwhile the
+# book's kit already ships starter-hub/, a proper one with context/, skills/,
+# procedures.md, decisions.md, inbox/ and prompts/, which the chapters then walk the
+# reader through filling in. A reader would have got a folder that did not match the
+# book in their hands, and every instruction like "open context/about-me.md" would
+# have failed on a file that was never there.
+#
+# Nothing here may invent content a product already ships. Generic on purpose: the
+# caller names the repository and the folder, so this stays the shared floor.
+kb_copy_starter_hub() {
+  local path="${1:-}" repo="${2:-}" sub="${3:-starter-hub}" tmp f base
+  [ -n "$path" ] && [ -n "$repo" ] || return 1
+  tmp="$(mktemp -d 2>/dev/null)" || return 1
+
+  if ! git clone --depth 1 --quiet "$repo" "$tmp" >/dev/null 2>&1; then rm -rf "$tmp"; return 1; fi
+  if [ ! -d "$tmp/$sub" ]; then rm -rf "$tmp"; return 1; fi
+
+  mkdir -p "$path"
+  # Top level only, and never over something already there, so a second run cannot
+  # tread on a sentence the person has already written about themselves. The
+  # .[!.]* pattern catches dotfiles without matching . or .. themselves.
+  for f in "$tmp/$sub"/* "$tmp/$sub"/.[!.]*; do
+    [ -e "$f" ] || continue
+    base="$(basename "$f")"
+    [ -e "$path/$base" ] && continue
+    cp -R "$f" "$path/" 2>/dev/null || true
+  done
+  rm -rf "$tmp"
+  return 0
+}
+
+# kb_new_hub <path> [their-existing-repo-url] [starter-repo] [folder-inside-it]
+#
+# There is no hub on this computer. Make one. Two shapes, because people arrive in
+# two states: they already keep a hub in a git repository somewhere and this is
+# simply another machine, or they have nothing at all and today is day one.
+#
+# On day one the folder is COPIED from the product's own starter, never written
+# from imagination. See kb_copy_starter_hub for what that cost us.
+kb_new_hub() {
+  local path="${1:-}" repo_url="${2:-}" starter_repo="${3:-}" starter_path="${4:-starter-hub}"
+  [ -n "$path" ] || { warn "kb_new_hub needs somewhere to put it"; return 1; }
+
+  if [ -e "$path" ] && [ -n "$(ls -A "$path" 2>/dev/null)" ] && ! kb_hub_looks_real "$path"; then
+    warn "$path already exists and has things in it, but it is not a hub.
+   Pick an empty folder, or one that does not exist yet."
+    return 1
+  fi
+
+  if [ -n "$repo_url" ]; then
+    say "Getting your hub from $repo_url"
+    mkdir -p "$(dirname "$path")"
+    if ! git clone "$repo_url" "$path"; then
+      warn "Could not copy that repository. If it is a private one, sign in first
+   (run: gh auth login) and try again. The address I tried was $repo_url"
+      return 1
+    fi
+    ok "your hub is now at $path"
+    return 0
+  fi
+
+  say "Starting a new hub at $path"
+  mkdir -p "$path" || { warn "Could not make the folder $path"; return 1; }
+
+  if [ -n "$starter_repo" ]; then
+    log "fetching the starter folder..."
+    if kb_copy_starter_hub "$path" "$starter_repo" "$starter_path"; then
+      ok "your hub starts with the real starter folder, the one the book fills in chapter by chapter"
+    else
+      # Loud, and with the way out in the same breath. A hub of the wrong shape
+      # sends somebody looking for files the book names and they do not have,
+      # which is a worse hour than being told plainly here.
+      warn "I could not fetch the starter folder from $starter_repo
+   so I am making a bare hub instead. It works, but it does NOT have the files the
+   book walks you through (context/, skills/, procedures.md and the rest).
+   To put that right: open that address in a browser, use the green Code button ->
+   Download ZIP, and copy the starter-hub folder from inside it into $path"
+    fi
+  fi
+
+  if [ ! -d "$path/.git" ]; then
+    git -C "$path" init -q || { warn "Could not start a git folder at $path."; return 1; }
+  fi
+  # Returns early when the starter already brought one, so the product's own
+  # index survives instead of being replaced by a blank.
+  kb_seed_memory_index "$path"
+  ok "your hub is now at $path"
+  return 0
+}
