@@ -301,7 +301,13 @@ function Install-KitHubTools {
         New-Item -ItemType Directory -Force (Join-Path $HOME '.hub') | Out-Null
         $n = 0
         Get-ChildItem $src -File | Where-Object { $_.Extension -ne '.md' } | ForEach-Object {
-            Copy-Item $_.FullName (Join-Path $bin $_.Name) -Force
+            # REMOVE FIRST, ALWAYS. Install-KitHubCli puts links in this same folder that
+            # point back into the hub, and copying over a link writes THROUGH it, into the
+            # hub. That happened on the first live run and the only sign was a changed file
+            # nobody asked to change. Deleting the name first means we always write a file.
+            $dest = Join-Path $bin $_.Name
+            Remove-Item $dest -Force -ErrorAction SilentlyContinue
+            Copy-Item $_.FullName $dest -Force
             $n++
         }
         if ($n -eq 0) { return }

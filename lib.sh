@@ -769,7 +769,14 @@ kb_install_hub_tools() {
     [ -f "$f" ] || continue
     base="$(basename "$f")"
     case "$base" in *.md) continue ;; esac
-    cp -f "$f" "$bindir/$base" 2>/dev/null || continue
+    # REMOVE FIRST, ALWAYS. kb_install_hub_cli one function up puts SYMLINKS in this same
+    # folder, pointing back into the hub. `cp` over a symlink writes through it, so a copy
+    # here silently overwrote a file inside the hub itself the first time this ran live, and
+    # the only sign was a git folder that had changed on its own. Deleting the name first
+    # means we always write a file. The test for this can only run where symlinks are real,
+    # so it says out loud when it is skipped.
+    rm -f "$bindir/$base" 2>/dev/null
+    cp "$f" "$bindir/$base" 2>/dev/null || continue
     chmod +x "$bindir/$base" 2>/dev/null || true
     n=$((n + 1))
   done

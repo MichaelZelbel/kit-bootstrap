@@ -362,6 +362,26 @@ t "where the hub is was written down for the scheduled job" \
 t "and a second run does not write it twice" \
   "$(HOME="$_f" kb_install_hub_tools "$_f/hub2" "$_kit" >/dev/null 2>&1; grep -c '^HUB_DIR=' "$_f/.hub/device.env")" "1"
 
+# THE ONE THAT BIT US ON THE FIRST LIVE RUN. kb_install_hub_cli puts SYMLINKS in this same
+# folder, pointing back into the hub. `cp` over a symlink writes THROUGH it, so installing a
+# program whose name matches one of those links overwrote a file inside the hub itself, and
+# the only sign was a git folder that had changed on its own. Both suites had passed, because
+# neither had ever put a link in the way first.
+printf 'the hub owns this file\n' > "$_f/hub2/decoy"
+rm -f "$_f/.local/bin/hub-prompt-archive"
+ln -s "$_f/hub2/decoy" "$_f/.local/bin/hub-prompt-archive" 2>/dev/null
+if [ -L "$_f/.local/bin/hub-prompt-archive" ]; then
+  ( HOME="$_f" kb_install_hub_tools "$_f/hub2" "$_kit" ) >/dev/null 2>&1
+  t "a link in the way is replaced, never written through" \
+    "$(cat "$_f/hub2/decoy")" "the hub owns this file"
+else
+  # Loud, not silent. Git Bash on Windows makes a copy instead of a link unless it is told
+  # otherwise, so this case cannot run here and must SAY it did not. A skip that reads like
+  # a pass is the jq lesson further up this file, and this is exactly the case that lets a
+  # real bug through: the live run that overwrote a hub file happened on Linux.
+  printf '  skip  the symlink case (this shell cannot make one: run this suite on Linux too)\n'
+fi
+
 # With the programs on the machine, the schedule must run THOSE, not a copy inside a hub.
 : > "$_cronfile"
 ( HOME="$_f" KB_CRONTAB="$_f/fakecrontab" kb_install_prompt_harvest "$_f/hub2" ) >/dev/null 2>&1
