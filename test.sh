@@ -27,7 +27,8 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          ensure_claude_code kb_persist_path ensure_gh have_tty ask ask_yes \
          kb_stdin_is_tty kb_can_open_tty kb_resolve_tty kb_tell kb_read \
          kb_run_interactive kb_skip_claude_first_run kb_grant_working_permissions \
-         ensure_claude_signin ensure_gh_auth reexec_as_user handoff; do
+         ensure_claude_signin ensure_gh_auth reexec_as_user handoff \
+         kb_ai_memory_path kb_seed_memory_index kb_link_ai_memory; do
   declare -F "$f" >/dev/null || printf "%s " "$f"
 done')"
 [ -z "$missing" ] || { echo "  MISSING: $missing"; exit 1; }
@@ -141,6 +142,60 @@ if command -v jq >/dev/null 2>&1; then
   t "a second run keeps the backup" "$(jq -r '.mine' "$_p/.claude/settings.json.before-install")"                          "do not lose this"
   rm -rf "$_p"
 fi
+
+# THE SHARED MEMORY LINK (join.sh). This is the wiring that makes one memory serve
+# every machine, and every one of these cases is a way it could lose a memory
+# instead. Nothing here may ever delete a file: the whole design exists so that a
+# memory cannot be lost, and a test suite that does not check that is decoration.
+
+# The path is DERIVED from the hub location, never typed. If this is wrong the
+# assistant writes into a folder nobody syncs and everything looks fine.
+t "the memory path is derived from the hub folder" \
+  "$(HOME=/h kb_ai_memory_path '/home/ai/my hub')" "/h/.claude/projects/-home-ai-my-hub/memory"
+t "a Windows-style path mangles the same way" \
+  "$(HOME=/h kb_ai_memory_path 'C:\hub')" "/h/.claude/projects/c--hub/memory"
+
+# Git Bash on Windows silently turns `ln -s` into a COPY. A copy passes a naive
+# check and shares nothing, so rather than pretend, the link cases are skipped
+# here and run for real on Linux (the VPS, and any reader's server).
+_probe=$(mktemp -d); mkdir "$_probe/real"; ln -sfn "$_probe/real" "$_probe/link" 2>/dev/null
+if [ -L "$_probe/link" ]; then
+  _h=$(mktemp -d); _hub="$_h/hub"; mkdir -p "$_hub"
+
+  ( HOME="$_h"; kb_link_ai_memory "$_hub" ) >/dev/null 2>&1
+  _link="$_h/.claude/projects/$(printf '%s' "$_hub" | sed 's/[^a-zA-Z0-9]/-/g' | tr 'A-Z' 'a-z')/memory"
+  t "a fresh machine gets the link"        "$([ -L "$_link" ] && echo yes)" "yes"
+  t "the link points at the hub's memory"  "$(cd "$_link" && pwd -P)" "$(cd "$_hub/memory" && pwd -P)"
+  t "an empty memory folder is not a mystery" "$([ -s "$_hub/memory/MEMORY.md" ] && echo yes)" "yes"
+
+  # Twice must equal once, or re-running the installer is a thing people fear.
+  printf 'a real memory\n' > "$_hub/memory/fact.md"
+  ( HOME="$_h"; kb_link_ai_memory "$_hub" ) >/dev/null 2>&1
+  t "running it again keeps the memories"  "$(cat "$_hub/memory/fact.md")" "a real memory"
+
+  # A machine that already has memories in the OLD place. They must arrive in the
+  # hub, and the old folder must survive: never delete what you cannot get back.
+  _h2=$(mktemp -d); _hub2="$_h2/hub"; mkdir -p "$_hub2"
+  _old="$_h2/.claude/projects/$(printf '%s' "$_hub2" | sed 's/[^a-zA-Z0-9]/-/g' | tr 'A-Z' 'a-z')/memory"
+  mkdir -p "$_old"; printf 'learned before joining\n' > "$_old/older.md"
+  ( HOME="$_h2"; kb_link_ai_memory "$_hub2" ) >/dev/null 2>&1
+  t "memories from before the join are carried in" "$(cat "$_hub2/memory/older.md" 2>/dev/null)" "learned before joining"
+  t "the old folder is kept, not deleted"          "$(ls -d "$_old".replaced-* >/dev/null 2>&1 && echo yes)" "yes"
+
+  # THE ONE THAT LOOKS LIKE SUCCESS. A link left over from a hub at a different
+  # path is still a link, so a check for "is it a link" reports everything fine
+  # while the assistant writes into a folder nobody syncs any more.
+  _h3=$(mktemp -d); _hub3="$_h3/hub"; _stale="$_h3/somewhere-else"; mkdir -p "$_hub3" "$_stale"
+  _l3="$_h3/.claude/projects/$(printf '%s' "$_hub3" | sed 's/[^a-zA-Z0-9]/-/g' | tr 'A-Z' 'a-z')/memory"
+  mkdir -p "$(dirname "$_l3")"; ln -sfn "$_stale" "$_l3"
+  ( HOME="$_h3"; kb_link_ai_memory "$_hub3" ) >/dev/null 2>&1
+  t "a link pointing at the wrong hub is repaired" "$(cd "$_l3" && pwd -P)" "$(cd "$_hub3/memory" && pwd -P)"
+
+  rm -rf "$_h" "$_h2" "$_h3"
+else
+  echo "  skip  the memory-link cases (this shell cannot make symlinks; run on Linux)"
+fi
+rm -rf "$_probe"
 
 echo
 echo "  $pass passed, $fail failed"

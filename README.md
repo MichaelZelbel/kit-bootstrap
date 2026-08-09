@@ -96,6 +96,53 @@ It gets `eval`'d into somebody else's shell on a machine they just rented.
    installer that fetches it, on every machine, at once. That is the price of
    having one copy, and it is why the `v1` branch is fixes only.
 
+## Two jobs, not two audiences: create and join
+
+Every installer built on this floor answers one question: *build me a thing from
+nothing.* That is the CREATE job, and it is the right one for a freshly rented
+server. It is not the only job.
+
+The other one is JOIN: *I already have a hub, this is another machine.* Until
+2026-08-09 nothing here answered it. So the wiring was written once inside the
+author's private repo, and a reader who bought a second laptop got nothing at
+all. That is the same drift this repo exists to prevent, one level up: the split
+had been made by AUDIENCE (author versus reader) when the real difference is the
+JOB. So the join job lives here now and both sides call it.
+
+| File | Runs on | What it does |
+|---|---|---|
+| `join.sh` | Linux, macOS | joins this machine to a hub that already exists |
+| `join.ps1` | Windows | the same, with junctions, which need no admin rights |
+
+Both are safe to run again and neither ever deletes a memory.
+
+```bash
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v1/join.sh | bash -s -- ~/hub
+```
+
+```powershell
+# Windows
+irm https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v1/join.ps1 -OutFile join.ps1
+powershell -ExecutionPolicy Bypass -File .\join.ps1 C:\path\to\your\hub
+```
+
+### What joining actually does
+
+It points the AI tool's private memory folder at `memory/` inside the hub.
+
+An AI assistant keeps what it learns about you in a folder belonging to the
+TOOL, on ONE machine. Nothing else can read it: not your other assistants, not
+your other computers. Linking that folder into the hub makes one memory that
+every machine and every assistant shares, carried by the same git sync that
+already carries the rest of the folder. `kb_link_ai_memory` is the function;
+`join.sh` and `join.ps1` are the two front doors to it.
+
+It never deletes anything. Notes already in the old place are copied into the
+hub first, and the old folder is kept with a timestamp on it. A link left
+pointing at a hub that has moved is repaired rather than reported as fine, which
+is the failure that otherwise looks exactly like success.
+
 ## Why not just put this inside the Hermes kit
 
 Because that kit's installer exists to fetch a paid tarball with its fingerprint

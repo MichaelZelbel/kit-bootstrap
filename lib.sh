@@ -539,3 +539,92 @@ Then paste this one line:
 ===================================================================
 EOF
 }
+
+# --- Joining a machine to a hub that already exists ---------------------------
+#
+# Every installer here answers "make me a hub from nothing". None of them
+# answered "I already have a hub, this is a second machine", so that job was
+# written separately in Michael's own repo and had to be written AGAIN for
+# readers. That is the drift this repo exists to stop, so it lives here now and
+# both callers use it.
+#
+# What it fixes, concretely: an AI assistant keeps its memory of you in a folder
+# belonging to the TOOL, not to your hub. So the memory never leaves that one
+# machine and no other assistant can read it. Linking that folder into the hub
+# makes one memory that every machine and every assistant shares, carried by the
+# same git sync that already carries everything else.
+
+# kb_ai_memory_path <hub-dir>
+# Where Claude Code keeps the memory for that hub folder. Derived, never typed:
+# it mangles the absolute path the same way Claude Code does, so this keeps
+# working when the hub sits somewhere else on the next machine.
+kb_ai_memory_path() {
+  local hub="$1" mangled
+  mangled="$(printf '%s' "$hub" | sed 's/[^a-zA-Z0-9]/-/g' | tr 'A-Z' 'a-z')"
+  printf '%s' "$HOME/.claude/projects/$mangled/memory"
+}
+
+# kb_seed_memory_index <hub-dir>
+# A memory folder with nothing in it is a mystery. One index file with one line
+# explaining itself is the difference between a feature and a stray directory.
+kb_seed_memory_index() {
+  local hub="$1" idx="$1/memory/MEMORY.md"
+  mkdir -p "$hub/memory"
+  [ -f "$idx" ] && return 0
+  cat > "$idx" <<'IDX'
+# Memory index
+
+This is what your assistants have learned about you and your work, one file per
+fact, and this page is the list of them. Your assistant reads this list at the
+start of a session and opens only the files it needs, so the list stays small
+and the facts stay out of the way until they matter.
+
+It lives in your hub folder rather than inside one AI tool, so every assistant
+on every one of your machines reads the same memory.
+
+One line per memory, like this:
+
+- [What it is](some-fact.md) - the short version, so a session can tell whether to open it
+IDX
+  ok "memory: created the index at $hub/memory/MEMORY.md"
+}
+
+# kb_link_ai_memory <hub-dir>
+# Point the assistant's private memory folder at the hub's memory/ folder.
+# Safe to run again: it never deletes a memory, and it repairs a link that points
+# somewhere else (an older hub path) instead of reporting it as fine.
+kb_link_ai_memory() {
+  local hub="$1" mem link stash f
+  [ -n "$hub" ] || { warn "kb_link_ai_memory needs the hub folder"; return 1; }
+  mem="$hub/memory"
+  link="$(kb_ai_memory_path "$hub")"
+  kb_seed_memory_index "$hub"
+
+  if [ -L "$link" ]; then
+    # A link that points at the WRONG hub is the failure that looks like success:
+    # the assistant writes memories into a folder nobody syncs any more.
+    local target
+    target="$(readlink "$link")"
+    if [ "$target" = "$mem" ] || [ "$(cd "$link" 2>/dev/null && pwd -P)" = "$(cd "$mem" 2>/dev/null && pwd -P)" ]; then
+      ok "memory: already shared with $mem"
+      return 0
+    fi
+    warn "memory: the link pointed at $target, not at this hub. Repointing it."
+    rm -f "$link"
+  elif [ -d "$link" ]; then
+    # Real memories from before this ran. Carry them in, then move the folder
+    # aside with a timestamp. Never delete: a memory nobody can get back is the
+    # one thing this whole design exists to prevent.
+    for f in "$link"/*; do
+      [ -f "$f" ] || continue
+      [ -e "$mem/$(basename "$f")" ] || { cp "$f" "$mem/"; ok "memory: carried over $(basename "$f")"; }
+    done
+    stash="$link.replaced-$(date +%Y%m%d%H%M%S)"
+    mv "$link" "$stash"
+    ok "memory: your old folder is kept at $stash (delete it once you are happy)"
+  fi
+
+  mkdir -p "$(dirname "$link")"
+  ln -sfn "$mem" "$link"
+  ok "memory: $link now points at $mem, so every machine shares it"
+}
