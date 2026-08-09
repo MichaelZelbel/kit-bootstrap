@@ -728,7 +728,11 @@ kb_install_hub_cli() {
   for f in "$src"/hub "$src"/hub-*; do
     [ -f "$f" ] || continue
     case "$f" in *.env|*.md) continue ;; esac
-    chmod +x "$f" 2>/dev/null || true
+    # Only when it is not already runnable. An unconditional chmod rewrites the file's mode
+    # even when nothing needed changing, which shows up as 16 modified files in the hub's own
+    # git folder every single time the installer runs. An installer that dirties the folder it
+    # came to wire up looks exactly like an installer that changed something on purpose.
+    [ -x "$f" ] || chmod +x "$f" 2>/dev/null || true
     ln -sfn "$f" "$bindir/$(basename "$f")" && n=$((n + 1))
   done
   kb_persist_path
