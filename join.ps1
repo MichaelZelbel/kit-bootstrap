@@ -28,6 +28,33 @@ function Write-KbOk   { param($m) Write-Host "   ok: $m" }
 function Write-KbWarn { param($m) Write-Warning $m }
 function Write-KbSay  { param($m) Write-Host "`n== $m" -ForegroundColor Cyan }
 
+function Set-KbTextFile {
+    <#  Write a text file as UTF-8 with no byte-order mark.
+
+        Not `Set-Content -Encoding utf8NoBOM`, which only exists in PowerShell 7.
+        Windows ships 5.1 and that is what a double-clicked installer runs under,
+        so anything here that 7 alone understands fails on the machine of every
+        person who has not gone looking for a newer PowerShell.
+
+        AllowEmptyString is not decoration. A mandatory [string[]] refuses an array
+        holding a blank line, and every one of these files is prose with blank
+        lines in it, so without it this function rejects its only real input. #>
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [AllowEmptyString()][AllowEmptyCollection()][string[]]$Lines = @()
+    )
+    [System.IO.File]::WriteAllLines($Path, $Lines, (New-Object System.Text.UTF8Encoding($false)))
+    if (-not (Test-Path $Path)) { throw "could not write $Path" }
+}
+
+# raw.githubusercontent.com refuses anything below TLS 1.2, and Windows PowerShell
+# 5.1 still defaults to older ones. Without this line every download here fails
+# with a connection error that names nothing useful.
+try {
+    [Net.ServicePointManager]::SecurityProtocol =
+        [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+} catch { }
+
 function Get-KitMemoryLinkPath {
     <#  Where Claude Code keeps the memory for this hub folder. Derived from the
         path, never typed in, so it still works when the hub sits somewhere else
@@ -43,7 +70,7 @@ function Initialize-KitMemoryIndex {
     New-Item -ItemType Directory -Force $mem | Out-Null
     $idx = Join-Path $mem 'MEMORY.md'
     if (Test-Path $idx) { return }
-    @(
+    $lines = @(
         '# Memory index'
         ''
         'This is what your assistants have learned about you and your work, one file per'
@@ -57,7 +84,8 @@ function Initialize-KitMemoryIndex {
         'One line per memory, like this:'
         ''
         '- [What it is](some-fact.md) - the short version, so a session can tell whether to open it'
-    ) | Set-Content -Path $idx -Encoding utf8NoBOM
+    )
+    Set-KbTextFile -Path $idx -Lines $lines
     Write-KbOk "memory: created the index at $idx"
 }
 
@@ -221,6 +249,162 @@ function Install-KitHubCli {
     }
     $env:Path = "$bin;$env:Path"
     Write-KbOk "commands: $n hub tools now run from anywhere, e.g. hub map lovable"
+}
+
+# =============================================================================
+# THE THINGS A WINDOWS PC NEEDS BEFORE ANY OF THE ABOVE CAN WORK
+#
+# Added 2026-08-09. Everything above assumes git is already on the machine and an
+# assistant is already installed. On a rented Linux server that is true, because
+# the CREATE installer put them there. On somebody's own Windows laptop it is
+# usually false, and until now the answer was "go install three things by hand
+# first", which is not an installer, it is homework.
+# =============================================================================
+
+function Test-KitCommand { param([string]$Name) [bool](Get-Command $Name -ErrorAction SilentlyContinue) }
+
+function Update-KitPath {
+    <#  Re-read PATH from the registry into this process.
+
+        A program installed one line ago is invisible to the next line without
+        this: Windows hands every process its PATH at birth and never updates it.
+        That is the difference between an installer that works and one that tells
+        you to close the window and start again. #>
+    $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $user    = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $env:Path = (@($machine, $user, $env:Path) | Where-Object { $_ }) -join ';'
+}
+
+function Install-KitWingetPackage {
+    <#  Install one package with Windows' own package manager, quietly.
+        Returns $true only when the command it provides is reachable afterwards,
+        because "winget exited 0" and "the tool is usable" are not the same claim. #>
+    param(
+        [Parameter(Mandatory)][string]$Id,
+        [Parameter(Mandatory)][string]$Command,
+        [Parameter(Mandatory)][string]$Human
+    )
+    if (Test-KitCommand $Command) { Write-KbOk "$Human is already here"; return $true }
+
+    if (-not (Test-KitCommand 'winget')) {
+        Write-KbWarn "$Human is missing and this PC has no App Installer, so I cannot fetch it. Install $Human by hand, then run this again."
+        return $false
+    }
+
+    Write-Host "   installing $Human (this can take a few minutes)..."
+    # --silent keeps the vendor's own wizard from popping up behind ours. The two
+    # agreement flags stop winget stopping to ask a question nobody is there to answer.
+    winget install --id $Id --exact --silent --disable-interactivity `
+        --accept-source-agreements --accept-package-agreements 2>&1 | Out-Null
+    Update-KitPath
+
+    if (Test-KitCommand $Command) { Write-KbOk "$Human installed"; return $true }
+    Write-KbWarn "$Human did not become usable after installing it. Sign out and in again, or install it by hand."
+    return $false
+}
+
+function Install-KitClaudeCode {
+    <#  The assistant itself. Anthropic ships a Windows installer of their own, so
+        use that rather than inventing a second way to install their product. #>
+    if (Test-KitCommand 'claude') { Write-KbOk "Claude Code is already here"; return $true }
+
+    Write-Host "   installing Claude Code..."
+    $script = Join-Path $env:TEMP 'claude-install.ps1'
+    try {
+        Invoke-WebRequest -UseBasicParsing -Uri 'https://claude.ai/install.ps1' -OutFile $script -ErrorAction Stop
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script 2>&1 | Out-Null
+    } catch {
+        Write-KbWarn "could not fetch the Claude Code installer: $($_.Exception.Message)"
+        return $false
+    }
+    # Its own install folder, in case PATH has not caught up inside this process.
+    $env:Path = "$(Join-Path $HOME '.local\bin');$env:Path"
+    Update-KitPath
+
+    if (Test-KitCommand 'claude') { Write-KbOk "Claude Code installed"; return $true }
+    Write-KbWarn "Claude Code did not become usable. Open a new terminal and run: claude --version"
+    return $false
+}
+
+function Install-KitPrereqs {
+    <#  Everything the hub needs on a Windows PC. Reports what is still missing
+        instead of stopping, because a half-wired machine that says which half is
+        far more useful than one that quit on the first problem. #>
+    Write-KbSay "Checking what this PC needs"
+    $missing = @()
+
+    # git: the hub IS a git folder, and Git for Windows also brings Git Bash,
+    # which is what the hub's own commands run under.
+    if (-not (Install-KitWingetPackage -Id 'Git.Git' -Command 'git' -Human 'Git')) { $missing += 'Git' }
+    # node: several hub tools are node programs (calling another machine's AI, for one).
+    if (-not (Install-KitWingetPackage -Id 'OpenJS.NodeJS.LTS' -Command 'node' -Human 'Node.js')) { $missing += 'Node.js' }
+    if (-not (Install-KitClaudeCode)) { $missing += 'Claude Code' }
+
+    return $missing
+}
+
+function New-KitHub {
+    <#  There is no hub on this PC. Make one.
+
+        Two shapes, because people arrive in two states: they already keep a hub
+        in a git repository somewhere and this is simply another machine, or they
+        have nothing at all and today is day one. #>
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [string]$RepoUrl
+    )
+
+    if (Test-Path $Path) {
+        $hasFiles = @(Get-ChildItem $Path -Force -ErrorAction SilentlyContinue).Count -gt 0
+        if ($hasFiles -and -not (Test-KitHub $Path)) {
+            throw "$Path already exists and has things in it, but it is not a hub. Pick an empty folder, or one that does not exist yet."
+        }
+    }
+
+    if ($RepoUrl) {
+        Write-KbSay "Getting your hub from $RepoUrl"
+        New-Item -ItemType Directory -Force (Split-Path $Path -Parent) | Out-Null
+        git clone $RepoUrl $Path
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not copy that repository. If it is a private one, sign in first (run: gh auth login) and try again. The address I tried was $RepoUrl"
+        }
+        Write-KbOk "your hub is now at $Path"
+        return
+    }
+
+    Write-KbSay "Starting a new hub at $Path"
+    New-Item -ItemType Directory -Force $Path | Out-Null
+    if (-not (Test-Path (Join-Path $Path '.git'))) {
+        git -C $Path init -q
+        if ($LASTEXITCODE -ne 0) { throw "Could not start a git folder at $Path." }
+    }
+    Initialize-KitMemoryIndex -Hub $Path
+
+    $agents = Join-Path $Path 'AGENTS.md'
+    if (-not (Test-Path $agents)) {
+        $starter = @(
+            '# My hub'
+            ''
+            'This folder is the brain my AI assistants share. Every assistant on every one'
+            'of my machines reads this file first, so what I write here is what all of them'
+            'know about how I want to work.'
+            ''
+            '## What is in here'
+            ''
+            '- `memory/` - what the assistants have learned about me, one file per fact.'
+            '  `memory/MEMORY.md` is the list of them.'
+            '- Anything else I want them to have: notes about me, about my work, about the'
+            '  things I am building.'
+            ''
+            '## Keeping it on my other machines'
+            ''
+            'This folder is a git folder, so it travels the ordinary way: commit, push, and'
+            'run the same installer on the next machine.'
+        )
+        Set-KbTextFile -Path $agents -Lines $starter
+        Write-KbOk "wrote a starter $agents for you to make your own"
+    }
+    Write-KbOk "your hub is now at $Path"
 }
 
 if ($AsLibrary) { return }

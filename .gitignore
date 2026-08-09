@@ -1,0 +1,4 @@
+# Build output. HubSetup.exe is published as a GitHub Release, never committed:
+# a 2 MB binary in every clone, rebuilt on every change, is how a small repo
+# stops being small.
+windows/dist/
