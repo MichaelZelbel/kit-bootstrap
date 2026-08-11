@@ -19,7 +19,7 @@
 ; =============================================================================
 
 #define AppName        "Hub"
-#define AppVersion     "1.1.0"
+#define AppVersion     "1.1.1"
 #define AppPublisher   "Michael Zelbel"
 #define AppURL         "https://github.com/MichaelZelbel/kit-bootstrap"
 
@@ -233,15 +233,16 @@ begin
 
   { The choice page. Everything a ticked row means is said HERE, before it
     happens, because this is the person's one moment to say no: what you type to
-    a ticked tool is copied into the hub folder and pushed to its repository. }
+    a ticked tool, and what it answers, is copied into the hub folder and pushed
+    to its repository. }
   SyncPage := CreateInputOptionPage(HubPage.ID,
     'Your AI tools',
     'Which AI tools may be synced through your hub?',
-    'These AI tools were found on this PC. Each ticked one has what you type to it '
-    + '(and, for Claude Code, what it remembers about you) copied into your hub folder '
-    + 'and pushed with your hub to its git repository, so your other machines share it. '
-    + 'Untick a tool and its files are not read at all. You can change this any time by '
-    + 'running this installer again.',
+    'These AI tools were found on this PC. Each ticked one has what you type to it, '
+    + 'and what it answers you (and, for Claude Code, what it remembers about you), '
+    + 'copied into your hub folder and pushed with your hub to its git repository, so '
+    + 'your other machines share it. Untick a tool and its files are not read at all. '
+    + 'You can change this any time by running this installer again.',
     False, False);
 
   ToolCount := 0;
@@ -253,7 +254,7 @@ begin
   for i := 0 to GetArrayLength(ToolLines) - 1 do
     if PipeField(ToolLines[i], 0) = 'claude' then HaveClaude := True;
   if not HaveClaude then
-    AddSyncRow('claude', 'Claude Code (about to be installed) - its memory folder, and what you type to it');
+    AddSyncRow('claude', 'Claude Code (about to be installed) - its memory folder, plus what you type to it and its answers');
 
   for i := 0 to GetArrayLength(ToolLines) - 1 do
   begin
@@ -270,9 +271,9 @@ begin
       SyncPage.Values[row] := False;
     end
     else if sync = 'memory+prompts' then
-      AddSyncRow(id, name + ' - its memory folder, and what you type to it')
+      AddSyncRow(id, name + ' - its memory folder, plus what you type to it and its answers')
     else
-      AddSyncRow(id, name + ' - what you type to it');
+      AddSyncRow(id, name + ' - what you type to it, and its answers');
   end;
 end;
 

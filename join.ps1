@@ -300,8 +300,8 @@ function Write-KitSyncReport {
         if ($sync -eq 'none') {
             $unsync += "  - ${name}: $note"
         } elseif ($on -contains $id) {
-            if ($sync -eq 'memory+prompts') { $synced += "  - ${name}: its memory folder, and what you type to it" }
-            else { $synced += "  - ${name}: what you type to it" }
+            if ($sync -eq 'memory+prompts') { $synced += "  - ${name}: its memory folder, plus what you type to it and its answers" }
+            else { $synced += "  - ${name}: what you type to it, and its answers" }
         } else {
             $off += "  - $name (switched off by your choice; edit HUB_PROMPT_SOURCES in ~\.hub\device.env to change it)"
         }
@@ -524,7 +524,7 @@ function Install-KitHubTools {
             [Environment]::SetEnvironmentVariable('Path', $joined, 'User')
         }
         $env:Path = "$bin;$env:Path"
-        Write-KbOk "prompt archive: installed the program that files what you type to an AI ($bin)"
+        Write-KbOk "prompt archive: installed the program that files what you type to an AI, and its answers ($bin)"
     } finally {
         Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -570,7 +570,7 @@ function Install-KitPromptHarvest {
 
     $node = (Get-Command node -ErrorAction SilentlyContinue).Source
     if (-not $node) {
-        Write-KbWarn "prompt archive: Node.js is not on this computer, so what you type to an AI here cannot be filed. Install Node.js and run this again."
+        Write-KbWarn "prompt archive: Node.js is not on this computer, so what you type to an AI here (and its answers) cannot be filed. Install Node.js and run this again."
         return
     }
     if (-not (Get-Command Register-ScheduledTask -ErrorAction SilentlyContinue)) {
@@ -591,8 +591,8 @@ function Install-KitPromptHarvest {
             -RepetitionInterval (New-TimeSpan -Hours 1) -RepetitionDuration (New-TimeSpan -Days 3650)
         $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
         Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings `
-            -Description 'Files what you type to an AI on this computer into your hub.' -Force | Out-Null
-        Write-KbOk "prompt archive: this computer now files what you type to an AI, once a day"
+            -Description 'Files what you type to an AI on this computer, and its answers, into your hub.' -Force | Out-Null
+        Write-KbOk "prompt archive: this computer now files what you type to an AI, and its answers, once a day"
     } catch {
         Write-KbWarn "prompt archive: I could not add the daily job to this computer's schedule ($($_.Exception.Message)). Run it by hand when you want it: node `"$js`""
     }

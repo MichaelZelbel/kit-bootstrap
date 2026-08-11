@@ -791,8 +791,8 @@ kb_sync_report() {
       unsyncable="$unsyncable  - $name: $note\n"
     elif [ "${on#*,$id,}" != "$on" ]; then
       case "$sync" in
-        memory+prompts) synced="$synced  - $name: its memory folder, and what you type to it\n" ;;
-        *)              synced="$synced  - $name: what you type to it\n" ;;
+        memory+prompts) synced="$synced  - $name: its memory folder, plus what you type to it and its answers\n" ;;
+        *)              synced="$synced  - $name: what you type to it, and its answers\n" ;;
       esac
     else
       off="$off  - $name (switched off by your choice; edit HUB_PROMPT_SOURCES in ~/.hub/device.env to change it)\n"
@@ -984,7 +984,7 @@ kb_install_hub_tools() {
   fi
 
   kb_persist_path
-  ok "prompt archive: installed the program that files what you type to an AI ($bindir)"
+  ok "prompt archive: installed the program that files what you type to an AI, and its answers ($bindir)"
 }
 
 # kb_install_prompt_harvest <hub-dir>
@@ -1020,7 +1020,7 @@ kb_install_prompt_harvest() {
 
   node="$(command -v node 2>/dev/null || true)"
   if [ -z "$node" ]; then
-    warn "prompt archive: Node.js is not on this computer, so what you type to an AI here cannot be filed. Install Node.js and run this again."
+    warn "prompt archive: Node.js is not on this computer, so what you type to an AI here (and its answers) cannot be filed. Install Node.js and run this again."
     return 0
   fi
   if ! command -v "$cron" >/dev/null 2>&1; then
@@ -1044,9 +1044,9 @@ kb_install_prompt_harvest() {
     line="17 * * * * \"$node\" \"$hub/bin/prompt-harvest.js\" --once-a-day >> \"$HOME/.hub/prompt-harvest.log\" 2>&1"
   fi
   if { [ -n "$cur" ] && printf '%s\n' "$cur"
-       printf '%s\n%s\n' "# Keep the hub's record of what you type to an AI on this computer up to date." "$line"
+       printf '%s\n%s\n' "# Keep the hub's record of what you type to an AI on this computer, and its answers, up to date." "$line"
      } | "$cron" - 2>/dev/null; then
-    ok "prompt archive: this computer now files what you type to an AI, once a day"
+    ok "prompt archive: this computer now files what you type to an AI, and its answers, once a day"
   else
     warn "prompt archive: I could not add the daily job to this computer's schedule. Run it by hand when you want it: ${runner:-node \"$hub/bin/prompt-harvest.js\"}"
   fi
