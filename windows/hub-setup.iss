@@ -70,7 +70,7 @@ Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 
 [Run]
 Filename: "powershell.exe"; \
-    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-hub.ps1"" -NoPause -Hub ""{code:GetHubDir}"" -RepoUrl ""{code:GetRepoUrl}"""; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-hub.ps1"" -NoPause -Hub ""{code:GetHubDir}"" -RepoUrl ""{code:GetRepoUrl}"" -PromptSources ""{code:GetPromptSources}"""; \
     StatusMsg: "Setting up your hub. This can take a few minutes, and a window will show what it is doing..."; \
     Flags: waituntilterminated
 Filename: "{code:GetHubDir}"; Description: "Open my hub folder"; \
@@ -88,6 +88,43 @@ ConfirmUninstall=This removes the setup program only.%n%nYour hub folder, and ev
 var
   HubPage: TInputQueryWizardPage;
   FoundHub: String;
+  { The AI-tools checklist. ToolIds/ToolNames/ToolRows describe only the rows a
+    person can tick (the syncable ones); tools this kit cannot read are shown as
+    disabled rows so they are seen to be seen, and never tracked here. }
+  SyncPage: TInputOptionWizardPage;
+  ToolIds: array of String;
+  ToolNames: array of String;
+  ToolRows: array of Integer;
+  ToolCount: Integer;
+  RecordedSources: String;
+
+{ Field N of 'a|b|c|d'. Inno's Pascal has no split, so this walks the string. }
+function PipeField(const S: String; Index: Integer): String;
+var
+  i, start, field: Integer;
+begin
+  Result := '';
+  field := 0;
+  start := 1;
+  for i := 1 to Length(S) do
+    if S[i] = '|' then
+    begin
+      if field = Index then
+      begin
+        Result := Copy(S, start, i - start);
+        exit;
+      end;
+      field := field + 1;
+      start := i + 1;
+    end;
+  if field = Index then
+    Result := Copy(S, start, Length(S) - start + 1);
+end;
+
+function InCsv(const Csv, Id: String): Boolean;
+begin
+  Result := Pos(',' + Id + ',', ',' + Csv + ',') > 0;
+end;
 
 { Ask the shared install code where the hub is, rather than writing a second
   copy of that search in Pascal. Two copies of a search is how they drift. }
@@ -114,9 +151,75 @@ begin
           Result := Trim(Lines[0]);
 end;
 
+{ Ask the shared install code which AI tools live on this PC and what this
+  device has already recorded about syncing them, same pattern as DetectHub:
+  one search, written once, in the shared code. Sources comes back as '(auto)'
+  when no choice was ever recorded, else as the recorded comma list ('' = none). }
+procedure DetectTools(var Sources: String; var Lines: TArrayOfString);
+var
+  PsFile, OutFile, Cmd: String;
+  Code: Integer;
+  Raw: TArrayOfString;
+  i, n: Integer;
+begin
+  Sources := '(auto)';
+  SetArrayLength(Lines, 0);
+  PsFile  := ExpandConstant('{tmp}\join.ps1');
+  OutFile := ExpandConstant('{tmp}\ai-tools.txt');
+
+  Cmd := '-NoProfile -ExecutionPolicy Bypass -Command "'
+       + '. ''' + PsFile + ''' -AsLibrary; '
+       + '$v = Get-KitDeviceEnvValue ''HUB_PROMPT_SOURCES''; '
+       + 'if ($null -eq $v) { $v = ''(auto)'' } elseif ($v.Trim() -eq ''-'') { $v = '''' }; '
+       + '$out = @(''sources='' + $v) + @(Find-KitAiTools); '
+       + 'Set-Content -LiteralPath ''' + OutFile + ''' -Value $out"';
+
+  if Exec('powershell.exe', Cmd, '', SW_HIDE, ewWaitUntilTerminated, Code) then
+    if FileExists(OutFile) then
+      if LoadStringsFromFile(OutFile, Raw) then
+      begin
+        n := 0;
+        for i := 0 to GetArrayLength(Raw) - 1 do
+          if Copy(Raw[i], 1, 8) = 'sources=' then
+            Sources := Copy(Raw[i], 9, Length(Raw[i]) - 8)
+          else if Trim(Raw[i]) <> '' then
+          begin
+            SetArrayLength(Lines, n + 1);
+            Lines[n] := Raw[i];
+            n := n + 1;
+          end;
+      end;
+end;
+
+{ One tickable row on the checklist. Remembered in the Tool* arrays so
+  GetPromptSources can read the ticks back. }
+procedure AddSyncRow(const Id, Caption: String);
+var
+  row: Integer;
+begin
+  row := SyncPage.Add(Caption);
+  if RecordedSources = '(auto)' then
+    SyncPage.Values[row] := True
+  else
+    SyncPage.Values[row] := InCsv(RecordedSources, Id);
+  SetArrayLength(ToolIds, ToolCount + 1);
+  SetArrayLength(ToolNames, ToolCount + 1);
+  SetArrayLength(ToolRows, ToolCount + 1);
+  ToolIds[ToolCount] := Id;
+  ToolNames[ToolCount] := Copy(Caption, 1, Pos(' - ', Caption) - 1);
+  ToolRows[ToolCount] := row;
+  ToolCount := ToolCount + 1;
+end;
+
 procedure InitializeWizard();
+var
+  ToolLines: TArrayOfString;
+  i, row: Integer;
+  id, sync, name, note: String;
+  HaveClaude: Boolean;
 begin
   FoundHub := DetectHub();
+  DetectTools(RecordedSources, ToolLines);
 
   HubPage := CreateInputQueryPage(wpWelcome,
     'Where your hub goes',
@@ -127,6 +230,50 @@ begin
   HubPage.Add('Address of a hub you already have (optional):', False);
   HubPage.Values[0] := 'C:\hub';
   HubPage.Values[1] := '';
+
+  { The choice page. Everything a ticked row means is said HERE, before it
+    happens, because this is the person's one moment to say no: what you type to
+    a ticked tool is copied into the hub folder and pushed to its repository. }
+  SyncPage := CreateInputOptionPage(HubPage.ID,
+    'Your AI tools',
+    'Which AI tools may be synced through your hub?',
+    'These AI tools were found on this PC. Each ticked one has what you type to it '
+    + '(and, for Claude Code, what it remembers about you) copied into your hub folder '
+    + 'and pushed with your hub to its git repository, so your other machines share it. '
+    + 'Untick a tool and its files are not read at all. You can change this any time by '
+    + 'running this installer again.',
+    False, False);
+
+  ToolCount := 0;
+
+  { A fresh PC has no Claude Code YET, but this installer is about to install
+    it, so the person decides about it now, at the top of the list where it
+    belongs. }
+  HaveClaude := False;
+  for i := 0 to GetArrayLength(ToolLines) - 1 do
+    if PipeField(ToolLines[i], 0) = 'claude' then HaveClaude := True;
+  if not HaveClaude then
+    AddSyncRow('claude', 'Claude Code (about to be installed) - its memory folder, and what you type to it');
+
+  for i := 0 to GetArrayLength(ToolLines) - 1 do
+  begin
+    id   := PipeField(ToolLines[i], 0);
+    sync := PipeField(ToolLines[i], 1);
+    name := PipeField(ToolLines[i], 2);
+    note := PipeField(ToolLines[i], 3);
+    if sync = 'none' then
+    begin
+      { Shown so the person knows the tool was seen rather than forgotten, and
+        disabled because there is nothing this kit could do with a tick. }
+      row := SyncPage.Add(name + ' - cannot sync: ' + note);
+      SyncPage.CheckListBox.ItemEnabled[row] := False;
+      SyncPage.Values[row] := False;
+    end
+    else if sync = 'memory+prompts' then
+      AddSyncRow(id, name + ' - its memory folder, and what you type to it')
+    else
+      AddSyncRow(id, name + ' - what you type to it');
+  end;
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
@@ -152,6 +299,37 @@ begin
     Result := Trim(HubPage.Values[1]);
 end;
 
+{ The ticked tools, as the comma list setup-hub.ps1 expects. '-' is NONE spelled
+  so it survives being passed as a command-line value. }
+function GetPromptSources(Param: String): String;
+var
+  i: Integer;
+begin
+  Result := '';
+  for i := 0 to ToolCount - 1 do
+    if SyncPage.Values[ToolRows[i]] then
+    begin
+      if Result <> '' then Result := Result + ',';
+      Result := Result + ToolIds[i];
+    end;
+  if Result = '' then Result := '-';
+end;
+
+{ The same ticks as human names, for the Ready page. }
+function GetSyncSummary(): String;
+var
+  i: Integer;
+begin
+  Result := '';
+  for i := 0 to ToolCount - 1 do
+    if SyncPage.Values[ToolRows[i]] then
+    begin
+      if Result <> '' then Result := Result + ', ';
+      Result := Result + ToolNames[i];
+    end;
+  if Result = '' then Result := 'nothing (every box is unticked)';
+end;
+
 { The Ready page should say which of the two jobs is about to happen, in words a
   person can act on, because this is the last moment they can stop it. }
 function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo,
@@ -160,7 +338,7 @@ begin
   if FoundHub <> '' then
     Result := 'This PC already has a hub, so I am going to UPDATE it:' + NewLine + NewLine
             + Space + FoundHub + NewLine + NewLine
-            + 'I will fetch the latest of it, make sure this PC shares one memory with your other machines, and put the hub commands within reach here.'
+            + 'I will fetch the latest of it and put the hub commands within reach here.'
   else
   begin
     Result := 'This PC has no hub, so I am going to INSTALL one:' + NewLine + NewLine
@@ -169,4 +347,6 @@ begin
       Result := Result + 'It will be fetched from:' + NewLine + Space + GetRepoUrl('') + NewLine + NewLine;
     Result := Result + 'I will also install anything missing that it needs: Git, Node.js and Claude Code. Windows may ask your permission for those, which is normal.';
   end;
+  Result := Result + NewLine + NewLine
+          + 'Synced through your hub from this PC: ' + GetSyncSummary();
 end;

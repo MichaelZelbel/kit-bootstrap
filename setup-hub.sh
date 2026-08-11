@@ -29,6 +29,9 @@
 #   --starter-repo <url>    the product whose starter folder a new hub begins as
 #   --starter-path <name>   the folder inside that repo        (default: starter-hub)
 #   --skip-prereqs          do not install anything, just wire it up
+#   --sources <list>        which AI tools may be synced from this machine, as a
+#                           comma list (e.g. claude,codex). "" means none. Without
+#                           it, every tool this kit can read that is found here.
 #
 # Safe to run as many times as you like. It never deletes a memory.
 # =============================================================================
@@ -42,6 +45,8 @@ REPO_URL=""
 STARTER_REPO=""
 STARTER_PATH="starter-hub"
 SKIP_PREREQS=0
+SOURCES=""
+SOURCES_SET=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -50,6 +55,8 @@ while [ $# -gt 0 ]; do
     --starter-repo) STARTER_REPO="${2:-}"; shift 2 ;;
     --starter-path) STARTER_PATH="${2:-starter-hub}"; shift 2 ;;
     --skip-prereqs) SKIP_PREREQS=1;        shift ;;
+    --sources)      SOURCES="${2:-}"; SOURCES_SET=1; shift 2 ;;
+    --sources=*)    SOURCES="${1#--sources=}"; SOURCES_SET=1; shift ;;
     -h|--help)      sed -n '2,35p' "$0" 2>/dev/null; exit 0 ;;
     # A bare path, so `... | bash -s -- ~/hub` keeps working the way join.sh did.
     *)              [ -z "$HUB" ] && HUB="$1"; shift ;;
@@ -86,7 +93,7 @@ fi
 # Newer than the network copy is a real state, not a theoretical one: this script
 # and the v1 branch are published by two separate acts, so either can be ahead.
 for fn in kb_install_prereqs kb_new_hub kb_copy_starter_hub kb_link_ai_memory kb_install_hub_cli \
-          kb_install_hub_tools kb_install_prompt_harvest; do
+          kb_install_hub_tools kb_install_prompt_harvest kb_sync_report kb_write_prompt_sources; do
   if ! command -v "$fn" >/dev/null 2>&1; then
     echo "[stop] the install code on this computer is incomplete ($fn is missing)." >&2
     echo "       Run the newest command from https://github.com/MichaelZelbel/kit-bootstrap" >&2
@@ -136,7 +143,18 @@ fi
 # -----------------------------------------------------------------------------
 # 4. The wiring. Identical whether this was an install or an update, which is why
 #    running it twice is a normal thing to do rather than a mistake.
+#
+#    First, which AI tools live here and which may be synced. The choice lands on
+#    this device before any wiring runs, so everything below obeys it, and the
+#    person is told what will be read BEFORE it is read.
 # -----------------------------------------------------------------------------
+if [ "$SOURCES_SET" -eq 1 ]; then
+  KB_SYNC_SOURCES="$SOURCES"
+  export KB_SYNC_SOURCES
+  kb_write_prompt_sources "$SOURCES"
+fi
+kb_sync_report
+
 kb_link_ai_memory   "$HUB"    # the one memory every machine shares
 kb_install_hub_cli  "$HUB"    # the hub's own commands, on PATH, from any folder
 kb_install_hub_tools "$HUB" "$STARTER_REPO"   # the kit's own programs, on this machine
@@ -151,37 +169,32 @@ fi
 # -----------------------------------------------------------------------------
 # 5. What just happened, in words.
 # -----------------------------------------------------------------------------
+# Built from what actually happened on THIS machine, never from the promise.
+# The old text claimed every assistant shares one memory, on machines where one
+# tool (or none) had been wired. The truth lets a person see a gap; the promise
+# hides it.
 say "Done"
 if [ "$IS_NEW" -eq 1 ]; then
-  cat <<EOF
-Your hub is at:
+  echo "Your hub is at:"
+else
+  echo "This computer is up to date and wired in. Your hub is at:"
+fi
+cat <<EOF
 
   $HUB
 
-That folder is the brain your AI assistants share. Anything an assistant learns
-about you is written into it, and every assistant on every machine you run this
-on reads the same thing.
+EOF
+kb_sync_report
+cat <<EOF
 
 Two things worth knowing:
 
   * Open a NEW terminal window before you use the hub commands, so it picks up
     what was just installed.
   * Your hub travels between machines through git. Push it from here, and run
-    this same command on the next machine to pick it up there.
+    this same command on the next machine to pick it up there. To change which
+    AI tools are read on this machine, edit HUB_PROMPT_SOURCES in ~/.hub/device.env
 EOF
-else
-  cat <<EOF
-This computer is up to date and wired in. Your hub is at:
-
-  $HUB
-
-Its memory is shared with your other machines: what an assistant learns here
-goes into that folder and travels with your next push, and what it learned
-elsewhere is already here.
-
-Open a NEW terminal window before using the hub commands.
-EOF
-fi
 
 if [ -n "${KB_MISSING:-}" ]; then
   warn "I could not install these, so some things will not work until they are here: $KB_MISSING"

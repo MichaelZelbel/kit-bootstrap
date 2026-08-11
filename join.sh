@@ -17,10 +17,29 @@
 #
 # Usage:
 #   bash join.sh [path-to-your-hub-folder]      (default: ~/hub, or $HUB)
+#   bash join.sh --sources claude,codex         only these AI tools may be synced
+#   bash join.sh --sources ""                   sync nothing from this machine
+#
+# Piped from curl there is no keyboard to ask questions on, so this stays
+# non-interactive: it says plainly which AI tools it found and which it will
+# read, and --sources (or HUB_PROMPT_SOURCES in ~/.hub/device.env) is how a
+# person changes that. The Windows installer asks the same question with
+# checkboxes, because there a wizard is the native way.
 #
 # Safe to run as many times as you like. It never deletes a memory.
 # =============================================================================
 set -uo pipefail
+
+HUB_ARG=""
+SOURCES=""
+SOURCES_SET=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --sources)   SOURCES="${2:-}"; SOURCES_SET=1; shift 2 ;;
+    --sources=*) SOURCES="${1#--sources=}"; SOURCES_SET=1; shift ;;
+    *)           [ -z "$HUB_ARG" ] && HUB_ARG="$1"; shift ;;
+  esac
+done
 
 KB_TAG="join"
 export KB_TAG
@@ -43,13 +62,23 @@ fi
 
 # Which hub? A machine that has one already knows where it is, so look before asking.
 # Only when nothing is found do we make the reader type a path.
-HUB="$(kb_find_hub "${1:-}")" || die "I could not find a hub on this machine.
+HUB="$(kb_find_hub "$HUB_ARG")" || die "I could not find a hub on this machine.
 I looked where you pointed me, at the folder your assistant's memory is linked to,
 and in the usual places (~/hub, /root/hub, C:\\hub). If yours is somewhere else,
 pass the path: bash join.sh /path/to/your/hub
 If you have not got one yet, clone it first, then run this again."
 
 say "Joining this machine to the hub at $HUB"
+
+# 0. Which AI tools live here, and which may be synced. The choice is recorded on
+#    this device before any wiring runs, so everything below obeys it, and the
+#    person is told what will be read BEFORE it is read, not after.
+if [ "$SOURCES_SET" -eq 1 ]; then
+  KB_SYNC_SOURCES="$SOURCES"
+  export KB_SYNC_SOURCES
+  kb_write_prompt_sources "$SOURCES"
+fi
+kb_sync_report
 
 # 1. Get the latest of everything, because a join that leaves you on last month's
 #    memory looks exactly like a join that worked. This is also what updates an
@@ -81,16 +110,19 @@ if [ -d "$HUB/.claude/skills" ] && [ ! -e "$HUB/.agents/skills" ]; then
   ok "skills: assistants other than Claude Code can now read them too"
 fi
 
+# The completion text is built from what actually happened on THIS machine,
+# never from the promise. The old text here claimed "nothing is stored inside
+# one AI tool any more" on every machine, including ones where only Claude Code
+# (or nothing at all) had been wired. A person who is told the truth can fix a
+# gap; a person who is told the promise cannot even see one.
 say "Done"
+echo "Your hub on this machine is $HUB"
+echo ""
+kb_sync_report
 cat <<EOF
-This machine now shares one memory with the rest of them, at:
 
-  $HUB/memory
-
-What that means in practice: anything your assistant learns here is written into
-your hub folder and travels with the next push, and anything it learned on
-another machine is already here. Nothing is stored inside one AI tool any more.
-
-There is one thing this cannot do for you: a memory only reaches the other
-machines once it is pushed, so keep doing what you already do with the folder.
+Anything synced travels between your machines with the hub's git push and pull,
+so keep doing what you already do with the folder. To change which AI tools are
+read on this machine later: run this again with --sources, or edit
+HUB_PROMPT_SOURCES in ~/.hub/device.env
 EOF

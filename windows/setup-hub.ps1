@@ -29,6 +29,11 @@ param(
     # Another kit building its own .exe overrides these two and changes nothing else.
     [string]$StarterRepo = 'https://github.com/MichaelZelbel/teach-it-once-kit.git',
     [string]$StarterPath = 'starter-hub',
+    # Which AI tools may be synced from this PC, as a comma list (e.g. claude,codex).
+    # '-' or '' means none. The default '(auto)' means "no choice made this run": keep
+    # what this device already has recorded, or every syncable tool found here. The
+    # wizard fills this from its checklist page.
+    [string]$PromptSources = '(auto)',
     [switch]$SkipPrereqs,
     [switch]$NoPause
 )
@@ -104,7 +109,7 @@ if (-not $Join) {
 # installer needs missing, and fail somewhere further down wearing a confusing
 # name. Check for one function that only the newer code has, and step back to the
 # copy inside the .exe when it is not there.
-if (-not (Get-Command Install-KitPrereqs -ErrorAction SilentlyContinue)) {
+if (-not (Get-Command Write-KitSyncReport -ErrorAction SilentlyContinue)) {
     if ($Join -ne $Bundled -and (Test-Path $Bundled)) {
         Write-Warning "the published install code is older than this installer, so I am using the copy that came with it."
         . $Bundled -AsLibrary
@@ -112,7 +117,8 @@ if (-not (Get-Command Install-KitPrereqs -ErrorAction SilentlyContinue)) {
 }
 foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-KitHub',
                  'Join-KitMemory', 'Install-KitHubCli', 'Install-KitHubTools',
-                 'Install-KitPromptHarvest', 'Update-KitPath') {
+                 'Install-KitPromptHarvest', 'Update-KitPath',
+                 'Find-KitAiTools', 'Set-KitPromptSources', 'Write-KitSyncReport') {
     if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
         Stop-Setup "the install code on this PC is incomplete ($fn is missing). Download the newest installer from https://github.com/MichaelZelbel/kit-bootstrap/releases/latest and run that."
     }
@@ -159,7 +165,20 @@ if ($found) {
 # -----------------------------------------------------------------------------
 # 4. The wiring. Identical whether this was an install or an update, which is why
 #    running the installer twice is a normal thing to do rather than a mistake.
+#
+#    First, which AI tools live here and which may be synced. The wizard's
+#    checklist arrives as -PromptSources; the choice lands on this device before
+#    any wiring runs, so everything below obeys it. Sits AFTER the prerequisites
+#    on purpose: a fresh PC only has Claude Code once step 2 installed it, and
+#    detection must see the machine as it will actually be.
 # -----------------------------------------------------------------------------
+if ($PromptSources -ne '(auto)') {
+    Set-KitPromptSources -Value $PromptSources
+    if ($PromptSources.Trim() -eq '' -or $PromptSources.Trim() -eq '-') { $env:KB_SYNC_SOURCES = '-' }
+    else { $env:KB_SYNC_SOURCES = $PromptSources }
+}
+Write-KitSyncReport
+
 Join-KitMemory     -Hub $Hub    # the one memory every machine shares
 Install-KitHubCli  -Hub $Hub    # the hub's own commands, on PATH, from any folder
 Install-KitHubTools -Hub $Hub -ToolsRepo $StarterRepo   # the kit's own programs, on this machine
@@ -181,38 +200,27 @@ $env:HUB_DIR = $Hub
 # -----------------------------------------------------------------------------
 # 5. What just happened, in words.
 # -----------------------------------------------------------------------------
+# Built from what actually happened on THIS PC, never from the promise. The old
+# text claimed every assistant shares one memory, on machines where one tool (or
+# none) had been wired. The truth lets a person see a gap; the promise hides it.
 Write-KbSay "Done"
-if ($isNew) {
-    Write-Host @"
-Your hub is at:
-
-  $Hub
-
-That folder is the brain your AI assistants share. Anything an assistant learns
-about you is written into it, and every assistant on every machine you run this
-installer on reads the same thing.
+if ($isNew) { Write-Host "Your hub is at:" }
+else        { Write-Host "This PC is up to date and wired in. Your hub is at:" }
+Write-Host ""
+Write-Host "  $Hub"
+Write-Host ""
+Write-KitSyncReport
+Write-Host @"
 
 Two things worth knowing:
 
   * Open a NEW terminal window before you use the hub commands. Windows only
     hands the updated list of commands to windows opened after an install.
   * Your hub travels between machines through git. Push it from here, and run
-    this same installer on the next machine to pick it up there.
+    this same installer on the next machine to pick it up there. To change which
+    AI tools are read on this PC, run the installer again, or edit
+    HUB_PROMPT_SOURCES in $HOME\.hub\device.env
 "@
-} else {
-    Write-Host @"
-This PC is up to date and wired in. Your hub is at:
-
-  $Hub
-
-Its memory is shared with your other machines: what an assistant learns here
-goes into that folder and travels with your next push, and what it learned
-elsewhere is already here.
-
-Open a NEW terminal window before using the hub commands. Windows only hands the
-updated list of commands to windows opened after an install.
-"@
-}
 
 if ($missing.Count -gt 0) {
     Write-Host ""

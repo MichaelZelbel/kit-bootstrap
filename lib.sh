@@ -596,9 +596,24 @@ IDX
 kb_link_ai_memory() {
   local hub="$1" mem link stash f
   [ -n "$hub" ] || { warn "kb_link_ai_memory needs the hub folder"; return 1; }
+  # The index belongs to the hub, not to any one tool, so it is seeded even when
+  # the link below is skipped.
+  kb_seed_memory_index "$hub"
+  # Only for a machine that actually has Claude Code, and whose owner has not
+  # switched it off. Before this guard, a machine that had never seen Claude
+  # Code got a fabricated ~/.claude profile folder out of nowhere. The two
+  # functions it leans on live a little further down this file.
+  if ! kb_ai_tool_detected claude; then
+    ok "memory: Claude Code is not on this machine, so there is no memory folder to share yet. Run this again once it is installed."
+    return 0
+  fi
+  case ",$(kb_enabled_sources)," in
+    *,claude,*) ;;
+    *) ok "memory: you chose not to sync Claude Code on this machine, so its memory folder was left alone."
+       return 0 ;;
+  esac
   mem="$hub/memory"
   link="$(kb_ai_memory_path "$hub")"
-  kb_seed_memory_index "$hub"
 
   if [ -L "$link" ]; then
     # A link that points at the WRONG hub is the failure that looks like success:
@@ -627,6 +642,173 @@ kb_link_ai_memory() {
   mkdir -p "$(dirname "$link")"
   ln -sfn "$mem" "$link"
   ok "memory: $link now points at $mem, so every machine shares it"
+}
+
+# =============================================================================
+# WHICH AI TOOLS LIVE ON THIS MACHINE, AND WHICH OF THEM MAY BE SYNCED
+#
+# Added 2026-08-11. Before this, the installer wired sync with no detection, no
+# disclosure and no choice: it created a Claude Code memory link on machines
+# that had never seen Claude Code, and the harvest read Codex's conversation
+# logs and pushed them to the hub's repository without one sentence saying so.
+# Both are the same fault: doing something to a person's data without looking
+# first or telling them.
+#
+# Three ideas, kept separate on purpose:
+#   DETECTED  the tool leaves files on this machine, so we can see it is here.
+#   SYNCABLE  this kit knows how to read what the person typed to it. Today that
+#             is Claude Code (memory + prompts), Codex (prompts) and Hermes chat
+#             bots (prompts). Everything else is shown with the reason it is not.
+#   ENABLED   the person said yes. Recorded per device in ~/.hub/device.env as
+#             HUB_PROMPT_SOURCES, because "my work laptop's Codex must stay out"
+#             is a fact about one machine, not about the hub.
+#
+# A tool that is detected but not syncable is NAMED with its reason, never
+# silently promised: "every assistant shares one memory" was written on every
+# completion screen while exactly one assistant was wired, and that ends here.
+# =============================================================================
+
+# The sources the harvester can actually read. One list, referenced everywhere,
+# so adding a source is one edit here plus a reader in the collector.
+KB_SUPPORTED_SOURCES="claude codex hermes"
+
+# kb_ai_tool_detected <id>
+# Does this AI tool leave files on this machine? Fingerprints verified on real
+# installs (2026-08-11); a wrong guess here can only fail to see a tool, never
+# invent one, because everything is a plain "does this folder exist".
+#
+# KB_ASSUME_TOOLS is the test override: a comma list of ids to report as
+# present, or "-" for a machine with nothing. Detection reads the machine it
+# runs on, so without this a test wanting "a PC with no Claude Code" would have
+# to hide the real one.
+kb_ai_tool_detected() {
+  if [ -n "${KB_ASSUME_TOOLS:-}" ]; then
+    case ",$KB_ASSUME_TOOLS," in *",$1,"*) return 0 ;; *) return 1 ;; esac
+  fi
+  case "$1" in
+    claude)         [ -d "$HOME/.claude" ] || command -v claude >/dev/null 2>&1 ;;
+    codex)          [ -d "$HOME/.codex" ] ;;
+    hermes)         [ -d "$HOME/.hermes/profiles" ] || [ -d /home/hermes/.hermes/profiles ] ;;
+    claude-desktop) [ -d "$HOME/Library/Application Support/Claude" ] || \
+                    [ -d "${APPDATA:-/nonexistent}/Claude" ] || \
+                    [ -d "${LOCALAPPDATA:-/nonexistent}/AnthropicClaude" ] ;;
+    muse)           [ -d "$HOME/.config/muse" ] || [ -d "$HOME/.local/share/muse" ] || \
+                    command -v muse >/dev/null 2>&1 ;;
+    opencode)       [ -d "$HOME/.config/opencode" ] || command -v opencode >/dev/null 2>&1 ;;
+    openclaw)       [ -d "$HOME/.openclaw" ] ;;
+    comet)          [ -d "$HOME/Library/Application Support/Perplexity/Comet" ] || \
+                    [ -d "${LOCALAPPDATA:-/nonexistent}/Perplexity/Comet" ] ;;
+    copilot)        [ -d "$HOME/.copilot" ] ;;
+    cursor)         [ -d "$HOME/.cursor" ] || [ -d "${APPDATA:-/nonexistent}/Cursor" ] ;;
+    gemini)         [ -d "$HOME/.gemini" ] ;;
+    *) return 1 ;;
+  esac
+}
+
+# kb_ai_tool_info <id>   ->   sync|Human name|why not, when sync is none
+# "sync" is what this kit can read TODAY, not what the tool could offer.
+kb_ai_tool_info() {
+  case "$1" in
+    claude)         printf 'memory+prompts|Claude Code|' ;;
+    codex)          printf 'prompts|Codex|' ;;
+    hermes)         printf 'prompts|Hermes chat bots|' ;;
+    claude-desktop) printf 'none|Claude Desktop|keeps your conversations on its own servers, not in files here' ;;
+    comet)          printf 'none|Perplexity Comet|keeps your conversations on its own servers, not in files here' ;;
+    muse)           printf 'none|Muse Code|keeps files here, but this kit cannot read its format yet' ;;
+    opencode)       printf 'none|OpenCode|keeps files here, but this kit cannot read its format yet' ;;
+    openclaw)       printf 'none|OpenClaw|keeps files here, but this kit cannot read its format yet' ;;
+    copilot)        printf 'none|GitHub Copilot|keeps files here, but this kit cannot read its format yet' ;;
+    cursor)         printf 'none|Cursor|keeps files here, but this kit cannot read its format yet' ;;
+    gemini)         printf 'none|Gemini CLI|keeps files here, but this kit cannot read its format yet' ;;
+    *) return 1 ;;
+  esac
+}
+
+# kb_detect_ai_tools
+# One line per AI tool found on this machine:  id|sync|Human name|note
+# Order is fixed and syncable-first, so every caller (the report below, the
+# Windows wizard's checklist) shows the same list in the same order.
+kb_detect_ai_tools() {
+  local id
+  for id in claude codex hermes claude-desktop muse opencode openclaw comet copilot cursor gemini; do
+    kb_ai_tool_detected "$id" && printf '%s|%s\n' "$id" "$(kb_ai_tool_info "$id")"
+  done
+  return 0
+}
+
+# kb_enabled_sources
+# Which syncable tools the person has said yes to, as a comma list. Who decides,
+# in order: a --sources flag this run (KB_SYNC_SOURCES, where empty means NONE,
+# because unticking every box is a decision and not an accident), the choice
+# recorded on this device, and only then "every syncable tool found here", which
+# is what every machine did before there was a choice.
+kb_enabled_sources() {
+  # "-" is NONE spelled so it survives a Windows environment variable, which
+  # cannot hold an empty string. Both spellings are accepted everywhere.
+  local v id list=""
+  if [ -n "${KB_SYNC_SOURCES+x}" ]; then
+    v="$KB_SYNC_SOURCES"
+    [ "$v" = "-" ] && v=""
+    printf '%s' "$v"; return 0
+  fi
+  if [ -f "$HOME/.hub/device.env" ]; then
+    v="$(sed -n 's/^[[:space:]]*HUB_PROMPT_SOURCES=//p' "$HOME/.hub/device.env" 2>/dev/null | tail -1)"
+    if grep -q '^[[:space:]]*HUB_PROMPT_SOURCES=' "$HOME/.hub/device.env" 2>/dev/null; then
+      [ "$v" = "-" ] && v=""
+      printf '%s' "$v"; return 0
+    fi
+  fi
+  for id in $KB_SUPPORTED_SOURCES; do
+    kb_ai_tool_detected "$id" && list="$list,$id"
+  done
+  printf '%s' "${list#,}"
+}
+
+# kb_write_prompt_sources <comma-list>
+# Record the choice on this device. In device.env rather than the hub, because
+# the hub travels to every machine and this is a fact about one of them.
+kb_write_prompt_sources() {
+  local v="$1" f="$HOME/.hub/device.env" tmp
+  mkdir -p "$HOME/.hub"
+  if [ -f "$f" ] && grep -q '^[[:space:]]*HUB_PROMPT_SOURCES=' "$f" 2>/dev/null; then
+    tmp="$f.tmp.$$"
+    sed "s|^[[:space:]]*HUB_PROMPT_SOURCES=.*|HUB_PROMPT_SOURCES=$v|" "$f" > "$tmp" && mv "$tmp" "$f"
+  else
+    printf 'HUB_PROMPT_SOURCES=%s\n' "$v" >> "$f"
+  fi
+  ok "recorded your choice on this device: HUB_PROMPT_SOURCES=$v (in $f)"
+}
+
+# kb_sync_report
+# The truth about this machine, built from what was detected and chosen, never
+# from the promise. This is what the completion screen prints, so a person who
+# runs no other command still learns exactly what is read and where it goes.
+kb_sync_report() {
+  local on=",$(kb_enabled_sources)," line id sync name note synced="" off="" unsyncable=""
+  while IFS='|' read -r id sync name note; do
+    [ -n "$id" ] || continue
+    if [ "$sync" = "none" ]; then
+      unsyncable="$unsyncable  - $name: $note\n"
+    elif [ "${on#*,$id,}" != "$on" ]; then
+      case "$sync" in
+        memory+prompts) synced="$synced  - $name: its memory folder, and what you type to it\n" ;;
+        *)              synced="$synced  - $name: what you type to it\n" ;;
+      esac
+    else
+      off="$off  - $name (switched off by your choice; edit HUB_PROMPT_SOURCES in ~/.hub/device.env to change it)\n"
+    fi
+  done <<EOF
+$(kb_detect_ai_tools)
+EOF
+  if [ -n "$synced" ]; then
+    printf 'What is synced from this machine into your hub, and pushed to its repository:\n'
+    printf '%b' "$synced"
+  else
+    printf 'Nothing is synced from this machine: no AI tool here is both readable by this kit and switched on.\n'
+  fi
+  [ -n "$off" ] && { printf 'Found here but left alone:\n'; printf '%b' "$off"; }
+  [ -n "$unsyncable" ] && { printf 'Found here but not syncable:\n'; printf '%b' "$unsyncable"; }
+  return 0
 }
 
 # =============================================================================

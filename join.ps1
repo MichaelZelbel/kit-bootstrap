@@ -21,6 +21,10 @@
 # =============================================================================
 param(
     [string]$Hub,
+    # Which AI tools may be synced from this PC, as a comma list (e.g. claude,codex).
+    # '-' means none. The default '(auto)' means "no choice made this run": keep what
+    # this device already has recorded, or every syncable tool found here.
+    [string]$Sources = '(auto)',
     [switch]$AsLibrary
 )
 
@@ -94,9 +98,25 @@ function Join-KitMemory {
         so one memory is shared by every machine and every assistant. #>
     param([Parameter(Mandatory)][string]$Hub)
 
+    # The index belongs to the hub, not to any one tool, so it is seeded even
+    # when the link below is skipped.
+    Initialize-KitMemoryIndex -Hub $Hub
+
+    # Only for a PC that actually has Claude Code, and whose owner has not
+    # switched it off. Before this guard, a PC that had never seen Claude Code
+    # got a fabricated ~\.claude profile folder out of nowhere. The functions it
+    # leans on live a little further down this file.
+    if (-not (Test-KitAiTool 'claude')) {
+        Write-KbOk "memory: Claude Code is not on this PC, so there is no memory folder to share yet. Run this again once it is installed."
+        return
+    }
+    if (@((Get-KitEnabledSources) -split ',' | ForEach-Object { $_.Trim() }) -notcontains 'claude') {
+        Write-KbOk "memory: you chose not to sync Claude Code on this PC, so its memory folder was left alone."
+        return
+    }
+
     $mem  = Join-Path $Hub 'memory'
     $link = Get-KitMemoryLinkPath -Hub $Hub
-    Initialize-KitMemoryIndex -Hub $Hub
 
     $item = Get-Item $link -Force -ErrorAction SilentlyContinue
     if ($item -and $item.LinkType) {
@@ -124,6 +144,176 @@ function Join-KitMemory {
     New-Item -ItemType Directory -Force (Split-Path $link -Parent) | Out-Null
     New-Item -ItemType Junction -Path $link -Target $mem | Out-Null
     Write-KbOk "memory: $link now points at $mem, so every machine shares it"
+}
+
+# =============================================================================
+# WHICH AI TOOLS LIVE ON THIS PC, AND WHICH OF THEM MAY BE SYNCED
+#
+# The Windows twin of the same section in lib.sh: same ids, same order, same
+# words, so a person moving between machines is told the same story. Added
+# 2026-08-11, because before this the installer wired sync with no detection,
+# no disclosure and no choice: it created a Claude Code memory link on PCs that
+# had never seen Claude Code, and the harvest read Codex's conversation logs
+# and pushed them to the hub's repository without one sentence saying so.
+#
+#   DETECTED  the tool leaves files on this PC, so we can see it is here.
+#   SYNCABLE  this kit can read what the person typed to it: Claude Code
+#             (memory + prompts), Codex (prompts), Hermes chat bots (prompts).
+#             Everything else is shown with the reason it is not.
+#   ENABLED   the person said yes. Recorded per device in ~\.hub\device.env as
+#             HUB_PROMPT_SOURCES. The value "-" means NONE: a Windows
+#             environment variable cannot hold an empty string, so none needs a
+#             spelling that survives one.
+# =============================================================================
+
+$script:KitSupportedSources = @('claude', 'codex', 'hermes')
+
+function Get-KitHome {
+    <#  KB_HOME wins so the test suite can hand these functions a pretend home
+        folder instead of reading (or writing into) the real one. #>
+    if ($env:KB_HOME) { return $env:KB_HOME }
+    return $HOME
+}
+
+function Test-KitAiTool {
+    <#  Does this AI tool leave files on this PC? Fingerprints verified on real
+        installs (2026-08-11). A wrong path here can only fail to see a tool,
+        never invent one, because everything is a plain "does this folder exist".
+        KB_ASSUME_TOOLS is the test override: a comma list of ids to report as
+        present, or "-" for a PC with nothing. #>
+    param([Parameter(Mandatory)][string]$Id)
+    if ($env:KB_ASSUME_TOOLS) {
+        return ((($env:KB_ASSUME_TOOLS -split ',') | ForEach-Object { $_.Trim() }) -contains $Id)
+    }
+    $h = Get-KitHome
+    switch ($Id) {
+        'claude'         { return ((Test-Path (Join-Path $h '.claude')) -or
+                                   [bool](Get-Command claude -ErrorAction SilentlyContinue)) }
+        'codex'          { return [bool](Test-Path (Join-Path $h '.codex')) }
+        'hermes'         { return [bool](Test-Path (Join-Path $h '.hermes\profiles')) }
+        'claude-desktop' { return (($null -ne $env:APPDATA -and (Test-Path (Join-Path $env:APPDATA 'Claude'))) -or
+                                   ($null -ne $env:LOCALAPPDATA -and (Test-Path (Join-Path $env:LOCALAPPDATA 'AnthropicClaude')))) }
+        'muse'           { return ((Test-Path (Join-Path $h '.config\muse')) -or
+                                   (Test-Path (Join-Path $h '.local\share\muse')) -or
+                                   [bool](Get-Command muse -ErrorAction SilentlyContinue)) }
+        'opencode'       { return ((Test-Path (Join-Path $h '.config\opencode')) -or
+                                   [bool](Get-Command opencode -ErrorAction SilentlyContinue)) }
+        'openclaw'       { return [bool](Test-Path (Join-Path $h '.openclaw')) }
+        'comet'          { return ($null -ne $env:LOCALAPPDATA -and (Test-Path (Join-Path $env:LOCALAPPDATA 'Perplexity\Comet'))) }
+        'copilot'        { return [bool](Test-Path (Join-Path $h '.copilot')) }
+        'cursor'         { return ((Test-Path (Join-Path $h '.cursor')) -or
+                                   ($null -ne $env:APPDATA -and (Test-Path (Join-Path $env:APPDATA 'Cursor')))) }
+        'gemini'         { return [bool](Test-Path (Join-Path $h '.gemini')) }
+    }
+    return $false
+}
+
+function Get-KitAiToolInfo {
+    <#  sync|Human name|why not, when sync is none. "sync" is what this kit can
+        read TODAY, not what the tool could offer. #>
+    param([Parameter(Mandatory)][string]$Id)
+    switch ($Id) {
+        'claude'         { return 'memory+prompts|Claude Code|' }
+        'codex'          { return 'prompts|Codex|' }
+        'hermes'         { return 'prompts|Hermes chat bots|' }
+        'claude-desktop' { return 'none|Claude Desktop|keeps your conversations on its own servers, not in files here' }
+        'comet'          { return 'none|Perplexity Comet|keeps your conversations on its own servers, not in files here' }
+        'muse'           { return 'none|Muse Code|keeps files here, but this kit cannot read its format yet' }
+        'opencode'       { return 'none|OpenCode|keeps files here, but this kit cannot read its format yet' }
+        'openclaw'       { return 'none|OpenClaw|keeps files here, but this kit cannot read its format yet' }
+        'copilot'        { return 'none|GitHub Copilot|keeps files here, but this kit cannot read its format yet' }
+        'cursor'         { return 'none|Cursor|keeps files here, but this kit cannot read its format yet' }
+        'gemini'         { return 'none|Gemini CLI|keeps files here, but this kit cannot read its format yet' }
+    }
+    return $null
+}
+
+function Find-KitAiTools {
+    <#  One line per AI tool found on this PC:  id|sync|Human name|note
+        Fixed order, syncable-first, so every caller (the report below, the
+        wizard's checklist) shows the same list in the same order. #>
+    foreach ($id in @('claude', 'codex', 'hermes', 'claude-desktop', 'muse', 'opencode',
+                      'openclaw', 'comet', 'copilot', 'cursor', 'gemini')) {
+        if (Test-KitAiTool $id) { "$id|$(Get-KitAiToolInfo $id)" }
+    }
+}
+
+function Get-KitDeviceEnvValue {
+    param([Parameter(Mandatory)][string]$Name)
+    $p = Join-Path (Get-KitHome) '.hub\device.env'
+    if (-not (Test-Path $p)) { return $null }
+    $val = $null
+    foreach ($line in @(Get-Content $p -ErrorAction SilentlyContinue)) {
+        $l = $line -replace '^\s*export\s+', ''
+        if ($l -match '^\s*#') { continue }
+        $m = [regex]::Match($l, '^\s*' + [regex]::Escape($Name) + '\s*=(.*)$')
+        if ($m.Success) { $val = $m.Groups[1].Value.Trim().Trim('"').Trim("'") }
+    }
+    return $val
+}
+
+function Get-KitEnabledSources {
+    <#  Which syncable tools the person said yes to, as a comma list ('' = none).
+        Who decides, in order: KB_SYNC_SOURCES this run, the choice recorded on
+        this device, and only then "every syncable tool found here", which is
+        what every machine did before there was a choice. #>
+    $v = $env:KB_SYNC_SOURCES
+    if ($null -eq $v) { $v = Get-KitDeviceEnvValue 'HUB_PROMPT_SOURCES' }
+    if ($null -eq $v) {
+        $found = @()
+        foreach ($id in $script:KitSupportedSources) { if (Test-KitAiTool $id) { $found += $id } }
+        return ($found -join ',')
+    }
+    if ($v.Trim() -eq '-') { return '' }
+    return $v
+}
+
+function Set-KitPromptSources {
+    <#  Record the choice on this device, in ~\.hub\device.env rather than in the
+        hub, because the hub travels to every machine and this is a fact about
+        one of them. #>
+    param([AllowEmptyString()][string]$Value = '')
+    if ($Value.Trim() -eq '-') { $Value = '' }
+    $dir = Join-Path (Get-KitHome) '.hub'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $f = Join-Path $dir 'device.env'
+    $lines = @()
+    if (Test-Path $f) { $lines = @(Get-Content $f) }
+    $found = $false
+    $lines = @($lines | ForEach-Object {
+        if ($_ -match '^\s*HUB_PROMPT_SOURCES=') { $found = $true; "HUB_PROMPT_SOURCES=$Value" } else { $_ }
+    })
+    if (-not $found) { $lines += "HUB_PROMPT_SOURCES=$Value" }
+    Set-Content -Path $f -Value $lines -Encoding ascii
+    Write-KbOk "recorded your choice on this device: HUB_PROMPT_SOURCES=$Value (in $f)"
+}
+
+function Write-KitSyncReport {
+    <#  The truth about this PC, built from what was detected and chosen, never
+        from the promise. This is what the completion screen prints. #>
+    $on = @((Get-KitEnabledSources) -split ',' | Where-Object { $_ })
+    $synced = @(); $off = @(); $unsync = @()
+    foreach ($line in @(Find-KitAiTools)) {
+        $p = $line -split '\|', 4
+        if ($p.Count -lt 4) { continue }
+        $id = $p[0]; $sync = $p[1]; $name = $p[2]; $note = $p[3]
+        if ($sync -eq 'none') {
+            $unsync += "  - ${name}: $note"
+        } elseif ($on -contains $id) {
+            if ($sync -eq 'memory+prompts') { $synced += "  - ${name}: its memory folder, and what you type to it" }
+            else { $synced += "  - ${name}: what you type to it" }
+        } else {
+            $off += "  - $name (switched off by your choice; edit HUB_PROMPT_SOURCES in ~\.hub\device.env to change it)"
+        }
+    }
+    if ($synced.Count -gt 0) {
+        Write-Host "What is synced from this PC into your hub, and pushed to its repository:"
+        $synced | ForEach-Object { Write-Host $_ }
+    } else {
+        Write-Host "Nothing is synced from this PC: no AI tool here is both readable by this kit and switched on."
+    }
+    if ($off.Count -gt 0)    { Write-Host "Found here but left alone:";   $off    | ForEach-Object { Write-Host $_ } }
+    if ($unsync.Count -gt 0) { Write-Host "Found here but not syncable:"; $unsync | ForEach-Object { Write-Host $_ } }
 }
 
 # =============================================================================
@@ -367,7 +557,14 @@ function Install-KitPromptHarvest {
     # The installed program first, the hub's own copy second. The second is only for a
     # hub set up before the programs were installed on the machine, so nothing breaks
     # between the two.
-    $installed = Join-Path $HOME '.localin\prompt-harvest.js'
+    #
+    # HISTORY, because this path was broken in the least visible way possible: the
+    # string used to contain a literal BACKSPACE byte (".local<0x08>in"), the corpse of
+    # a "\b" interpreted somewhere on its way into the file. It rendered as ".localin",
+    # the installed program was never found, the function returned two lines down, and
+    # NO Windows machine ever got the scheduled task. The tests missed it because they
+    # only ever exercised the hub-copy fallback; they now cover this branch too.
+    $installed = Join-Path (Get-KitHome) '.local\bin\prompt-harvest.js'
     $js = if (Test-Path $installed) { $installed } else { Join-Path $Hub 'bin\prompt-harvest.js' }
     if (-not (Test-Path $js)) { return }
 
@@ -641,6 +838,16 @@ if (-not $Hub) {
 
 Write-KbSay "Joining this machine to the hub at $Hub"
 
+# Which AI tools live here, and which may be synced. The choice is recorded on
+# this device before any wiring runs, so everything below obeys it, and the
+# person is told what will be read BEFORE it is read, not after.
+if ($Sources -ne '(auto)') {
+    Set-KitPromptSources -Value $Sources
+    if ($Sources.Trim() -eq '' -or $Sources.Trim() -eq '-') { $env:KB_SYNC_SOURCES = '-' }
+    else { $env:KB_SYNC_SOURCES = $Sources }
+}
+Write-KitSyncReport
+
 # Get the latest of everything, because a join that leaves you on last month's memory
 # looks exactly like a join that worked. This is also what brings an older
 # installation on a machine you have not touched in a while up to date.
@@ -664,16 +871,19 @@ if ((Test-Path $skills) -and -not (Test-Path $agents)) {
     Write-KbOk "skills: assistants other than Claude Code can now read them too"
 }
 
+# The completion text is built from what actually happened on THIS PC, never
+# from the promise. The old text here claimed "nothing is stored inside one AI
+# tool any more" on every machine, including ones where only Claude Code (or
+# nothing at all) had been wired. A person told the truth can fix a gap; a
+# person told the promise cannot even see one.
 Write-KbSay "Done"
+Write-Host "Your hub on this PC is $Hub"
+Write-Host ""
+Write-KitSyncReport
 Write-Host @"
-This machine now shares one memory with the rest of them, at:
 
-  $(Join-Path $Hub 'memory')
-
-What that means in practice: anything your assistant learns here is written into
-your hub folder and travels with the next push, and anything it learned on
-another machine is already here. Nothing is stored inside one AI tool any more.
-
-There is one thing this cannot do for you: a memory only reaches the other
-machines once it is pushed, so keep doing what you already do with the folder.
+Anything synced travels between your machines with the hub's git push and pull,
+so keep doing what you already do with the folder. To change which AI tools are
+read on this PC later: run this again with -Sources, or edit
+HUB_PROMPT_SOURCES in $HOME\.hub\device.env
 "@

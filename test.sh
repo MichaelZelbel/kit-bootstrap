@@ -32,7 +32,8 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_hub_looks_real kb_find_hub kb_update_hub kb_install_hub_cli \
          kb_os kb_can_sudo kb_note_missing kb_install_one kb_install_claude_code \
          kb_install_prereqs kb_copy_starter_hub kb_new_hub kb_install_prompt_harvest \
-         kb_install_hub_tools; do
+         kb_install_hub_tools kb_ai_tool_detected kb_ai_tool_info kb_detect_ai_tools \
+         kb_enabled_sources kb_write_prompt_sources kb_sync_report; do
   declare -F "$f" >/dev/null || printf "%s " "$f"
 done')"
 [ -z "$missing" ] || { echo "  MISSING: $missing"; exit 1; }
@@ -192,7 +193,10 @@ _probe=$(mktemp -d); mkdir "$_probe/real"; ln -sfn "$_probe/real" "$_probe/link"
 if [ -L "$_probe/link" ]; then
   _h=$(mktemp -d); _hub="$_h/hub"; mkdir -p "$_hub"
 
-  ( HOME="$_h"; kb_link_ai_memory "$_hub" ) >/dev/null 2>&1
+  # Detection is FORCED to "Claude Code is here" throughout this block, because the
+  # link is gated on it now and these cases are about the link itself, not the gate.
+  # The gate has its own cases further down.
+  ( HOME="$_h"; KB_ASSUME_TOOLS=claude kb_link_ai_memory "$_hub" ) >/dev/null 2>&1
   _link="$_h/.claude/projects/$(printf '%s' "$_hub" | sed 's/[^a-zA-Z0-9]/-/g' | tr 'A-Z' 'a-z')/memory"
   t "a fresh machine gets the link"        "$([ -L "$_link" ] && echo yes)" "yes"
   t "the link points at the hub's memory"  "$(cd "$_link" && pwd -P)" "$(cd "$_hub/memory" && pwd -P)"
@@ -200,7 +204,7 @@ if [ -L "$_probe/link" ]; then
 
   # Twice must equal once, or re-running the installer is a thing people fear.
   printf 'a real memory\n' > "$_hub/memory/fact.md"
-  ( HOME="$_h"; kb_link_ai_memory "$_hub" ) >/dev/null 2>&1
+  ( HOME="$_h"; KB_ASSUME_TOOLS=claude kb_link_ai_memory "$_hub" ) >/dev/null 2>&1
   t "running it again keeps the memories"  "$(cat "$_hub/memory/fact.md")" "a real memory"
 
   # A machine that already has memories in the OLD place. They must arrive in the
@@ -208,7 +212,7 @@ if [ -L "$_probe/link" ]; then
   _h2=$(mktemp -d); _hub2="$_h2/hub"; mkdir -p "$_hub2"
   _old="$_h2/.claude/projects/$(printf '%s' "$_hub2" | sed 's/[^a-zA-Z0-9]/-/g' | tr 'A-Z' 'a-z')/memory"
   mkdir -p "$_old"; printf 'learned before joining\n' > "$_old/older.md"
-  ( HOME="$_h2"; kb_link_ai_memory "$_hub2" ) >/dev/null 2>&1
+  ( HOME="$_h2"; KB_ASSUME_TOOLS=claude kb_link_ai_memory "$_hub2" ) >/dev/null 2>&1
   t "memories from before the join are carried in" "$(cat "$_hub2/memory/older.md" 2>/dev/null)" "learned before joining"
   t "the old folder is kept, not deleted"          "$(ls -d "$_old".replaced-* >/dev/null 2>&1 && echo yes)" "yes"
 
@@ -218,7 +222,7 @@ if [ -L "$_probe/link" ]; then
   _h3=$(mktemp -d); _hub3="$_h3/hub"; _stale="$_h3/somewhere-else"; mkdir -p "$_hub3" "$_stale"
   _l3="$_h3/.claude/projects/$(printf '%s' "$_hub3" | sed 's/[^a-zA-Z0-9]/-/g' | tr 'A-Z' 'a-z')/memory"
   mkdir -p "$(dirname "$_l3")"; ln -sfn "$_stale" "$_l3"
-  ( HOME="$_h3"; kb_link_ai_memory "$_hub3" ) >/dev/null 2>&1
+  ( HOME="$_h3"; KB_ASSUME_TOOLS=claude kb_link_ai_memory "$_hub3" ) >/dev/null 2>&1
   t "a link pointing at the wrong hub is repaired" "$(cd "$_l3" && pwd -P)" "$(cd "$_hub3/memory" && pwd -P)"
 
   rm -rf "$_h" "$_h2" "$_h3"
@@ -226,6 +230,72 @@ else
   echo "  skip  the memory-link cases (this shell cannot make symlinks; run on Linux)"
 fi
 rm -rf "$_probe"
+
+# --- WHICH AI TOOLS LIVE HERE, AND WHO SAID YES ------------------------------
+# Added 2026-08-11. Before this the installer wired sync with no detection, no
+# disclosure and no choice: it invented a ~/.claude folder on machines that had
+# never seen Claude Code, and the harvest read Codex's logs and pushed them to
+# the repository without a word. These are the bash twins of the cases in
+# windows/test-windows.ps1. When you change one side, change both.
+#
+# Detection is FORCED (KB_ASSUME_TOOLS), never read from the machine running the
+# suite, so the suite behaves the same on a machine crowded with AI tools and on
+# a bare one.
+
+t "an assumed tool is reported with its powers" \
+  "$(KB_ASSUME_TOOLS=claude kb_detect_ai_tools)" "claude|memory+prompts|Claude Code|"
+t "a machine with nothing reports nothing" \
+  "$(KB_ASSUME_TOOLS=- kb_detect_ai_tools)" ""
+t "an unsyncable tool is reported with its reason" \
+  "$(KB_ASSUME_TOOLS=comet kb_detect_ai_tools | grep -c 'not in files here')" "1"
+
+# Who decides, in order: the flag this run, the record on this device, detection.
+_s=$(mktemp -d)
+t "no flag and no record means every syncable tool found" \
+  "$(HOME="$_s" KB_ASSUME_TOOLS=claude,codex,comet kb_enabled_sources)" "claude,codex"
+mkdir -p "$_s/.hub"; printf 'HUB_PROMPT_SOURCES=claude\n' > "$_s/.hub/device.env"
+t "the choice recorded on the device wins over detection" \
+  "$(HOME="$_s" KB_ASSUME_TOOLS=claude,codex kb_enabled_sources)" "claude"
+t "the flag this run wins over the record" \
+  "$(HOME="$_s" KB_ASSUME_TOOLS=claude,codex KB_SYNC_SOURCES=codex kb_enabled_sources)" "codex"
+t "an empty flag means none, not everything" \
+  "$(HOME="$_s" KB_ASSUME_TOOLS=claude,codex KB_SYNC_SOURCES= kb_enabled_sources)" ""
+t "dash is none, spelled so Windows can say it" \
+  "$(HOME="$_s" KB_ASSUME_TOOLS=claude,codex KB_SYNC_SOURCES=- kb_enabled_sources)" ""
+
+# Recording the choice must replace, never stack, and never eat neighbours.
+_s2=$(mktemp -d); mkdir -p "$_s2/.hub"
+printf 'HUB_DIR=/somewhere\n' > "$_s2/.hub/device.env"
+( HOME="$_s2" kb_write_prompt_sources "claude,codex" ) >/dev/null 2>&1
+t "the choice is recorded on the device" \
+  "$(grep -c '^HUB_PROMPT_SOURCES=claude,codex$' "$_s2/.hub/device.env")" "1"
+( HOME="$_s2" kb_write_prompt_sources "claude" ) >/dev/null 2>&1
+t "a new choice replaces the old one" \
+  "$(grep -c '^HUB_PROMPT_SOURCES=' "$_s2/.hub/device.env")" "1"
+t "and what else the file held survives" \
+  "$(grep -c '^HUB_DIR=/somewhere$' "$_s2/.hub/device.env")" "1"
+
+# The report is the disclosure. It must name each state in plain words.
+_rep="$(HOME="$_s2" KB_ASSUME_TOOLS=claude,codex,comet KB_SYNC_SOURCES=claude kb_sync_report)"
+t "the report says what is synced"           "$(printf '%s' "$_rep" | grep -c 'Claude Code: its memory folder')" "1"
+t "the report says what was left alone"      "$(printf '%s' "$_rep" | grep -c 'Codex (switched off by your choice')" "1"
+t "the report says what cannot be synced"    "$(printf '%s' "$_rep" | grep -c 'Perplexity Comet:')" "1"
+t "a machine syncing nothing is told so" \
+  "$(KB_ASSUME_TOOLS=- KB_SYNC_SOURCES= kb_sync_report | grep -c 'Nothing is synced')" "1"
+
+# THE GATE ON THE MEMORY LINK. No Claude Code, no link, and above all no invented
+# ~/.claude folder on a machine that never had one.
+_g=$(mktemp -d); _ghub="$_g/hub"; mkdir -p "$_ghub"
+( HOME="$_g"; KB_ASSUME_TOOLS=- kb_link_ai_memory "$_ghub" ) >/dev/null 2>&1
+t "no Claude Code means no invented ~/.claude" \
+  "$([ -e "$_g/.claude" ] && echo yes || echo no)" "no"
+t "but the hub still gets its memory index" \
+  "$([ -s "$_ghub/memory/MEMORY.md" ] && echo yes)" "yes"
+_g2=$(mktemp -d); _ghub2="$_g2/hub"; mkdir -p "$_ghub2"
+( HOME="$_g2"; KB_ASSUME_TOOLS=claude KB_SYNC_SOURCES=codex kb_link_ai_memory "$_ghub2" ) >/dev/null 2>&1
+t "Claude Code switched off means its folder is left alone" \
+  "$([ -e "$_g2/.claude" ] && echo yes || echo no)" "no"
+rm -rf "$_s" "$_s2" "$_g" "$_g2"
 
 # FINDING A HUB THAT IS ALREADY INSTALLED, AND WIRING ITS COMMANDS.
 # Added 2026-08-09 after `hub map` on the work PC answered with a path from the

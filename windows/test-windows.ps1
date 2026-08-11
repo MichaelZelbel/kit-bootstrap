@@ -57,7 +57,9 @@ New-Item -ItemType Directory -Force $Root | Out-Null
 Write-Host "-- the library loads and offers what the installer calls"
 foreach ($fn in 'Find-KitHub', 'Test-KitHub', 'Update-KitHub', 'Join-KitMemory', 'Install-KitHubCli',
                  'Install-KitPrereqs', 'New-KitHub', 'Update-KitPath', 'Set-KbTextFile', 'Test-KitCommand',
-                 'Install-KitPromptHarvest', 'Install-KitHubTools') {
+                 'Install-KitPromptHarvest', 'Install-KitHubTools',
+                 'Test-KitAiTool', 'Get-KitAiToolInfo', 'Find-KitAiTools', 'Get-KitEnabledSources',
+                 'Set-KitPromptSources', 'Write-KitSyncReport', 'Get-KitHome') {
     Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
 }
 
@@ -217,34 +219,136 @@ Check "Git Bash is found via git, not via the PATH's bash" {
 }
 
 Write-Host ""
+Write-Host "-- which AI tools live here, and who said yes"
+# Added 2026-08-11. Before this the installer wired sync with no detection, no
+# disclosure and no choice: it invented a ~\.claude folder on PCs that had never
+# seen Claude Code, and the harvest read Codex's logs and pushed them to the
+# repository without a word. These are the Windows twins of the cases in
+# test.sh. When you change one side, change both.
+#
+# Detection is FORCED (KB_ASSUME_TOOLS) and the home folder is a scratch one
+# (KB_HOME), never read from the PC running the suite, so the suite behaves the
+# same on a machine crowded with AI tools and on a bare one.
+Check "an assumed tool is reported with its powers" {
+    try { $env:KB_ASSUME_TOOLS = 'claude'
+          @(Find-KitAiTools) -contains 'claude|memory+prompts|Claude Code|' }
+    finally { $env:KB_ASSUME_TOOLS = $null }
+}
+Check "a machine with nothing reports nothing" {
+    try { $env:KB_ASSUME_TOOLS = '-'; @(Find-KitAiTools).Count -eq 0 }
+    finally { $env:KB_ASSUME_TOOLS = $null }
+}
+Check "an unsyncable tool is reported with its reason" {
+    try { $env:KB_ASSUME_TOOLS = 'comet'
+          @(Find-KitAiTools | Where-Object { $_ -match 'not in files here' }).Count -eq 1 }
+    finally { $env:KB_ASSUME_TOOLS = $null }
+}
+Check "no flag and no record means every syncable tool found" {
+    try { $env:KB_ASSUME_TOOLS = 'claude,codex,comet'; $env:KB_HOME = New-TestDir 'src-home1'
+          (Get-KitEnabledSources) -eq 'claude,codex' }
+    finally { $env:KB_ASSUME_TOOLS = $null; $env:KB_HOME = $null }
+}
+Check "the choice recorded on the device wins over detection" {
+    try { $env:KB_ASSUME_TOOLS = 'claude,codex'; $env:KB_HOME = New-TestDir 'src-home2'
+          New-Item -ItemType Directory -Force (Join-Path $env:KB_HOME '.hub') | Out-Null
+          Set-Content (Join-Path $env:KB_HOME '.hub\device.env') 'HUB_PROMPT_SOURCES=claude' -Encoding ascii
+          (Get-KitEnabledSources) -eq 'claude' }
+    finally { $env:KB_ASSUME_TOOLS = $null; $env:KB_HOME = $null }
+}
+Check "the flag this run wins over the record, and dash means none" {
+    try { $env:KB_ASSUME_TOOLS = 'claude,codex'; $env:KB_HOME = New-TestDir 'src-home2'
+          $env:KB_SYNC_SOURCES = 'codex'
+          $one = (Get-KitEnabledSources) -eq 'codex'
+          $env:KB_SYNC_SOURCES = '-'
+          $one -and ((Get-KitEnabledSources) -eq '') }
+    finally { $env:KB_ASSUME_TOOLS = $null; $env:KB_HOME = $null; $env:KB_SYNC_SOURCES = $null }
+}
+Check "the choice is recorded, replaced not stacked, neighbours kept" {
+    try { $env:KB_HOME = New-TestDir 'src-home3'
+          New-Item -ItemType Directory -Force (Join-Path $env:KB_HOME '.hub') | Out-Null
+          Set-Content (Join-Path $env:KB_HOME '.hub\device.env') 'HUB_DIR=C:\somewhere' -Encoding ascii
+          Set-KitPromptSources -Value 'claude,codex' | Out-Null
+          Set-KitPromptSources -Value 'claude' | Out-Null
+          $lines = @(Get-Content (Join-Path $env:KB_HOME '.hub\device.env'))
+          (@($lines | Where-Object { $_ -eq 'HUB_PROMPT_SOURCES=claude' }).Count -eq 1) -and
+          (@($lines | Where-Object { $_ -match '^HUB_PROMPT_SOURCES=' }).Count -eq 1) -and
+          (@($lines | Where-Object { $_ -eq 'HUB_DIR=C:\somewhere' }).Count -eq 1) }
+    finally { $env:KB_HOME = $null }
+}
+Check "the report says what is synced, what was left alone, what cannot be" {
+    try { $env:KB_ASSUME_TOOLS = 'claude,codex,comet'; $env:KB_SYNC_SOURCES = 'claude'
+          $rep = (Write-KitSyncReport 6>&1 | Out-String)
+          $rep.Contains('Claude Code: its memory folder') -and
+          $rep.Contains('Codex (switched off by your choice') -and
+          $rep.Contains('Perplexity Comet:') }
+    finally { $env:KB_ASSUME_TOOLS = $null; $env:KB_SYNC_SOURCES = $null }
+}
+Check "a PC syncing nothing is told so" {
+    try { $env:KB_ASSUME_TOOLS = '-'; $env:KB_SYNC_SOURCES = '-'
+          (Write-KitSyncReport 6>&1 | Out-String).Contains('Nothing is synced') }
+    finally { $env:KB_ASSUME_TOOLS = $null; $env:KB_SYNC_SOURCES = $null }
+}
+
+Write-Host ""
 Write-Host "-- the memory link, which is the point of the whole thing"
+# Detection is FORCED to "Claude Code is here" for the link cases, because the
+# link is gated on it now and these cases are about the link itself. The gate
+# has its own cases below.
 Check "the memory path is derived from the hub folder" {
     (Get-KitMemoryLinkPath -Hub 'C:\hub') -eq (Join-Path $HOME '.claude\projects\c--hub\memory')
 }
 Check "linking a hub makes a junction that points back at it" {
-    $d = Join-Path $Root 'linkme'
-    New-KitHub -Path $d | Out-Null
-    Join-KitMemory -Hub $d | Out-Null
-    $link = Get-KitMemoryLinkPath -Hub $d
-    $item = Get-Item $link -Force -ErrorAction SilentlyContinue
-    $ok = $item -and $item.LinkType -and ((Resolve-Path (@($item.Target)[0])).Path -eq (Resolve-Path (Join-Path $d 'memory')).Path)
-    if ($item) { (Get-Item $link -Force).Delete() }
-    Remove-Item (Split-Path $link -Parent) -Recurse -Force -ErrorAction SilentlyContinue
-    $ok
+    try {
+        $env:KB_ASSUME_TOOLS = 'claude'
+        $d = Join-Path $Root 'linkme'
+        New-KitHub -Path $d | Out-Null
+        Join-KitMemory -Hub $d | Out-Null
+        $link = Get-KitMemoryLinkPath -Hub $d
+        $item = Get-Item $link -Force -ErrorAction SilentlyContinue
+        $ok = $item -and $item.LinkType -and ((Resolve-Path (@($item.Target)[0])).Path -eq (Resolve-Path (Join-Path $d 'memory')).Path)
+        if ($item) { (Get-Item $link -Force).Delete() }
+        Remove-Item (Split-Path $link -Parent) -Recurse -Force -ErrorAction SilentlyContinue
+        $ok
+    } finally { $env:KB_ASSUME_TOOLS = $null }
 }
 Check "a memory already in the old place is carried over, never lost" {
-    $d = Join-Path $Root 'carry'
-    New-KitHub -Path $d | Out-Null
-    $link = Get-KitMemoryLinkPath -Hub $d
-    New-Item -ItemType Directory -Force $link | Out-Null
-    Set-Content (Join-Path $link 'precious.md') 'do not lose me'
-    Join-KitMemory -Hub $d 3>$null | Out-Null
-    $carried = Test-Path (Join-Path $d 'memory\precious.md')
-    $kept    = @(Get-ChildItem (Split-Path $link -Parent) -Directory | Where-Object { $_.Name -like 'memory.replaced-*' }).Count -gt 0
-    $item = Get-Item $link -Force -ErrorAction SilentlyContinue
-    if ($item -and $item.LinkType) { (Get-Item $link -Force).Delete() }
-    Remove-Item (Split-Path $link -Parent) -Recurse -Force -ErrorAction SilentlyContinue
-    $carried -and $kept
+    try {
+        $env:KB_ASSUME_TOOLS = 'claude'
+        $d = Join-Path $Root 'carry'
+        New-KitHub -Path $d | Out-Null
+        $link = Get-KitMemoryLinkPath -Hub $d
+        New-Item -ItemType Directory -Force $link | Out-Null
+        Set-Content (Join-Path $link 'precious.md') 'do not lose me'
+        Join-KitMemory -Hub $d 3>$null | Out-Null
+        $carried = Test-Path (Join-Path $d 'memory\precious.md')
+        $kept    = @(Get-ChildItem (Split-Path $link -Parent) -Directory | Where-Object { $_.Name -like 'memory.replaced-*' }).Count -gt 0
+        $item = Get-Item $link -Force -ErrorAction SilentlyContinue
+        if ($item -and $item.LinkType) { (Get-Item $link -Force).Delete() }
+        Remove-Item (Split-Path $link -Parent) -Recurse -Force -ErrorAction SilentlyContinue
+        $carried -and $kept
+    } finally { $env:KB_ASSUME_TOOLS = $null }
+}
+Check "no Claude Code means no junction and no invented folder" {
+    # THE GATE. Before it, a PC that had never seen Claude Code got a fabricated
+    # ~\.claude profile folder out of nowhere.
+    try {
+        $env:KB_ASSUME_TOOLS = '-'
+        $d = Join-Path $Root 'nogate'
+        New-KitHub -Path $d | Out-Null
+        Join-KitMemory -Hub $d | Out-Null
+        $link = Get-KitMemoryLinkPath -Hub $d
+        (-not (Test-Path $link)) -and (Test-Path (Join-Path $d 'memory\MEMORY.md'))
+    } finally { $env:KB_ASSUME_TOOLS = $null }
+}
+Check "Claude Code switched off means its folder is left alone" {
+    try {
+        $env:KB_ASSUME_TOOLS = 'claude'
+        $env:KB_SYNC_SOURCES = 'codex'
+        $d = Join-Path $Root 'offgate'
+        New-KitHub -Path $d | Out-Null
+        Join-KitMemory -Hub $d | Out-Null
+        -not (Test-Path (Get-KitMemoryLinkPath -Hub $d))
+    } finally { $env:KB_ASSUME_TOOLS = $null; $env:KB_SYNC_SOURCES = $null }
 }
 
 Write-Host ""
@@ -300,21 +404,30 @@ Write-Host "-- the daily job that files what you type to an AI"
 # hand, and every other computer quietly kept nothing. These are the Windows twins of
 # the cases in test.sh. When you change one side, change both.
 $TaskForTests = 'Hub prompt archive TEST'
+# KB_HOME points every case here at a scratch home folder. Without it, a PC that
+# already has the kit's programs under its real ~\.local\bin (the author's does)
+# would take the installed-program branch in cases that are about the fallback,
+# and "a hub with no harvester" would find a harvester after all.
 Check "a hub with no harvester stays quiet" {
-    $bare = New-TestDir 'noharvest'
-    $out = Install-KitPromptHarvest -Hub $bare -TaskName $TaskForTests 3>&1 4>&1 | Out-String
-    ($out.Trim() -eq '') -and -not (Get-ScheduledTask -TaskName $TaskForTests -ErrorAction SilentlyContinue)
+    try {
+        $env:KB_HOME = New-TestDir 'noharvest-home'
+        $bare = New-TestDir 'noharvest'
+        $out = Install-KitPromptHarvest -Hub $bare -TaskName $TaskForTests 3>&1 4>&1 | Out-String
+        ($out.Trim() -eq '') -and -not (Get-ScheduledTask -TaskName $TaskForTests -ErrorAction SilentlyContinue)
+    } finally { $env:KB_HOME = $null }
 }
 Check "a hub with a harvester gets a job that runs it, and only once a day" {
     $hub = New-TestDir 'harvest'
     New-Item -ItemType Directory -Force (Join-Path $hub 'bin') | Out-Null
     Set-Content (Join-Path $hub 'bin\prompt-harvest.js') 'console.log(1)'
     try {
+        $env:KB_HOME = New-TestDir 'harvest-home'
         Install-KitPromptHarvest -Hub $hub -TaskName $TaskForTests | Out-Null
         $task = Get-ScheduledTask -TaskName $TaskForTests -ErrorAction SilentlyContinue
         $args = if ($task) { ($task.Actions | ForEach-Object { $_.Arguments }) -join ' ' } else { '' }
         [bool]$task -and ($args -match 'prompt-harvest\.js') -and ($args -match '--once-a-day')
     } finally {
+        $env:KB_HOME = $null
         Unregister-ScheduledTask -TaskName $TaskForTests -Confirm:$false -ErrorAction SilentlyContinue
     }
 }
@@ -323,10 +436,34 @@ Check "running the installer twice does not stack up two jobs" {
     New-Item -ItemType Directory -Force (Join-Path $hub 'bin') | Out-Null
     Set-Content (Join-Path $hub 'bin\prompt-harvest.js') 'console.log(1)'
     try {
+        $env:KB_HOME = New-TestDir 'harvest2-home'
         Install-KitPromptHarvest -Hub $hub -TaskName $TaskForTests | Out-Null
         Install-KitPromptHarvest -Hub $hub -TaskName $TaskForTests | Out-Null
         @(Get-ScheduledTask -TaskName $TaskForTests -ErrorAction SilentlyContinue).Count -eq 1
     } finally {
+        $env:KB_HOME = $null
+        Unregister-ScheduledTask -TaskName $TaskForTests -Confirm:$false -ErrorAction SilentlyContinue
+    }
+}
+Check "THE REGRESSION: the program installed under .local\bin is found and scheduled" {
+    # This exact branch was dead on every reader's PC: the path carried a literal
+    # BACKSPACE byte (".local<0x08>in"), so the installed program was never found
+    # and the function returned without registering anything. The suite never saw
+    # it because every case above hand-creates the hub-copy fallback instead. This
+    # case builds the REAL layout: the program under <home>\.local\bin and a hub
+    # that ships no copy of its own.
+    $hub = New-TestDir 'harvest3'
+    try {
+        $env:KB_HOME = New-TestDir 'harvest3-home'
+        $bin = Join-Path $env:KB_HOME '.local\bin'
+        New-Item -ItemType Directory -Force $bin | Out-Null
+        Set-Content (Join-Path $bin 'prompt-harvest.js') 'console.log(1)'
+        Install-KitPromptHarvest -Hub $hub -TaskName $TaskForTests | Out-Null
+        $task = Get-ScheduledTask -TaskName $TaskForTests -ErrorAction SilentlyContinue
+        $args = if ($task) { ($task.Actions | ForEach-Object { $_.Arguments }) -join ' ' } else { '' }
+        [bool]$task -and ($args -match '\.local\\bin\\prompt-harvest\.js')
+    } finally {
+        $env:KB_HOME = $null
         Unregister-ScheduledTask -TaskName $TaskForTests -Confirm:$false -ErrorAction SilentlyContinue
     }
 }
@@ -353,6 +490,27 @@ Check "the wizard asks the library where the hub is, rather than searching again
 }
 Check "the wizard asks for no administrator rights of its own" {
     Select-String -Path (Join-Path $PSScriptRoot 'hub-setup.iss') -Pattern 'PrivilegesRequired=lowest' -Quiet
+}
+Check "the wizard asks the library which AI tools are here" {
+    Select-String -Path (Join-Path $PSScriptRoot 'hub-setup.iss') -Pattern 'Find-KitAiTools' -Quiet
+}
+Check "the wizard hands the person's choice to the engine" {
+    (Select-String -Path (Join-Path $PSScriptRoot 'hub-setup.iss') -Pattern 'GetPromptSources' -Quiet) -and
+    (Select-String -Path (Join-Path $PSScriptRoot 'setup-hub.ps1') -Pattern 'PromptSources' -Quiet)
+}
+Check "no source file carries a stray control byte" {
+    # The harvest task was dead on every reader's PC because one path carried a
+    # literal backspace character - the corpse of a '\b' interpreted on its way
+    # into the file. It rendered invisibly, so no eye and no text search could
+    # see it. Bytes do not lie.
+    $hits = 0
+    foreach ($f in (Join-Path $PSScriptRoot '..\join.ps1'), (Join-Path $PSScriptRoot '..\lib.sh'),
+                    (Join-Path $PSScriptRoot 'setup-hub.ps1'), (Join-Path $PSScriptRoot 'hub-setup.iss')) {
+        foreach ($b in [System.IO.File]::ReadAllBytes($f)) {
+            if ($b -lt 32 -and $b -ne 9 -and $b -ne 10 -and $b -ne 13) { $hits++ }
+        }
+    }
+    $hits -eq 0
 }
 
 Remove-Item $Root -Recurse -Force -ErrorAction SilentlyContinue
