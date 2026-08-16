@@ -118,7 +118,8 @@ if (-not (Get-Command Write-KitSyncReport -ErrorAction SilentlyContinue)) {
 foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-KitHub',
                  'Join-KitMemory', 'Install-KitHubCli', 'Install-KitHubTools',
                  'Install-KitPromptHarvest', 'Update-KitPath',
-                 'Find-KitAiTools', 'Set-KitPromptSources', 'Write-KitSyncReport') {
+                 'Find-KitAiTools', 'Set-KitPromptSources', 'Write-KitSyncReport',
+                 'Connect-KitNotebook', 'Write-KitMcpConfig', 'Install-KitNotebookSync') {
     if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
         Stop-Setup "the install code on this PC is incomplete ($fn is missing). Download the newest installer from https://github.com/MichaelZelbel/kit-bootstrap/releases/latest and run that."
     }
@@ -183,6 +184,10 @@ Join-KitMemory     -Hub $Hub    # the one memory every machine shares
 Install-KitHubCli  -Hub $Hub    # the hub's own commands, on PATH, from any folder
 Install-KitHubTools -Hub $Hub -ToolsRepo $StarterRepo   # the kit's own programs, on this machine
 Install-KitPromptHarvest -Hub $Hub   # the daily job that files what you type to an AI here
+# The notebook, and the one thing about it that has to travel: connect it once and the
+# connection lives in the folder, so the next computer only ever types the passphrase.
+# Quiet and complete for the reader who never connects one - which is most of the book.
+Connect-KitNotebook -Hub $Hub
 
 $skills = Join-Path $Hub '.claude\skills'
 $agents = Join-Path $Hub '.agents\skills'

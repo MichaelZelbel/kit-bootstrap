@@ -33,7 +33,10 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_os kb_can_sudo kb_note_missing kb_install_one kb_install_claude_code \
          kb_install_prereqs kb_copy_starter_hub kb_new_hub kb_install_prompt_harvest \
          kb_install_hub_tools kb_ai_tool_detected kb_ai_tool_info kb_detect_ai_tools \
-         kb_enabled_sources kb_write_prompt_sources kb_sync_report; do
+         kb_enabled_sources kb_write_prompt_sources kb_sync_report \
+         kb_age kb_age_keygen kb_have_age kb_hub_key_path kb_notebook_state \
+         kb_unseal_hub_key kb_seal_hub_key kb_store_notebook_token kb_write_mcp_config \
+         kb_install_notebook_sync kb_persist_notebook_env kb_connect_notebook; do
   declare -F "$f" >/dev/null || printf "%s " "$f"
 done')"
 [ -z "$missing" ] || { echo "  MISSING: $missing"; exit 1; }
@@ -303,6 +306,7 @@ rm -rf "$_s" "$_s2" "$_g" "$_g2"
 # there was no `hub` command on that machine at all. This half is the second hole.
 
 _f=$(mktemp -d)
+_home0="${HOME:-}"
 mkdir -p "$_f/notahub" "$_f/hub/.git" "$_f/hub/memory" "$_f/hub/agents/hub-cli"
 t "a folder that is not a hub is refused"  "$(kb_hub_looks_real "$_f/notahub" && echo yes || echo no)" "no"
 t "a real hub is recognised"               "$(kb_hub_looks_real "$_f/hub" && echo yes || echo no)"     "yes"
@@ -532,6 +536,123 @@ esac
 t "an already-present tool is not reinstalled" \
   "$(kb_install_one bash definitely-not-a-package definitely-not-a-package Bash >/dev/null 2>&1; echo $?)" "0"
 rm -rf "$_c"
+
+
+# --- YOUR NOTEBOOK: CONNECTING IT ONCE, AND THE CONNECTION TRAVELLING ---------
+# Added 2026-08-16. The installer had no credential step at all before this, and a
+# reader-facing step with no test is how the invisible backspace byte survived. These
+# are the bash twins of the cases in windows/test-windows.ps1. Change one, change both.
+_n=$(mktemp -d)
+mkdir -p "$_n/home/.hub" "$_n/hub/secrets" "$_n/home/.local/bin"
+HOME="$_n/home"; export HOME
+
+t "a hub with no notebook reports 'none'" "$(kb_notebook_state "$_n/hub")" "none"
+: > "$_n/hub/secrets/hub-key.age"
+t "a folder carrying a sealed key reports 'sealed'" "$(kb_notebook_state "$_n/hub")" "sealed"
+rm -f "$_n/hub/secrets/hub-key.age"
+
+# Refusals first, because they are what a reader hits at the worst moment.
+t "unsealing does nothing when the folder carries no key" \
+  "$(kb_unseal_hub_key "$_n/hub" >/dev/null 2>&1; echo $?)" "1"
+t "sealing does nothing when this computer has no key" \
+  "$(kb_seal_hub_key "$_n/hub" >/dev/null 2>&1; echo $?)" "1"
+t "and neither of those left a file behind" \
+  "$([ -e "$_n/hub/secrets/hub-key.age" ] && echo yes || echo no)" "no"
+: > "$_n/home/.hub/age-key.txt"
+: > "$_n/hub/secrets/hub-key.age"
+t "unsealing is a no-op when this computer already has a key" \
+  "$(kb_unseal_hub_key "$_n/hub" >/dev/null 2>&1; echo $?)" "0"
+rm -f "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-key.age"
+
+# The file that tells the assistant where the notebook is.
+kb_write_mcp_config "$_n/hub" >/dev/null 2>&1
+t "the assistant is given an .mcp.json" "$([ -f "$_n/hub/.mcp.json" ] && echo yes || echo no)" "yes"
+t "the connection NAMES the credential rather than carrying one" \
+  "$(grep -c 'Bearer \${MENERIO_MCP_TOKEN}' "$_n/hub/.mcp.json")" "1"
+t "and it is valid JSON, which is the only way an assistant will read it" \
+  "$(python3 -c 'import json,sys;json.load(open(sys.argv[1]));print("ok")' "$_n/hub/.mcp.json" 2>/dev/null)" "ok"
+printf 'mine\n' > "$_n/hub/.mcp.json"
+kb_write_mcp_config "$_n/hub" >/dev/null 2>&1
+t "a reader's own .mcp.json is never overwritten" "$(cat "$_n/hub/.mcp.json")" "mine"
+rm -f "$_n/hub/.mcp.json"
+
+# The sync: on save, and hourly. Both must be silent for a reader with no notebook,
+# which is why they are installed for everyone.
+_cronfile2="$_n/crontab.txt"; : > "$_cronfile2"
+cat > "$_n/fakecrontab" <<FAKE
+#!/bin/sh
+case "\$1" in
+  -l) cat "$_cronfile2" ;;
+  -)  cat > "$_cronfile2" ;;
+esac
+FAKE
+chmod +x "$_n/fakecrontab"
+t "no sync program on this computer means nothing is scheduled and nothing is said" \
+  "$(KB_CRONTAB="$_n/fakecrontab" kb_install_notebook_sync "$_n/hub" 2>&1)" ""
+printf '#!/bin/sh\nexit 0\n' > "$_n/home/.local/bin/hub-notebook-sync"
+chmod +x "$_n/home/.local/bin/hub-notebook-sync"
+git -C "$_n/hub" init -q 2>/dev/null
+( KB_CRONTAB="$_n/fakecrontab" kb_install_notebook_sync "$_n/hub" ) >/dev/null 2>&1
+t "a change that is saved updates the notebook" \
+  "$(grep -c 'hub-notebook-sync' "$_n/hub/.git/hooks/post-commit" 2>/dev/null)" "1"
+t "and the hook can never fail the save" \
+  "$(grep -c '^exit 0' "$_n/hub/.git/hooks/post-commit" 2>/dev/null)" "1"
+t "there is an hourly catch-up for what happened while the computer slept" \
+  "$(grep -c 'hub-notebook-sync' "$_cronfile2")" "1"
+printf 'BEFORE=keep\n' >> "$_cronfile2"
+( KB_CRONTAB="$_n/fakecrontab" kb_install_notebook_sync "$_n/hub" ) >/dev/null 2>&1
+t "running the installer twice does not stack up two jobs" \
+  "$(grep -c 'hub-notebook-sync' "$_cronfile2")" "1"
+t "and it keeps what was already in the schedule" "$(grep -c 'BEFORE=keep' "$_cronfile2")" "1"
+printf '#!/bin/sh\n# someone elses hook\n' > "$_n/hub/.git/hooks/post-commit"
+( KB_CRONTAB="$_n/fakecrontab" kb_install_notebook_sync "$_n/hub" ) >/dev/null 2>&1
+t "a hook the reader wrote themselves is left exactly as it was" \
+  "$(grep -c 'someone elses hook' "$_n/hub/.git/hooks/post-commit")" "1"
+
+# The shell start-up line that supplies the value .mcp.json only names.
+printf '#!/bin/sh\nexit 0\n' > "$_n/home/.local/bin/hub-notebook-env"
+: > "$_n/home/.bashrc"
+kb_persist_notebook_env "$_n/hub" >/dev/null 2>&1
+t "new terminals are told where the credential comes from" \
+  "$(grep -c 'hub-notebook-env' "$_n/home/.bashrc")" "1"
+kb_persist_notebook_env "$_n/hub" >/dev/null 2>&1
+t "and running it twice does not write the line twice" \
+  "$(grep -c 'hub-notebook-env' "$_n/home/.bashrc")" "1"
+
+# Saying no has to be free, because a hub built from the book has no notebook and
+# needs none. This is the case that must never nag.
+t "a reader who says no is not asked again and nothing is written" \
+  "$(KB_NOTEBOOK=skip kb_connect_notebook "$_n/hub" 2>&1)" ""
+
+# The real round trip, where age is installed. It is the mechanism the whole promise
+# rests on, so it is proven rather than assumed - and skipped OUT LOUD where it cannot be.
+if command -v age >/dev/null 2>&1 && command -v age-keygen >/dev/null 2>&1; then
+  rm -f "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-secrets.env.age"
+  ( kb_store_notebook_token "$_n/hub" "test-token-not-a-real-one-0123456789" ) >/dev/null 2>&1
+  t "pasting a token makes a key and locks the token inside the folder" \
+    "$([ -f "$_n/hub/secrets/hub-secrets.env.age" ] && [ -r "$_n/home/.hub/age-key.txt" ] && echo yes || echo no)" "yes"
+  t "the folder now reports itself connected on this computer" \
+    "$(kb_notebook_state "$_n/hub")" "connected"
+  t "the token can be read back out, exactly as it was pasted" \
+    "$(age -d -i "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-secrets.env.age" | sed -n 's/^MENERIO_MCP_TOKEN=//p')" \
+    "test-token-not-a-real-one-0123456789"
+  t "one paste answers both programs that need it" \
+    "$(age -d -i "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-secrets.env.age" | grep -c '^MENERIO_')" "2"
+  ( kb_store_notebook_token "$_n/hub" "second-token-still-not-real-98765" ) >/dev/null 2>&1
+  t "connecting again replaces the credential instead of keeping two" \
+    "$(age -d -i "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-secrets.env.age" | grep -c '^MENERIO_MCP_TOKEN=')" "1"
+  # A key that opens nothing must never be sealed: the machine that would find out is
+  # the new one, at the moment it has no other way in.
+  age-keygen -o "$_n/home/.hub/age-key.txt" 2>/dev/null
+  t "a key that does not open the folder's credentials is refused, not sealed" \
+    "$(kb_seal_hub_key "$_n/hub" >/dev/null 2>&1; echo $?)" "1"
+  t "and that refusal left no sealed key behind" \
+    "$([ -e "$_n/hub/secrets/hub-key.age" ] && echo yes || echo no)" "no"
+else
+  echo "  skip  the real lock-and-unlock round trip (age is not on this computer)"
+fi
+HOME="$_home0"; export HOME
+rm -rf "$_n"
 
 rm -rf "$_f"
 

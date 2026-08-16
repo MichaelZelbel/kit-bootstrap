@@ -59,6 +59,9 @@ foreach ($fn in 'Find-KitHub', 'Test-KitHub', 'Update-KitHub', 'Join-KitMemory',
                  'Install-KitPrereqs', 'New-KitHub', 'Update-KitPath', 'Set-KbTextFile', 'Test-KitCommand',
                  'Install-KitPromptHarvest', 'Install-KitHubTools',
                  'Test-KitAiTool', 'Get-KitAiToolInfo', 'Find-KitAiTools', 'Get-KitEnabledSources',
+                 'Get-KitNotebookState', 'Unlock-KitHubKey', 'Protect-KitHubKey',
+                 'Save-KitNotebookToken', 'Write-KitMcpConfig', 'Install-KitNotebookSync',
+                 'Set-KitNotebookEnv', 'Connect-KitNotebook', 'Test-KitInteractive',
                  'Set-KitPromptSources', 'Write-KitSyncReport', 'Get-KitHome') {
     Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
 }
@@ -466,6 +469,217 @@ Check "THE REGRESSION: the program installed under .local\bin is found and sched
         $env:KB_HOME = $null
         Unregister-ScheduledTask -TaskName $TaskForTests -Confirm:$false -ErrorAction SilentlyContinue
     }
+}
+
+
+Write-Host ""
+Write-Host "-- your notebook: connecting it once, and the connection travelling"
+# Added 2026-08-16. The installer had no credential step at all before this, and a
+# reader-facing step with no test is how the invisible backspace byte survived. These
+# are the Windows twins of the cases in test.sh. When you change one, change both.
+# Every one runs with a SCRATCH home, so the suite never reads or writes the real one.
+$NotebookTask = 'Hub notebook sync TEST'
+function Invoke-NotebookCase([scriptblock]$Body) {
+    $home0 = $HOME; $envHome0 = $env:HOME; $keyEnv0 = $env:HUB_AGE_KEY
+    try {
+        $h = New-TestDir ('nb-home-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        $env:HOME = $h
+        $env:KB_HOME = $h
+        Set-Variable -Name HOME -Value $h -Scope Global -Force
+        New-Item -ItemType Directory -Force (Join-Path $h '.hub') | Out-Null
+        New-Item -ItemType Directory -Force (Join-Path $h '.local\bin') | Out-Null
+        & $Body $h
+    } finally {
+        Set-Variable -Name HOME -Value $home0 -Scope Global -Force
+        $env:HOME = $envHome0
+        $env:KB_HOME = $null
+        $env:HUB_AGE_KEY = $keyEnv0
+    }
+}
+function New-NotebookHub([string]$Name) {
+    $hub = New-TestDir $Name
+    New-Item -ItemType Directory -Force (Join-Path $hub 'secrets') | Out-Null
+    return $hub
+}
+
+Check "a hub with no notebook reports 'none'" {
+    Invoke-NotebookCase { param($h) (Get-KitNotebookState -Hub (New-NotebookHub 'nb1')) -eq 'none' }
+}
+Check "a folder carrying a sealed key reports 'sealed'" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'nb2'
+        Set-Content (Join-Path $hub 'secrets\hub-key.age') 'x'
+        (Get-KitNotebookState -Hub $hub) -eq 'sealed'
+    }
+}
+Check "unsealing does nothing when the folder carries no key" {
+    Invoke-NotebookCase { param($h) (Unlock-KitHubKey -Hub (New-NotebookHub 'nb3')) -eq $false }
+}
+Check "sealing does nothing when this PC has no key" {
+    Invoke-NotebookCase { param($h) (Protect-KitHubKey -Hub (New-NotebookHub 'nb4')) -eq $false }
+}
+Check "unsealing is a no-op when this PC already has a key" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'nb5'
+        Set-Content (Join-Path $hub 'secrets\hub-key.age') 'x'
+        Set-Content (Join-Path $h '.hub\age-key.txt') 'k'
+        (Unlock-KitHubKey -Hub $hub) -eq $true
+    }
+}
+
+Check "the assistant is given an .mcp.json, and it is valid JSON" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'nb6'
+        Write-KitMcpConfig -Hub $hub | Out-Null
+        $f = Join-Path $hub '.mcp.json'
+        (Test-Path $f) -and ((Get-Content $f -Raw | ConvertFrom-Json).mcpServers.menerio.url -eq 'https://mcp.menerio.com')
+    }
+}
+Check "the connection NAMES the credential rather than carrying one" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'nb7'
+        Write-KitMcpConfig -Hub $hub | Out-Null
+        $auth = (Get-Content (Join-Path $hub '.mcp.json') -Raw | ConvertFrom-Json).mcpServers.menerio.headers.Authorization
+        $auth -eq 'Bearer ${MENERIO_MCP_TOKEN}'
+    }
+}
+Check "a reader's own .mcp.json is never overwritten" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'nb8'
+        Set-Content (Join-Path $hub '.mcp.json') 'mine'
+        Write-KitMcpConfig -Hub $hub | Out-Null
+        (Get-Content (Join-Path $hub '.mcp.json') -Raw).Trim() -eq 'mine'
+    }
+}
+
+Check "no sync program on this PC means nothing is scheduled and nothing is said" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'nb9'
+        $out = Install-KitNotebookSync -Hub $hub -TaskName $NotebookTask 3>&1 4>&1 | Out-String
+        ($out.Trim() -eq '') -and -not (Get-ScheduledTask -TaskName $NotebookTask -ErrorAction SilentlyContinue)
+    }
+}
+Check "a change that is saved updates the notebook, and the hook cannot fail the save" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'nb10'
+        git -C $hub init -q
+        Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`nexit 0"
+        try {
+            Install-KitNotebookSync -Hub $hub -TaskName $NotebookTask | Out-Null
+            $hook = Join-Path $hub '.git\hooks\post-commit'
+            $body = if (Test-Path $hook) { Get-Content $hook -Raw } else { '' }
+            $body.Contains('hub-notebook-sync') -and $body.Contains('exit 0') -and -not $body.Contains('\')
+        } finally {
+            Unregister-ScheduledTask -TaskName $NotebookTask -Confirm:$false -ErrorAction SilentlyContinue
+        }
+    }
+}
+Check "running the installer twice does not stack up two hourly jobs" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'nb11'
+        git -C $hub init -q
+        Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`nexit 0"
+        try {
+            Install-KitNotebookSync -Hub $hub -TaskName $NotebookTask | Out-Null
+            Install-KitNotebookSync -Hub $hub -TaskName $NotebookTask | Out-Null
+            @(Get-ScheduledTask -TaskName $NotebookTask -ErrorAction SilentlyContinue).Count -le 1
+        } finally {
+            Unregister-ScheduledTask -TaskName $NotebookTask -Confirm:$false -ErrorAction SilentlyContinue
+        }
+    }
+}
+Check "a hook the reader wrote themselves is left exactly as it was" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'nb12'
+        git -C $hub init -q
+        New-Item -ItemType Directory -Force (Join-Path $hub '.git\hooks') | Out-Null
+        Set-Content (Join-Path $hub '.git\hooks\post-commit') "#!/bin/sh`n# someone elses hook"
+        Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`nexit 0"
+        try {
+            Install-KitNotebookSync -Hub $hub -TaskName $NotebookTask | Out-Null
+            (Get-Content (Join-Path $hub '.git\hooks\post-commit') -Raw).Contains('someone elses hook')
+        } finally {
+            Unregister-ScheduledTask -TaskName $NotebookTask -Confirm:$false -ErrorAction SilentlyContinue
+        }
+    }
+}
+Check "a reader who says no is not asked again and nothing is written" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'nb13'
+        $env:KB_NOTEBOOK = 'skip'
+        try {
+            $out = Connect-KitNotebook -Hub $hub 3>&1 4>&1 | Out-String
+            ($out.Trim() -eq '') -and -not (Test-Path (Join-Path $hub '.mcp.json'))
+        } finally { $env:KB_NOTEBOOK = $null }
+    }
+}
+
+# The real lock-and-unlock, where age is installed. It is the mechanism the whole
+# promise rests on, so it is proven rather than assumed - and skipped OUT LOUD
+# where it cannot be. `age -p` needs a real terminal by design, so the passphrase
+# half is proven separately; what runs here is everything either side of it.
+if ((Get-Command age -ErrorAction SilentlyContinue) -and (Get-Command age-keygen -ErrorAction SilentlyContinue)) {
+    Check "pasting a token makes a key and locks the token inside the folder" {
+        Invoke-NotebookCase {
+            param($h)
+            $hub = New-NotebookHub 'nb14'
+            $env:HUB_AGE_KEY = Join-Path $h '.hub\age-key.txt'
+            (Save-KitNotebookToken -Hub $hub -Token 'test-token-not-a-real-one-0123456789') -and
+            (Test-Path (Join-Path $hub 'secrets\hub-secrets.env.age')) -and
+            (Get-KitNotebookState -Hub $hub) -eq 'connected'
+        }
+    }
+    Check "the token reads back exactly as it was pasted, and answers both programs" {
+        Invoke-NotebookCase {
+            param($h)
+            $hub = New-NotebookHub 'nb15'
+            $env:HUB_AGE_KEY = Join-Path $h '.hub\age-key.txt'
+            [void](Save-KitNotebookToken -Hub $hub -Token 'test-token-not-a-real-one-0123456789')
+            $lines = @(& age -d -i $env:HUB_AGE_KEY (Join-Path $hub 'secrets\hub-secrets.env.age'))
+            ($lines -contains 'MENERIO_MCP_TOKEN=test-token-not-a-real-one-0123456789') -and
+            ($lines -contains 'MENERIO_HUB_API_KEY=test-token-not-a-real-one-0123456789')
+        }
+    }
+    Check "connecting again replaces the credential instead of keeping two" {
+        Invoke-NotebookCase {
+            param($h)
+            $hub = New-NotebookHub 'nb16'
+            $env:HUB_AGE_KEY = Join-Path $h '.hub\age-key.txt'
+            [void](Save-KitNotebookToken -Hub $hub -Token 'first-token-not-real-0123456789')
+            [void](Save-KitNotebookToken -Hub $hub -Token 'second-token-not-real-98765432')
+            $lines = @(& age -d -i $env:HUB_AGE_KEY (Join-Path $hub 'secrets\hub-secrets.env.age'))
+            (@($lines | Where-Object { $_ -like 'MENERIO_MCP_TOKEN=*' }).Count -eq 1) -and
+            ($lines -contains 'MENERIO_MCP_TOKEN=second-token-not-real-98765432')
+        }
+    }
+    Check "a key that does not open the folder's credentials is refused, not sealed" {
+        Invoke-NotebookCase {
+            param($h)
+            $hub = New-NotebookHub 'nb17'
+            $env:HUB_AGE_KEY = Join-Path $h '.hub\age-key.txt'
+            [void](Save-KitNotebookToken -Hub $hub -Token 'a-token-not-real-0123456789')
+            # A DIFFERENT key. age-keygen refuses to write over a file that is already
+            # there, so without the removal the key never changes, the guard passes, and
+            # this case walks straight into `age -p` and waits for a human forever. That
+            # is exactly how the missing terminal guard was found on 2026-08-16.
+            Remove-Item $env:HUB_AGE_KEY -Force -ErrorAction SilentlyContinue
+            & age-keygen -o $env:HUB_AGE_KEY 2>$null | Out-Null
+            $r = Protect-KitHubKey -Hub $hub
+            ($r -eq $false) -and -not (Test-Path (Join-Path $hub 'secrets\hub-key.age'))
+        }
+    }
+} else {
+    Write-Host "  skip  the real lock-and-unlock cases (age is not on this PC: winget install --id FiloSottile.age)"
 }
 
 Write-Host ""

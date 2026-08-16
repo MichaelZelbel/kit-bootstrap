@@ -1253,3 +1253,299 @@ kb_new_hub() {
   ok "your hub is now at $path"
   return 0
 }
+
+# =============================================================================
+# YOUR NOTEBOOK: CONNECT IT ONCE, AND THE CONNECTION TRAVELS WITH THE FOLDER
+#
+# Added 2026-08-16. Before this, the installer had no credential step of any kind.
+# The book promised in Chapter 25 that every computer you own reads the same hub, and
+# said nothing at all about the one thing that did NOT travel: the key to your notebook.
+# A reader who joined a second machine got their files and a notebook that was simply
+# absent, with nothing anywhere saying so.
+#
+# The shape, which is the same one the author's own hub uses:
+#
+#   secrets/hub-secrets.env.age   your credentials, locked, INSIDE the hub folder
+#   secrets/hub-key.age           the key to that, locked with ONE passphrase you choose
+#   ~/.hub/age-key.txt            the unlocked key, on this computer only
+#
+# First computer: you paste the token once, and choose a passphrase. Every computer
+# after that: you type the passphrase, and everything is live. Nothing is ever carried
+# between machines, and nothing is lost when a laptop dies.
+#
+# THE TRADE, said plainly, because a reader deserves it before they choose: anyone who
+# has BOTH your hub folder and your passphrase has your credentials. That is the same
+# bargain as a password manager. Keep the folder private and put the passphrase in your
+# password manager.
+#
+# A reader who never connects a notebook is not nagged and loses nothing: every one of
+# these functions is quiet and returns success when there is no notebook.
+#
+# KB_AGE / KB_AGE_KEYGEN exist so the test suite can watch this work with a stand-in.
+# A command name compiled into the code is a command no test can safely reach - the
+# same reason KB_CRONTAB exists further up this file.
+# =============================================================================
+
+kb_age()        { printf '%s' "${KB_AGE:-age}"; }
+kb_age_keygen() { printf '%s' "${KB_AGE_KEYGEN:-age-keygen}"; }
+kb_have_age()   { command -v "$(kb_age)" >/dev/null 2>&1 && command -v "$(kb_age_keygen)" >/dev/null 2>&1; }
+
+kb_hub_key_path() { printf '%s' "${HUB_AGE_KEY:-$HOME/.hub/age-key.txt}"; }
+
+# kb_notebook_state <hub> -> connected | sealed | none
+#   connected  this computer can already open the credentials in that folder
+#   sealed     the folder carries them, and the key to them, waiting for a passphrase
+#   none       there is no notebook here yet, which is a complete way to own a hub
+kb_notebook_state() {
+  local hub="${1:-}" key store
+  key="$(kb_hub_key_path)"; store="$hub/secrets/hub-secrets.env.age"
+  if [ -f "$store" ] && [ -r "$key" ] && kb_have_age \
+     && "$(kb_age)" -d -i "$key" "$store" >/dev/null 2>&1; then
+    printf 'connected'; return 0
+  fi
+  if [ -f "$hub/secrets/hub-key.age" ]; then printf 'sealed'; return 0; fi
+  printf 'none'
+}
+
+# kb_unseal_hub_key <hub>
+# The SECOND computer, and every one after it. One passphrase, and every credential the
+# folder carries is live here. This is the half that makes the promise true.
+kb_unseal_hub_key() {
+  local hub="${1:-}" key sealed
+  key="$(kb_hub_key_path)"; sealed="$hub/secrets/hub-key.age"
+  [ -f "$sealed" ] || return 1
+  [ -r "$key" ] && return 0
+  kb_have_age || { warn "notebook: this computer needs the 'age' program to unlock your credentials. Install it (Linux: apt install age, Mac: brew install age) and run this again."; return 1; }
+  have_tty || { warn "notebook: this folder carries your connection, but I cannot ask for your passphrase here. Run the installer again from a terminal window."; return 1; }
+
+  kb_tell ""
+  kb_tell "This computer has no key yet, but your hub folder carries one."
+  kb_tell "Type your hub passphrase to unlock every credential at once:"
+  mkdir -p "$(dirname "$key")"
+  if kb_run_interactive "$(kb_age)" -d -o "$key" "$sealed"; then
+    chmod 600 "$key" 2>/dev/null || true
+    ok "notebook: unlocked. Nothing had to be carried to this computer."
+    return 0
+  fi
+  # A half-written key is worse than none: it looks like a connection and opens nothing.
+  rm -f "$key" 2>/dev/null || true
+  warn "notebook: that passphrase did not open it, so nothing was changed. Your passphrase is in your password manager; run the installer again to try once more."
+  return 1
+}
+
+# kb_seal_hub_key <hub>
+# The FIRST computer. Put the key INTO the folder, locked with one passphrase, so the
+# next computer needs nothing carried to it. Refuses to seal a key that opens nothing,
+# and proves the round trip before it keeps the result: an unverified backup is not a
+# backup, and the machine that would discover that is the new one, at the moment it has
+# no other way in.
+kb_seal_hub_key() {
+  local hub="${1:-}" key sealed recovered
+  key="$(kb_hub_key_path)"; sealed="$hub/secrets/hub-key.age"
+  [ -r "$key" ] || return 1
+  [ -f "$sealed" ] && return 0
+  kb_have_age || return 1
+  have_tty || { warn "notebook: I could not ask for a passphrase here, so your key was NOT put into the folder. Until it is, a second computer cannot pick up the connection."; return 1; }
+  if [ -f "$hub/secrets/hub-secrets.env.age" ] \
+     && ! "$(kb_age)" -d -i "$key" "$hub/secrets/hub-secrets.env.age" >/dev/null 2>&1; then
+    warn "notebook: the key on this computer does not open the credentials in that folder, so sealing it would produce a passphrase that unlocks nothing. Nothing changed."
+    return 1
+  fi
+
+  kb_tell ""
+  kb_tell "Choose a passphrase. This is the ONE thing you will type on your next computer,"
+  kb_tell "and the one thing to put in your password manager. You will be asked twice."
+  mkdir -p "$hub/secrets"
+  kb_run_interactive "$(kb_age)" -p -o "$sealed" "$key" || {
+    rm -f "$sealed" 2>/dev/null || true
+    warn "notebook: your key was NOT put into the folder, so a second computer cannot pick up the connection yet. Run the installer again to try once more."
+    return 1; }
+
+  recovered="$(mktemp 2>/dev/null)" || recovered="$hub/secrets/.check.tmp"
+  kb_tell ""
+  kb_tell "Type the same passphrase once more, so I can prove it really opens:"
+  if kb_run_interactive "$(kb_age)" -d -o "$recovered" "$sealed" && cmp -s "$recovered" "$key"; then
+    rm -f "$recovered"
+    ok "notebook: your connection now travels with the folder. On your next computer, that passphrase is all you type."
+    return 0
+  fi
+  rm -f "$recovered" "$sealed"
+  warn "notebook: the two passphrases did not match, so nothing was kept. Run the installer again."
+  return 1
+}
+
+# kb_store_notebook_token <hub> <token>
+# Put one credential into the folder's locked store, making a key for this computer first
+# if there is none. Merges: a store that already holds other credentials keeps them.
+kb_store_notebook_token() {
+  local hub="${1:-}" token="${2:-}" key store plain recipient
+  [ -n "$token" ] || return 1
+  kb_have_age || { warn "notebook: this computer needs the 'age' program to keep a credential safely. Install it (Linux: apt install age, Mac: brew install age) and run this again."; return 1; }
+  key="$(kb_hub_key_path)"; store="$hub/secrets/hub-secrets.env.age"
+  mkdir -p "$(dirname "$key")" "$hub/secrets"
+  if [ ! -r "$key" ]; then
+    "$(kb_age_keygen)" -o "$key" >/dev/null 2>&1 || { warn "notebook: I could not make a key on this computer."; return 1; }
+    chmod 600 "$key" 2>/dev/null || true
+  fi
+  recipient="$("$(kb_age_keygen)" -y "$key" 2>/dev/null)"
+  [ -n "$recipient" ] || { warn "notebook: the key on this computer is not readable."; return 1; }
+
+  plain="$(mktemp 2>/dev/null)" || return 1
+  if [ -f "$store" ]; then
+    "$(kb_age)" -d -i "$key" "$store" 2>/dev/null | grep -v '^MENERIO_' > "$plain" || true
+  fi
+  # One token, two names, because the two programs that use it were written apart: the
+  # assistant's connection reads MENERIO_MCP_TOKEN and the file sync reads
+  # MENERIO_HUB_API_KEY. A reader should paste one thing, not two.
+  printf 'MENERIO_MCP_TOKEN=%s\n' "$token" >> "$plain"
+  printf 'MENERIO_HUB_API_KEY=%s\n' "$token" >> "$plain"
+  if "$(kb_age)" -r "$recipient" -o "$store" "$plain" 2>/dev/null; then
+    rm -f "$plain"
+    ok "notebook: your credential is kept inside your hub folder, locked."
+    return 0
+  fi
+  rm -f "$plain"
+  warn "notebook: I could not write the credential into your hub folder."
+  return 1
+}
+
+# kb_write_mcp_config <hub>
+# The file that tells your assistant where your notebook is. It NAMES the credential
+# rather than carrying it, so this file is safe to keep in the folder and to push: the
+# value is read from the environment when the assistant starts.
+# Never overwrites one you already have.
+kb_write_mcp_config() {
+  local hub="${1:-}" f
+  [ -n "$hub" ] || return 0
+  f="$hub/.mcp.json"
+  [ -f "$f" ] && { ok "notebook: .mcp.json is already there, left as you have it"; return 0; }
+  cat > "$f" <<'JSONEOF'
+{
+  "_comment": [
+    "This tells your assistant where your notebook is (the book, Chapter 24 and 28).",
+    "It NAMES the credential rather than carrying it: ${MENERIO_MCP_TOKEN} is read from",
+    "this computer's environment when the assistant starts, so this file holds no secret",
+    "and is safe to keep in the folder. The value itself lives locked in secrets/, and",
+    "travels with the folder to every computer you own.",
+    "Delete this file if you do not use a notebook. Nothing else in the book needs it."
+  ],
+  "mcpServers": {
+    "menerio": {
+      "url": "https://mcp.menerio.com",
+      "headers": {
+        "Authorization": "Bearer ${MENERIO_MCP_TOKEN}",
+        "Accept": "application/json, text/event-stream",
+        "Content-Type": "application/json"
+      }
+    }
+  }
+}
+JSONEOF
+  ok "notebook: wrote $f, which names your credential instead of carrying it"
+}
+
+# kb_install_notebook_sync <hub>
+# On save, plus an hourly catch-up. Both are quiet and cost nothing when no notebook is
+# connected, which is why they can be installed for every reader rather than only for
+# the ones who connect one.
+kb_install_notebook_sync() {
+  local hub="${1:-}" cron cur runner hook
+  [ -n "$hub" ] || return 0
+  runner="$HOME/.local/bin/hub-notebook-sync"
+  [ -f "$runner" ] || return 0
+
+  # 1. On save. A saved change is the folder's own definition of "this is real", and it
+  #    is what every routine in the book already ends with.
+  if [ -d "$hub/.git" ]; then
+    hook="$hub/.git/hooks/post-commit"
+    if [ -f "$hook" ] && ! grep -q 'hub-notebook-sync' "$hook" 2>/dev/null; then
+      ok "notebook: you already have a post-commit hook, so I left it alone. To update the notebook on save too, add this line to it: \"$runner\" >/dev/null 2>&1 &"
+    elif [ ! -f "$hook" ]; then
+      mkdir -p "$hub/.git/hooks"
+      # Never blocks and never fails the save: a hook that breaks committing is worse
+      # than no hook at all.
+      {
+        printf '#!/bin/sh\n'
+        printf '# Keep your notebook current the moment you save (Teach It Once, Chapter 23).\n'
+        printf '# Never blocks, never fails the save, and does nothing at all if you have no notebook.\n'
+        printf '"%s" >/dev/null 2>&1 &\n' "$runner"
+        printf 'exit 0\n'
+      } > "$hook"
+      chmod +x "$hook" 2>/dev/null || true
+      ok "notebook: your hub now updates the notebook the moment you save a change"
+    fi
+  fi
+
+  # 2. The hourly catch-up, for whatever happened while the computer was asleep. Hourly
+  #    rather than at a fixed hour, because a fixed time in the small hours is right for
+  #    a server and wrong for a laptop, which is shut.
+  cron="${KB_CRONTAB:-crontab}"
+  command -v "$cron" >/dev/null 2>&1 || return 0
+  cur="$("$cron" -l 2>/dev/null || true)"
+  case "$cur" in *hub-notebook-sync*) ok "notebook: the hourly catch-up is already on this computer"; return 0 ;; esac
+  if { [ -n "$cur" ] && printf '%s\n' "$cur"
+       printf '%s\n' "# Keep your notebook current, for whatever changed while this computer was asleep."
+       printf '37 * * * * "%s" >> "%s/.hub/notebook-sync.log" 2>&1\n' "$runner" "$HOME"
+     } | "$cron" - 2>/dev/null; then
+    ok "notebook: this computer will also catch up once an hour"
+  else
+    warn "notebook: I could not add the hourly job to this computer's schedule. Your notebook still updates when you save."
+  fi
+}
+
+# kb_connect_notebook <hub>
+# The whole credential step, as one moment in the install rather than a checklist.
+# KB_NOTEBOOK_TOKEN answers the question without asking, for a one-line install.
+# KB_NOTEBOOK=skip says no without being asked.
+kb_connect_notebook() {
+  local hub="${1:-}" state token
+  [ -n "$hub" ] || return 0
+  [ "${KB_NOTEBOOK:-}" = "skip" ] && return 0
+  state="$(kb_notebook_state "$hub")"
+
+  case "$state" in
+    connected)
+      ok "notebook: already connected on this computer" ;;
+    sealed)
+      kb_unseal_hub_key "$hub" || true ;;
+    none)
+      token="${KB_NOTEBOOK_TOKEN:-}"
+      if [ -z "$token" ]; then
+        have_tty || return 0        # a one-line install stays a one-line install
+        kb_tell ""
+        kb_tell "A notebook is optional. Everything in this book works on plain files without one."
+        kb_tell "It adds one thing: searching your hub by MEANING instead of by exact word."
+        ask_yes "Connect a notebook now?" "n" || { ok "notebook: not connected, which is a complete way to own a hub. Run this installer again whenever you change your mind."; return 0; }
+        token="$(ask "Paste the token from your notebook's settings page")"
+      fi
+      [ -n "$token" ] || { ok "notebook: nothing pasted, so nothing was connected."; return 0; }
+      kb_store_notebook_token "$hub" "$token" || return 0
+      kb_seal_hub_key "$hub" || true ;;
+  esac
+
+  kb_write_mcp_config "$hub"
+  kb_install_notebook_sync "$hub"
+  kb_persist_notebook_env "$hub"
+  return 0
+}
+
+# kb_persist_notebook_env <hub>
+# Put the notebook credential into this computer's environment at shell start-up.
+#
+# .mcp.json NAMES the credential (${MENERIO_MCP_TOKEN}) instead of carrying it, which is
+# what makes that file safe to keep in the folder. Something has to supply the value, and
+# a line in your shell start-up is the one place that reaches every program you launch
+# from a terminal. The line reads the locked store each time, so the value itself is never
+# written to a second place on disk.
+kb_persist_notebook_env() {
+  local hub="${1:-}" line rc
+  [ -n "$hub" ] || return 0
+  [ -f "$HOME/.local/bin/hub-notebook-env" ] || return 0
+  line='[ -f "$HOME/.local/bin/hub-notebook-env" ] && eval "$(sh "$HOME/.local/bin/hub-notebook-env")"   # Teach It Once: your notebook credential'
+  for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    [ -f "$rc" ] || continue
+    grep -q 'hub-notebook-env' "$rc" 2>/dev/null && continue
+    printf '\n%s\n' "$line" >> "$rc"
+    ok "notebook: new terminals on this computer will know your notebook credential ($rc)"
+  done
+}

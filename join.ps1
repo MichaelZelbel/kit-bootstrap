@@ -826,6 +826,344 @@ Download ZIP, and copy the starter-hub folder from inside it into $Path
     Write-KbOk "your hub is now at $Path"
 }
 
+# =============================================================================
+# YOUR NOTEBOOK: CONNECT IT ONCE, AND THE CONNECTION TRAVELS WITH THE FOLDER
+#
+# The Windows twins of the kb_*notebook* functions in lib.sh. When you change one
+# side, change the other, and add the case to BOTH test.sh and test-windows.ps1.
+#
+# Added 2026-08-16. Before this, the installer had no credential step of any kind
+# on either front door. The book promised in Chapter 25 that every computer you own
+# reads the same hub, and said nothing about the one thing that did NOT travel: the
+# key to your notebook. A reader joining a second machine got their files and a
+# notebook that was simply absent, with nothing anywhere saying so.
+#
+#   secrets\hub-secrets.env.age   your credentials, locked, INSIDE the hub folder
+#   secrets\hub-key.age           the key to that, locked with ONE passphrase
+#   ~\.hub\age-key.txt            the unlocked key, on this PC only
+#
+# THE TRADE, said plainly: anyone with BOTH your hub folder and your passphrase has
+# your credentials. Same bargain as a password manager. Keep the folder private and
+# put the passphrase in your password manager.
+#
+# KB_AGE / KB_AGE_KEYGEN are the test overrides, the same as KB_HOME further up.
+# =============================================================================
+
+function Get-KitAge       { if ($env:KB_AGE) { return $env:KB_AGE } return 'age' }
+function Get-KitAgeKeygen { if ($env:KB_AGE_KEYGEN) { return $env:KB_AGE_KEYGEN } return 'age-keygen' }
+function Test-KitAge {
+    [bool](Get-Command (Get-KitAge) -ErrorAction SilentlyContinue) -and
+    [bool](Get-Command (Get-KitAgeKeygen) -ErrorAction SilentlyContinue)
+}
+function Get-KitHubKeyPath {
+    if ($env:HUB_AGE_KEY) { return $env:HUB_AGE_KEY }
+    return (Join-Path (Get-KitHome) '.hub\age-key.txt')
+}
+
+function Test-KitInteractive {
+    <#  Is there a person at a keyboard right now?
+
+        age asks for a passphrase at the terminal ON PURPOSE and will not take one
+        from a pipe or a variable. With no terminal it does not fail, it WAITS - so an
+        install running unattended stops dead, with no message and no end, which is
+        the worst of the three possible outcomes. Found by this kit's own test suite
+        on 2026-08-16, where it hung for seven minutes on a case that was meant to
+        return in a millisecond. The bash side has always had this guard (have_tty);
+        this side did not. #>
+    try { return ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) }
+    catch { return $false }
+}
+
+function Get-KitNotebookState {
+    <#  connected = this PC can already open the credentials in that folder
+        sealed    = the folder carries them and the key, waiting for a passphrase
+        none      = no notebook here yet, which is a complete way to own a hub #>
+    param([Parameter(Mandatory)][string]$Hub)
+    $key   = Get-KitHubKeyPath
+    $store = Join-Path $Hub 'secrets\hub-secrets.env.age'
+    if ((Test-Path $store) -and (Test-Path $key) -and (Test-KitAge)) {
+        & (Get-KitAge) -d -i $key $store > $null 2>&1
+        if ($LASTEXITCODE -eq 0) { return 'connected' }
+    }
+    if (Test-Path (Join-Path $Hub 'secrets\hub-key.age')) { return 'sealed' }
+    return 'none'
+}
+
+function Unlock-KitHubKey {
+    <#  The SECOND computer, and every one after it. One passphrase, and every
+        credential the folder carries is live here. #>
+    param([Parameter(Mandatory)][string]$Hub)
+    $key    = Get-KitHubKeyPath
+    $sealed = Join-Path $Hub 'secrets\hub-key.age'
+    if (-not (Test-Path $sealed)) { return $false }
+    if (Test-Path $key) { return $true }
+    if (-not (Test-KitAge)) {
+        Write-KbWarn "notebook: this PC needs the 'age' program to unlock your credentials. Install it (winget install --id FiloSottile.age) and run this again."
+        return $false
+    }
+    if (-not (Test-KitInteractive)) {
+        Write-KbWarn "notebook: this folder carries your connection, but I cannot ask for your passphrase here. Run the installer again from a terminal window."
+        return $false
+    }
+    Write-Host ""
+    Write-Host "This computer has no key yet, but your hub folder carries one."
+    Write-Host "Type your hub passphrase to unlock every credential at once:"
+    New-Item -ItemType Directory -Force (Split-Path $key -Parent) | Out-Null
+    & (Get-KitAge) -d -o $key $sealed
+    if ($LASTEXITCODE -eq 0 -and (Test-Path $key)) {
+        Write-KbOk "notebook: unlocked. Nothing had to be carried to this computer."
+        return $true
+    }
+    # A half-written key is worse than none: it looks like a connection and opens nothing.
+    Remove-Item $key -ErrorAction SilentlyContinue
+    Write-KbWarn "notebook: that passphrase did not open it, so nothing was changed. Your passphrase is in your password manager; run this again to try once more."
+    return $false
+}
+
+function Protect-KitHubKey {
+    <#  The FIRST computer. Put the key INTO the folder, locked with one passphrase,
+        so the next computer needs nothing carried to it. Refuses to seal a key that
+        opens nothing, and proves the round trip before keeping the result: an
+        unverified backup is not a backup, and the machine that would discover that
+        is the new one, at the moment it has no other way in. #>
+    param([Parameter(Mandatory)][string]$Hub)
+    $key    = Get-KitHubKeyPath
+    $sealed = Join-Path $Hub 'secrets\hub-key.age'
+    $store  = Join-Path $Hub 'secrets\hub-secrets.env.age'
+    if (-not (Test-Path $key))  { return $false }
+    if (Test-Path $sealed)      { return $true }
+    if (-not (Test-KitAge))     { return $false }
+    if (Test-Path $store) {
+        & (Get-KitAge) -d -i $key $store > $null 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-KbWarn "notebook: the key on this PC does not open the credentials in that folder, so sealing it would produce a passphrase that unlocks nothing. Nothing changed."
+            return $false
+        }
+    }
+    if (-not (Test-KitInteractive)) {
+        Write-KbWarn "notebook: I could not ask for a passphrase here, so your key was NOT put into the folder. Until it is, a second computer cannot pick up the connection. Run the installer again from a terminal window."
+        return $false
+    }
+    Write-Host ""
+    Write-Host "Choose a passphrase. This is the ONE thing you will type on your next computer,"
+    Write-Host "and the one thing to put in your password manager. You will be asked twice."
+    New-Item -ItemType Directory -Force (Join-Path $Hub 'secrets') | Out-Null
+    & (Get-KitAge) -p -o $sealed $key
+    if ($LASTEXITCODE -ne 0) {
+        Remove-Item $sealed -ErrorAction SilentlyContinue
+        Write-KbWarn "notebook: your key was NOT put into the folder, so a second computer cannot pick up the connection yet. Run this again to try once more."
+        return $false
+    }
+    $check = Join-Path ([System.IO.Path]::GetTempPath()) ("kb-seal-" + [guid]::NewGuid().ToString('N').Substring(0,8))
+    Write-Host ""
+    Write-Host "Type the same passphrase once more, so I can prove it really opens:"
+    & (Get-KitAge) -d -o $check $sealed
+    $same = $false
+    if ($LASTEXITCODE -eq 0 -and (Test-Path $check)) {
+        $same = (Get-FileHash $check).Hash -eq (Get-FileHash $key).Hash
+    }
+    Remove-Item $check -ErrorAction SilentlyContinue
+    if ($same) {
+        Write-KbOk "notebook: your connection now travels with the folder. On your next computer, that passphrase is all you type."
+        return $true
+    }
+    Remove-Item $sealed -ErrorAction SilentlyContinue
+    Write-KbWarn "notebook: the two passphrases did not match, so nothing was kept. Run this again."
+    return $false
+}
+
+function Save-KitNotebookToken {
+    <#  Put one credential into the folder's locked store, making a key for this PC
+        first if there is none. Merges: a store holding other credentials keeps them. #>
+    param([Parameter(Mandatory)][string]$Hub, [Parameter(Mandatory)][string]$Token)
+    if (-not (Test-KitAge)) {
+        Write-KbWarn "notebook: this PC needs the 'age' program to keep a credential safely. Install it (winget install --id FiloSottile.age) and run this again."
+        return $false
+    }
+    $key   = Get-KitHubKeyPath
+    $store = Join-Path $Hub 'secrets\hub-secrets.env.age'
+    New-Item -ItemType Directory -Force (Split-Path $key -Parent) | Out-Null
+    New-Item -ItemType Directory -Force (Join-Path $Hub 'secrets') | Out-Null
+    if (-not (Test-Path $key)) {
+        & (Get-KitAgeKeygen) -o $key > $null 2>&1
+        if (-not (Test-Path $key)) { Write-KbWarn "notebook: I could not make a key on this PC."; return $false }
+    }
+    $recipient = (& (Get-KitAgeKeygen) -y $key 2>$null | Select-Object -First 1)
+    if (-not $recipient) { Write-KbWarn "notebook: the key on this PC is not readable."; return $false }
+
+    $lines = @()
+    if (Test-Path $store) {
+        $lines = @(& (Get-KitAge) -d -i $key $store 2>$null | Where-Object { $_ -notmatch '^MENERIO_' })
+    }
+    # One token, two names, because the two programs that use it were written apart:
+    # the assistant's connection reads MENERIO_MCP_TOKEN and the file sync reads
+    # MENERIO_HUB_API_KEY. A reader should paste one thing, not two.
+    $lines += "MENERIO_MCP_TOKEN=$Token"
+    $lines += "MENERIO_HUB_API_KEY=$Token"
+    $plain = Join-Path ([System.IO.Path]::GetTempPath()) ("kb-store-" + [guid]::NewGuid().ToString('N').Substring(0,8))
+    Set-KbTextFile -Path $plain -Lines $lines
+    & (Get-KitAge) -r $recipient -o $store $plain 2>$null
+    $rc = $LASTEXITCODE
+    Remove-Item $plain -ErrorAction SilentlyContinue
+    if ($rc -eq 0) { Write-KbOk "notebook: your credential is kept inside your hub folder, locked."; return $true }
+    Write-KbWarn "notebook: I could not write the credential into your hub folder."
+    return $false
+}
+
+function Write-KitMcpConfig {
+    <#  The file that tells your assistant where your notebook is. It NAMES the
+        credential rather than carrying it, so the file holds no secret and is safe
+        to keep in the folder. Never overwrites one you already have. #>
+    param([Parameter(Mandatory)][string]$Hub)
+    $f = Join-Path $Hub '.mcp.json'
+    if (Test-Path $f) { Write-KbOk "notebook: .mcp.json is already there, left as you have it"; return }
+    $lines = @(
+        '{',
+        '  "_comment": [',
+        '    "This tells your assistant where your notebook is (the book, Chapter 24 and 28).",',
+        '    "It NAMES the credential rather than carrying it: ${MENERIO_MCP_TOKEN} is read from",',
+        '    "this computer''s environment when the assistant starts, so this file holds no secret",',
+        '    "and is safe to keep in the folder. The value itself lives locked in secrets/, and",',
+        '    "travels with the folder to every computer you own.",',
+        '    "Delete this file if you do not use a notebook. Nothing else in the book needs it."',
+        '  ],',
+        '  "mcpServers": {',
+        '    "menerio": {',
+        '      "url": "https://mcp.menerio.com",',
+        '      "headers": {',
+        '        "Authorization": "Bearer ${MENERIO_MCP_TOKEN}",',
+        '        "Accept": "application/json, text/event-stream",',
+        '        "Content-Type": "application/json"',
+        '      }',
+        '    }',
+        '  }',
+        '}'
+    )
+    Set-KbTextFile -Path $f -Lines $lines
+    Write-KbOk "notebook: wrote $f, which names your credential instead of carrying it"
+}
+
+function Install-KitNotebookSync {
+    <#  On save, plus an hourly catch-up. Both are quiet and cost nothing when no
+        notebook is connected, which is why they are installed for every reader.
+
+        WHY A SCHEDULED TASK AND NOT cron: Windows has no cron. The book never
+        mentioned Windows scheduling at all before 2026-08-16, which is how the
+        prompt-archive job could be missing on every reader's PC and be noticed by
+        nobody: there was no sentence anywhere saying a job should be there. #>
+    param(
+        [Parameter(Mandatory)][string]$Hub,
+        [string]$TaskName = 'Hub notebook sync'
+    )
+    $bash = Get-KitGitBash
+    $runner = Join-Path (Get-KitHome) '.local\bin\hub-notebook-sync'
+    if (-not (Test-Path $runner)) { return }
+
+    # 1. On save. Git for Windows runs hooks through its own sh, so the same tiny
+    #    hook works on both sides. It never blocks and never fails the save.
+    $hookDir = Join-Path $Hub '.git\hooks'
+    $hook = Join-Path $hookDir 'post-commit'
+    if (Test-Path (Join-Path $Hub '.git')) {
+        if (Test-Path $hook) {
+            if (-not (Select-String -Path $hook -Pattern 'hub-notebook-sync' -Quiet -ErrorAction SilentlyContinue)) {
+                Write-KbOk "notebook: you already have a post-commit hook, so I left it alone."
+            }
+        } else {
+            New-Item -ItemType Directory -Force $hookDir | Out-Null
+            $posix = $runner -replace '\\', '/'
+            Set-KbTextFile -Path $hook -Lines @(
+                '#!/bin/sh',
+                '# Keep your notebook current the moment you save (Teach It Once, Chapter 23).',
+                '# Never blocks, never fails the save, and does nothing if you have no notebook.',
+                ('"' + $posix + '" >/dev/null 2>&1 &'),
+                'exit 0'
+            )
+            Write-KbOk "notebook: your hub now updates the notebook the moment you save a change"
+        }
+    }
+
+    # 2. The hourly catch-up, for whatever happened while the PC was asleep.
+    if (-not $bash) {
+        Write-KbWarn "notebook: I could not find Git Bash, so the hourly catch-up was not scheduled. Your notebook still updates when you save."
+        return
+    }
+    if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
+        Write-KbOk "notebook: the hourly catch-up is already on this PC"
+        return
+    }
+    try {
+        $posix = $runner -replace '\\', '/'
+        $action  = New-ScheduledTaskAction -Execute $bash -Argument ('-lc "' + $posix + '"')
+        $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).Date.AddMinutes(37) `
+                       -RepetitionInterval (New-TimeSpan -Hours 1)
+        $set     = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries `
+                       -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
+        Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $set `
+            -Description 'Keeps your notebook current with what changed in your hub (Teach It Once).' | Out-Null
+        Write-KbOk "notebook: this PC will also catch up once an hour"
+    } catch {
+        Write-KbWarn "notebook: I could not add the hourly job to this PC's schedule ($($_.Exception.Message)). Your notebook still updates when you save."
+    }
+}
+
+function Set-KitNotebookEnv {
+    <#  Put the notebook credential into this PC's environment, so .mcp.json can NAME
+        it instead of carrying it.
+
+        WHY A USER ENVIRONMENT VARIABLE IS NOT A DOWNGRADE HERE. It is stored for this
+        Windows account only, and the unlocked key in ~\.hub is readable by that same
+        account already, so it exposes nothing the PC did not already expose. The
+        passphrase protects the FOLDER as it travels, which is a different job. #>
+    param([Parameter(Mandatory)][string]$Hub)
+    $key   = Get-KitHubKeyPath
+    $store = Join-Path $Hub 'secrets\hub-secrets.env.age'
+    if (-not ((Test-Path $key) -and (Test-Path $store) -and (Test-KitAge))) { return }
+    $lines = @(& (Get-KitAge) -d -i $key $store 2>$null)
+    if ($LASTEXITCODE -ne 0) { return }
+    $n = 0
+    foreach ($line in $lines) {
+        if ($line -match '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
+            [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'User')
+            Set-Item -Path ("env:" + $Matches[1]) -Value $Matches[2] -ErrorAction SilentlyContinue
+            $n++
+        }
+    }
+    if ($n -gt 0) { Write-KbOk "notebook: $n credential(s) are now on this PC for your assistant to use (open a new terminal for it to take)" }
+}
+
+function Connect-KitNotebook {
+    <#  The whole credential step, as one moment in the install rather than a checklist.
+        -Token answers the question without asking. KB_NOTEBOOK=skip says no. #>
+    param([Parameter(Mandatory)][string]$Hub, [string]$Token)
+    if ($env:KB_NOTEBOOK -eq 'skip') { return }
+    $state = Get-KitNotebookState -Hub $Hub
+    switch ($state) {
+        'connected' { Write-KbOk "notebook: already connected on this computer" }
+        'sealed'    { [void](Unlock-KitHubKey -Hub $Hub) }
+        default {
+            if (-not $Token) { $Token = $env:KB_NOTEBOOK_TOKEN }
+            if (-not $Token) {
+                if (-not (Test-KitInteractive)) { return }   # a one-line install stays a one-line install
+                Write-Host ""
+                Write-Host "A notebook is optional. Everything in this book works on plain files without one."
+                Write-Host "It adds one thing: searching your hub by MEANING instead of by exact word."
+                $yn = Read-Host "Connect a notebook now? (y/N)"
+                if ($yn -notmatch '^[Yy]') {
+                    Write-KbOk "notebook: not connected, which is a complete way to own a hub. Run this again whenever you change your mind."
+                    return
+                }
+                $Token = Read-Host "Paste the token from your notebook's settings page"
+            }
+            if (-not $Token) { Write-KbOk "notebook: nothing pasted, so nothing was connected."; return }
+            if (-not (Save-KitNotebookToken -Hub $Hub -Token $Token)) { return }
+            [void](Protect-KitHubKey -Hub $Hub)
+        }
+    }
+    Write-KitMcpConfig -Hub $Hub
+    Install-KitNotebookSync -Hub $Hub
+    Set-KitNotebookEnv -Hub $Hub
+}
+
 if ($AsLibrary) { return }
 
 # ---------------------------------------------------------------- run standalone

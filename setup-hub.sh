@@ -159,6 +159,10 @@ kb_link_ai_memory   "$HUB"    # the one memory every machine shares
 kb_install_hub_cli  "$HUB"    # the hub's own commands, on PATH, from any folder
 kb_install_hub_tools "$HUB" "$STARTER_REPO"   # the kit's own programs, on this machine
 kb_install_prompt_harvest "$HUB"  # the daily job that files what you type to an AI here
+# The notebook, and the one thing about it that has to travel: connect it once and the
+# connection lives in the folder, so the next computer only ever types the passphrase.
+# Quiet and complete for the reader who never connects one - which is most of the book.
+kb_connect_notebook "$HUB"
 
 if [ -d "$HUB/.claude/skills" ] && [ ! -e "$HUB/.agents/skills" ]; then
   mkdir -p "$HUB/.agents"
