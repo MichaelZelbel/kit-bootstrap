@@ -564,33 +564,92 @@ kb_ai_memory_path() {
   printf '%s' "$HOME/.claude/projects/$mangled/memory"
 }
 
+# kb_migrate_folder_names <hub-dir>
+#
+# Rename an older hub's folders to the names that say when each one is read.
+#
+# WHY (2026-08-16): the first shape of this system had `context/` for what you write and
+# `memory/` for what your assistant writes. That describes WHO TYPED IT, which nobody asks
+# while working. The question that decides everything is WHEN DOES THE ASSISTANT READ THIS,
+# and the names now answer it: profile/ and rules/ every session, observations/ when the
+# subject comes up, prompts/ only when you ask by name.
+#
+# Safe to run again, and safe on a hub that never had the old names. It renames ONLY when the
+# new name is absent, so a reader who already has both keeps both and is told, rather than
+# having two folders silently merged. Nothing is ever deleted.
+kb_migrate_folder_names() {
+  local hub="$1" old new
+  [ -n "$hub" ] && [ -d "$hub" ] || return 0
+  for pair in "context:profile" "memory:observations"; do
+    old="$hub/${pair%%:*}"; new="$hub/${pair##*:}"
+    [ -d "$old" ] || continue
+    if [ -d "$new" ]; then
+      warn "folders: you have both ${pair%%:*}/ and ${pair##*:}/. Leaving both alone; move what you want by hand, then delete the empty one."
+      continue
+    fi
+    # git mv when the folder is tracked, so the rename stays one move in the history
+    # instead of a delete and an add that loses the thread.
+    if [ -d "$hub/.git" ] && git -C "$hub" ls-files --error-unmatch "${pair%%:*}" >/dev/null 2>&1; then
+      git -C "$hub" mv "${pair%%:*}" "${pair##*:}" 2>/dev/null || mv "$old" "$new"
+    else
+      mv "$old" "$new"
+    fi
+    ok "folders: ${pair%%:*}/ is now ${pair##*:}/, which says when your assistant reads it"
+  done
+  mkdir -p "$hub/profile" "$hub/rules" "$hub/observations"
+  # Their MEMORY.md came across from the old folder and still describes the old design. It is
+  # THEIR file and may have their own lines in it, so it is never overwritten; they are told
+  # instead. Silently replacing it is how somebody loses a note they wrote months ago.
+  if [ -f "$hub/observations/MEMORY.md" ] && ! grep -qi 'AGENTS.md' "$hub/observations/MEMORY.md" 2>/dev/null; then
+    say "your observations/MEMORY.md still describes the older layout. It is your file so it was
+   left exactly as it is. When you want the current one, the kit ships it at
+   starter-hub/observations/MEMORY.md; your rules now live in rules/ and reach your
+   assistant through AGENTS.md."
+  fi
+}
+
 # kb_seed_memory_index <hub-dir>
-# A memory folder with nothing in it is a mystery. One index file with one line
-# explaining itself is the difference between a feature and a stray directory.
+# A folder with nothing in it is a mystery. One page explaining itself is the difference
+# between a feature and a stray directory. Claude Code loads a file called MEMORY.md from
+# whatever folder its memory link points at, so that page lives in observations/ and says
+# where everything goes. It is a doorplate, not a list: it does not grow.
 kb_seed_memory_index() {
-  local hub="$1" idx="$1/memory/MEMORY.md"
-  mkdir -p "$hub/memory"
+  local hub="$1" idx
+  kb_migrate_folder_names "$hub"
+  idx="$hub/observations/MEMORY.md"
   [ -f "$idx" ] && return 0
   cat > "$idx" <<'IDX'
-# Memory index
+# What I remember, and where it goes
 
-This is what your assistants have learned about you and your work, one file per
-fact, and this page is the list of them. Your assistant reads this list at the
-start of a session and opens only the files it needs, so the list stays small
-and the facts stay out of the way until they matter.
+Your assistant loads this page every session, so it is short on purpose.
 
-It lives in your hub folder rather than inside one AI tool, so every assistant
-on every one of your machines reads the same memory.
+**The rules are not here.** They live in `rules/`, one file per rule with the
+whole story, and the short version of every one of them is compiled into
+`AGENTS.md`, which your assistant reads before anything else.
 
-One line per memory, like this:
+**What it works out about you goes here**, one file per fact, and it opens one
+only when the subject comes up. That is why this page stays small while the
+folder behind it can grow as large as it likes.
 
-- [What it is](some-fact.md) - the short version, so a session can tell whether to open it
+**The four folders, and the only thing that separates them is WHEN they are read:**
+
+    profile/       what it knows because you told it ...... every session
+    rules/         how it should behave .................... compiled into AGENTS.md
+    observations/  what it worked out on its own ........... when the subject comes up
+    prompts/       what you typed to an AI ................. never, unless you ask
+
+All of it lives in your hub folder rather than inside one AI tool, so every
+assistant on every one of your machines reads the same thing.
+
+Write a new one here as `some-fact.md`, with a `name` and a one-line
+`description` at the top so a session can tell whether to open it.
 IDX
-  ok "memory: created the index at $hub/memory/MEMORY.md"
+  ok "memory: created the page at $hub/observations/MEMORY.md"
 }
 
 # kb_link_ai_memory <hub-dir>
-# Point the assistant's private memory folder at the hub's memory/ folder.
+# Point the assistant's private memory folder at the hub's observations/ folder, which is
+# where what an assistant works out on its own belongs (renamed from memory/ on 2026-08-16).
 # Safe to run again: it never deletes a memory, and it repairs a link that points
 # somewhere else (an older hub path) instead of reporting it as fine.
 kb_link_ai_memory() {
@@ -612,7 +671,7 @@ kb_link_ai_memory() {
     *) ok "memory: you chose not to sync Claude Code on this machine, so its memory folder was left alone."
        return 0 ;;
   esac
-  mem="$hub/memory"
+  mem="$hub/observations"
   link="$(kb_ai_memory_path "$hub")"
 
   if [ -L "$link" ]; then
@@ -834,7 +893,9 @@ EOF
 kb_hub_looks_real() {
   local d="${1:-}"
   [ -n "$d" ] && [ -d "$d/.git" ] || return 1
-  [ -d "$d/memory" ] || [ -f "$d/AGENTS.md" ] || [ -f "$d/CLAUDE.md" ]
+  # observations/ is today's name and memory/ was yesterday's; a hub that predates the
+  # rename is still a hub, so both count.
+  [ -d "$d/observations" ] || [ -d "$d/memory" ] || [ -f "$d/AGENTS.md" ] || [ -f "$d/CLAUDE.md" ]
 }
 
 # kb_find_hub [hint]
@@ -1238,7 +1299,7 @@ kb_new_hub() {
       # which is a worse hour than being told plainly here.
       warn "I could not fetch the starter folder from $starter_repo
    so I am making a bare hub instead. It works, but it does NOT have the files the
-   book walks you through (context/, skills/, procedures.md and the rest).
+   book walks you through (profile/, rules/, skills/, procedures.md and the rest).
    To put that right: open that address in a browser, use the green Code button ->
    Download ZIP, and copy the starter-hub folder from inside it into $path"
     fi

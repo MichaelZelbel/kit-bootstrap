@@ -40,8 +40,8 @@ function New-SourceHub {
     New-Item -ItemType Directory -Force $Path | Out-Null
     git -C $Path init -q
     Set-Content (Join-Path $Path 'AGENTS.md') '# source hub'
-    New-Item -ItemType Directory -Force (Join-Path $Path 'memory') | Out-Null
-    Set-Content (Join-Path $Path 'memory\MEMORY.md') '# Memory index'
+    New-Item -ItemType Directory -Force (Join-Path $Path 'observations') | Out-Null
+    Set-Content (Join-Path $Path 'observations\MEMORY.md') '# What I remember'
     git -C $Path add -A 2>&1 | Out-Null
     git -C $Path -c user.email='t@t' -c user.name='t' commit -q -m 'hub' 2>&1 | Out-Null
 }
@@ -110,7 +110,7 @@ Write-Host "-- making a hub when the PC has none"
 Check "a fresh hub is created and recognised" {
     $d = Join-Path $Root 'fresh'
     New-KitHub -Path $d | Out-Null
-    (Test-KitHub $d) -and (Test-Path (Join-Path $d 'AGENTS.md')) -and (Test-Path (Join-Path $d 'memory\MEMORY.md'))
+    (Test-KitHub $d) -and (Test-Path (Join-Path $d 'AGENTS.md')) -and (Test-Path (Join-Path $d 'observations\MEMORY.md'))
 }
 Check "making one twice is safe and keeps what is there" {
     $d = Join-Path $Root 'fresh'
@@ -138,6 +138,8 @@ Write-Host "-- a new hub copies the product's starter folder, it never invents o
 Check "the starter folder's files are laid down" {
     # A local fixture, so this case does not need the network to mean anything.
     $sr = Join-Path $Root 'starter-src'
+    # Deliberately the OLD name: a starter from before the rename must come out renamed,
+    # which is what a reader who downloaded the kit months ago actually has.
     New-Item -ItemType Directory -Force (Join-Path $sr 'starter-hub\context') | Out-Null
     New-Item -ItemType Directory -Force (Join-Path $sr 'starter-hub\skills') | Out-Null
     Set-Content (Join-Path $sr 'starter-hub\AGENTS.md') '# the real one'
@@ -149,20 +151,20 @@ Check "the starter folder's files are laid down" {
 
     $d = Join-Path $Root 'fromstarter'
     New-KitHub -Path $d -StarterRepo $sr | Out-Null
-    (Test-Path (Join-Path $d 'context\about-me.md')) -and (Test-Path (Join-Path $d 'skills\plan-my-day.md'))
+    (Test-Path (Join-Path $d 'profile\about-me.md')) -and (Test-Path (Join-Path $d 'skills\plan-my-day.md'))
 }
 Check "the starter's own AGENTS.md wins, no invented one overwrites it" {
     (Get-Content (Join-Path $Root 'fromstarter\AGENTS.md') -Raw).Contains('the real one')
 }
-Check "the starter's own memory index is kept, not replaced by a blank one" {
+Check "the starter's own memory page is kept, not replaced by a blank one" {
     $sr = Join-Path $Root 'starter-src'
-    New-Item -ItemType Directory -Force (Join-Path $sr 'starter-hub\memory') | Out-Null
-    Set-Content (Join-Path $sr 'starter-hub\memory\MEMORY.md') '# Memory index -- the product wrote this'
+    New-Item -ItemType Directory -Force (Join-Path $sr 'starter-hub\observations') | Out-Null
+    Set-Content (Join-Path $sr 'starter-hub\observations\MEMORY.md') '# the product wrote this'
     git -C $sr add -A 2>&1 | Out-Null
     git -C $sr -c user.email='t@t' -c user.name='t' commit -q -m 'memory' 2>&1 | Out-Null
     $d = Join-Path $Root 'keepindex'
     New-KitHub -Path $d -StarterRepo $sr | Out-Null
-    (Get-Content (Join-Path $d 'memory\MEMORY.md') -Raw).Contains('the product wrote this')
+    (Get-Content (Join-Path $d 'observations\MEMORY.md') -Raw).Contains('the product wrote this')
 }
 Check "a starter that cannot be fetched still leaves a usable hub, and warns" {
     $d = Join-Path $Root 'nostarter'
@@ -177,8 +179,8 @@ Check "the real book kit's starter folder is reachable and has what the book nam
     $got = Copy-KitStarterHub -Path $d -StarterRepo 'https://github.com/MichaelZelbel/teach-it-once-kit.git'
     if (-not $got) { Write-Host "        (skipped: no network)"; return $true }
     $missing = @()
-    foreach ($f in 'AGENTS.md', 'context\about-me.md', 'context\people.md', 'context\voice.md',
-                    'procedures.md', 'decisions.md', 'memory\MEMORY.md', 'skills\plan-my-day.md') {
+    foreach ($f in 'AGENTS.md', 'profile\about-me.md', 'profile\people.md', 'profile\voice.md',
+                    'procedures.md', 'decisions.md', 'observations\MEMORY.md', 'skills\plan-my-day.md') {
         if (-not (Test-Path (Join-Path $d $f))) { $missing += $f }
     }
     if ($missing.Count) { Write-Host "        missing: $($missing -join ', ')" }
@@ -308,7 +310,7 @@ Check "linking a hub makes a junction that points back at it" {
         Join-KitMemory -Hub $d | Out-Null
         $link = Get-KitMemoryLinkPath -Hub $d
         $item = Get-Item $link -Force -ErrorAction SilentlyContinue
-        $ok = $item -and $item.LinkType -and ((Resolve-Path (@($item.Target)[0])).Path -eq (Resolve-Path (Join-Path $d 'memory')).Path)
+        $ok = $item -and $item.LinkType -and ((Resolve-Path (@($item.Target)[0])).Path -eq (Resolve-Path (Join-Path $d 'observations')).Path)
         if ($item) { (Get-Item $link -Force).Delete() }
         Remove-Item (Split-Path $link -Parent) -Recurse -Force -ErrorAction SilentlyContinue
         $ok
@@ -323,7 +325,7 @@ Check "a memory already in the old place is carried over, never lost" {
         New-Item -ItemType Directory -Force $link | Out-Null
         Set-Content (Join-Path $link 'precious.md') 'do not lose me'
         Join-KitMemory -Hub $d 3>$null | Out-Null
-        $carried = Test-Path (Join-Path $d 'memory\precious.md')
+        $carried = Test-Path (Join-Path $d 'observations\precious.md')
         $kept    = @(Get-ChildItem (Split-Path $link -Parent) -Directory | Where-Object { $_.Name -like 'memory.replaced-*' }).Count -gt 0
         $item = Get-Item $link -Force -ErrorAction SilentlyContinue
         if ($item -and $item.LinkType) { (Get-Item $link -Force).Delete() }
@@ -340,7 +342,7 @@ Check "no Claude Code means no junction and no invented folder" {
         New-KitHub -Path $d | Out-Null
         Join-KitMemory -Hub $d | Out-Null
         $link = Get-KitMemoryLinkPath -Hub $d
-        (-not (Test-Path $link)) -and (Test-Path (Join-Path $d 'memory\MEMORY.md'))
+        (-not (Test-Path $link)) -and (Test-Path (Join-Path $d 'observations\MEMORY.md'))
     } finally { $env:KB_ASSUME_TOOLS = $null }
 }
 Check "Claude Code switched off means its folder is left alone" {

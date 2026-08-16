@@ -202,13 +202,17 @@ if [ -L "$_probe/link" ]; then
   ( HOME="$_h"; KB_ASSUME_TOOLS=claude kb_link_ai_memory "$_hub" ) >/dev/null 2>&1
   _link="$_h/.claude/projects/$(printf '%s' "$_hub" | sed 's/[^a-zA-Z0-9]/-/g' | tr 'A-Z' 'a-z')/memory"
   t "a fresh machine gets the link"        "$([ -L "$_link" ] && echo yes)" "yes"
-  t "the link points at the hub's memory"  "$(cd "$_link" && pwd -P)" "$(cd "$_hub/memory" && pwd -P)"
-  t "an empty memory folder is not a mystery" "$([ -s "$_hub/memory/MEMORY.md" ] && echo yes)" "yes"
+  t "the link points at the hub's observations" "$(cd "$_link" && pwd -P)" "$(cd "$_hub/observations" && pwd -P)"
+  t "an empty observations folder is not a mystery" "$([ -s "$_hub/observations/MEMORY.md" ] && echo yes)" "yes"
+  # The page must be a doorplate, not a rules list: rules belong in AGENTS.md, and a page that
+  # starts collecting them is how the always-read layer grew to 16,000 characters in the hub.
+  t "the page sends rules to AGENTS.md instead of holding them" \
+    "$(grep -qi 'AGENTS.md' "$_hub/observations/MEMORY.md" && echo yes)" "yes"
 
   # Twice must equal once, or re-running the installer is a thing people fear.
-  printf 'a real memory\n' > "$_hub/memory/fact.md"
+  printf 'a real memory\n' > "$_hub/observations/fact.md"
   ( HOME="$_h"; KB_ASSUME_TOOLS=claude kb_link_ai_memory "$_hub" ) >/dev/null 2>&1
-  t "running it again keeps the memories"  "$(cat "$_hub/memory/fact.md")" "a real memory"
+  t "running it again keeps the memories"  "$(cat "$_hub/observations/fact.md")" "a real memory"
 
   # A machine that already has memories in the OLD place. They must arrive in the
   # hub, and the old folder must survive: never delete what you cannot get back.
@@ -216,7 +220,7 @@ if [ -L "$_probe/link" ]; then
   _old="$_h2/.claude/projects/$(printf '%s' "$_hub2" | sed 's/[^a-zA-Z0-9]/-/g' | tr 'A-Z' 'a-z')/memory"
   mkdir -p "$_old"; printf 'learned before joining\n' > "$_old/older.md"
   ( HOME="$_h2"; KB_ASSUME_TOOLS=claude kb_link_ai_memory "$_hub2" ) >/dev/null 2>&1
-  t "memories from before the join are carried in" "$(cat "$_hub2/memory/older.md" 2>/dev/null)" "learned before joining"
+  t "memories from before the join are carried in" "$(cat "$_hub2/observations/older.md" 2>/dev/null)" "learned before joining"
   t "the old folder is kept, not deleted"          "$(ls -d "$_old".replaced-* >/dev/null 2>&1 && echo yes)" "yes"
 
   # THE ONE THAT LOOKS LIKE SUCCESS. A link left over from a hub at a different
@@ -226,7 +230,7 @@ if [ -L "$_probe/link" ]; then
   _l3="$_h3/.claude/projects/$(printf '%s' "$_hub3" | sed 's/[^a-zA-Z0-9]/-/g' | tr 'A-Z' 'a-z')/memory"
   mkdir -p "$(dirname "$_l3")"; ln -sfn "$_stale" "$_l3"
   ( HOME="$_h3"; KB_ASSUME_TOOLS=claude kb_link_ai_memory "$_hub3" ) >/dev/null 2>&1
-  t "a link pointing at the wrong hub is repaired" "$(cd "$_l3" && pwd -P)" "$(cd "$_hub3/memory" && pwd -P)"
+  t "a link pointing at the wrong hub is repaired" "$(cd "$_l3" && pwd -P)" "$(cd "$_hub3/observations" && pwd -P)"
 
   rm -rf "$_h" "$_h2" "$_h3"
 else
@@ -292,8 +296,8 @@ _g=$(mktemp -d); _ghub="$_g/hub"; mkdir -p "$_ghub"
 ( HOME="$_g"; KB_ASSUME_TOOLS=- kb_link_ai_memory "$_ghub" ) >/dev/null 2>&1
 t "no Claude Code means no invented ~/.claude" \
   "$([ -e "$_g/.claude" ] && echo yes || echo no)" "no"
-t "but the hub still gets its memory index" \
-  "$([ -s "$_ghub/memory/MEMORY.md" ] && echo yes)" "yes"
+t "but the hub still gets its memory page" \
+  "$([ -s "$_ghub/observations/MEMORY.md" ] && echo yes)" "yes"
 _g2=$(mktemp -d); _ghub2="$_g2/hub"; mkdir -p "$_ghub2"
 ( HOME="$_g2"; KB_ASSUME_TOOLS=claude KB_SYNC_SOURCES=codex kb_link_ai_memory "$_ghub2" ) >/dev/null 2>&1
 t "Claude Code switched off means its folder is left alone" \
@@ -481,7 +485,7 @@ printf 'plan\n'           > "$_starter/starter-hub/skills/plan-my-day.md"
 
 ( HOME="$_c" kb_new_hub "$_c/made" "" "$_starter" ) >/dev/null 2>&1
 t "a new hub gets the product starter files" \
-  "$([ -f "$_c/made/context/about-me.md" ] && [ -f "$_c/made/skills/plan-my-day.md" ] && echo yes)" "yes"
+  "$([ -f "$_c/made/profile/about-me.md" ] && [ -f "$_c/made/skills/plan-my-day.md" ] && echo yes)" "yes"
 t "the starter's own AGENTS.md is used, never an invented one" \
   "$(head -1 "$_c/made/AGENTS.md" 2>/dev/null)" "# the real one"
 t "a new hub is a real hub afterwards" \
@@ -493,13 +497,55 @@ printf '# mine, edited\n' > "$_c/made/AGENTS.md"
 t "a second run keeps what they have written" \
   "$(head -1 "$_c/made/AGENTS.md")" "# mine, edited"
 
-# The product ships its own memory index; a blank one must not replace it.
-mkdir -p "$_starter/starter-hub/memory"
-printf '# Memory index - the product wrote this\n' > "$_starter/starter-hub/memory/MEMORY.md"
+# The product ships its own memory page; a blank one must not replace it.
+mkdir -p "$_starter/starter-hub/observations"
+printf '# The page the product wrote\n' > "$_starter/starter-hub/observations/MEMORY.md"
 ( cd "$_starter" && git add -A && git -c user.email=t@t -c user.name=t commit -q -m mem ) >/dev/null 2>&1
 ( HOME="$_c" kb_new_hub "$_c/kept" "" "$_starter" ) >/dev/null 2>&1
-t "the starter's memory index survives" \
-  "$(head -1 "$_c/kept/memory/MEMORY.md" 2>/dev/null)" "# Memory index - the product wrote this"
+t "the starter's memory page survives" \
+  "$(head -1 "$_c/kept/observations/MEMORY.md" 2>/dev/null)" "# The page the product wrote"
+
+# =============================================================================
+# THE FOLDER RENAME, FOR SOMEBODY WHO ALREADY INSTALLED (2026-08-16)
+#
+# The names used to describe WHO TYPED a file: context/ what you wrote, memory/ what your
+# assistant wrote. Nobody asks that question while working. The names now describe WHEN the
+# file is read, which is the question that decides everything. A reader who installed before
+# the change has the old names, and each case below is a way the rename could lose their work.
+
+_m=$(mktemp -d); _mh="$_m/hub"; mkdir -p "$_mh/context" "$_mh/memory"
+printf 'who I am\n' > "$_mh/context/about-me.md"
+printf 'a fact\n'   > "$_mh/memory/thing.md"
+kb_migrate_folder_names "$_mh" >/dev/null 2>&1
+t "context/ becomes profile/, carrying the file" "$(cat "$_mh/profile/about-me.md" 2>/dev/null)" "who I am"
+t "memory/ becomes observations/, carrying the file" "$(cat "$_mh/observations/thing.md" 2>/dev/null)" "a fact"
+t "the old names are gone, not left as twins" \
+  "$({ [ -d "$_mh/context" ] || [ -d "$_mh/memory" ]; } && echo yes || echo no)" "no"
+t "rules/ is created, because it is new" "$([ -d "$_mh/rules" ] && echo yes)" "yes"
+
+# Twice must equal once. An installer people are afraid to re-run is a broken installer.
+kb_migrate_folder_names "$_mh" >/dev/null 2>&1
+t "running the rename again changes nothing" "$(cat "$_mh/profile/about-me.md" 2>/dev/null)" "who I am"
+
+# BOTH names present is the case that could silently merge two folders into one and lose
+# whichever file lost the collision. It must refuse and leave both.
+_m2=$(mktemp -d); _mh2="$_m2/hub"; mkdir -p "$_mh2/context" "$_mh2/profile"
+printf 'old\n' > "$_mh2/context/x.md"; printf 'new\n' > "$_mh2/profile/y.md"
+kb_migrate_folder_names "$_mh2" >/dev/null 2>&1
+t "both folders present means both are left alone" \
+  "$([ -f "$_mh2/context/x.md" ] && [ -f "$_mh2/profile/y.md" ] && echo yes)" "yes"
+
+# A hub that never had the old names must not grow them back.
+_m3=$(mktemp -d); _mh3="$_m3/hub"; mkdir -p "$_mh3/profile" "$_mh3/observations"
+kb_migrate_folder_names "$_mh3" >/dev/null 2>&1
+t "a hub already renamed is untouched" \
+  "$({ [ -d "$_mh3/context" ] || [ -d "$_mh3/memory" ]; } && echo yes || echo no)" "no"
+
+# A hub from before the rename is still a hub, or discovery stops finding it and the
+# installer offers to build a second one beside it.
+_m4=$(mktemp -d); mkdir -p "$_m4/oldhub/memory" "$_m4/oldhub/.git"
+t "a pre-rename hub is still recognised as one" "$(kb_hub_looks_real "$_m4/oldhub" && echo yes)" "yes"
+rm -rf "$_m" "$_m2" "$_m3" "$_m4"
 
 # A folder with somebody's holiday photos in it is not a hub and must be refused.
 mkdir -p "$_c/occupied"; printf 'x\n' > "$_c/occupied/holiday.jpg"

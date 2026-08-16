@@ -68,34 +68,83 @@ function Get-KitMemoryLinkPath {
     Join-Path $HOME ".claude\projects\$mangled\memory"
 }
 
+function Update-KitFolderNames {
+    <#  Rename an older hub's folders to the names that say WHEN each one is read.
+
+        The first shape of this system had context/ for what you write and memory/ for what
+        your assistant writes. That describes who typed it, which nobody asks while working.
+        The names now answer the question that decides everything: profile/ and rules/ every
+        session, observations/ when the subject comes up, prompts/ only when you ask by name.
+
+        Safe to run again, and safe on a hub that never had the old names. It renames ONLY
+        when the new name is absent, so a reader who already has both keeps both and is told,
+        rather than having two folders silently merged. Nothing is ever deleted. #>
+    param([Parameter(Mandatory)][string]$Hub)
+    foreach ($pair in @(@('context','profile'), @('memory','observations'))) {
+        $old = Join-Path $Hub $pair[0]
+        $new = Join-Path $Hub $pair[1]
+        if (-not (Test-Path $old)) { continue }
+        if (Test-Path $new) {
+            Write-KbWarn "folders: you have both $($pair[0])\ and $($pair[1])\. Leaving both alone; move what you want by hand, then delete the empty one."
+            continue
+        }
+        $moved = $false
+        if (Test-Path (Join-Path $Hub '.git')) {
+            git -C $Hub ls-files --error-unmatch $pair[0] 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                git -C $Hub mv $pair[0] $pair[1] 2>&1 | Out-Null
+                $moved = ($LASTEXITCODE -eq 0)
+            }
+        }
+        if (-not $moved) { Move-Item $old $new }
+        Write-KbOk "folders: $($pair[0])\ is now $($pair[1])\, which says when your assistant reads it"
+    }
+    foreach ($d in @('profile','rules','observations')) {
+        New-Item -ItemType Directory -Force (Join-Path $Hub $d) | Out-Null
+    }
+}
+
 function Initialize-KitMemoryIndex {
     param([Parameter(Mandatory)][string]$Hub)
-    $mem = Join-Path $Hub 'memory'
+    Update-KitFolderNames -Hub $Hub
+    $mem = Join-Path $Hub 'observations'
     New-Item -ItemType Directory -Force $mem | Out-Null
     $idx = Join-Path $mem 'MEMORY.md'
     if (Test-Path $idx) { return }
     $lines = @(
-        '# Memory index'
+        '# What I remember, and where it goes'
         ''
-        'This is what your assistants have learned about you and your work, one file per'
-        'fact, and this page is the list of them. Your assistant reads this list at the'
-        'start of a session and opens only the files it needs, so the list stays small'
-        'and the facts stay out of the way until they matter.'
+        'Your assistant loads this page every session, so it is short on purpose.'
         ''
-        'It lives in your hub folder rather than inside one AI tool, so every assistant'
-        'on every one of your machines reads the same memory.'
+        '**The rules are not here.** They live in `rules/`, one file per rule with the'
+        'whole story, and the short version of every one of them is compiled into'
+        '`AGENTS.md`, which your assistant reads before anything else.'
         ''
-        'One line per memory, like this:'
+        '**What it works out about you goes here**, one file per fact, and it opens one'
+        'only when the subject comes up. That is why this page stays small while the'
+        'folder behind it can grow as large as it likes.'
         ''
-        '- [What it is](some-fact.md) - the short version, so a session can tell whether to open it'
+        '**The four folders, and the only thing that separates them is WHEN they are read:**'
+        ''
+        '    profile/       what it knows because you told it ...... every session'
+        '    rules/         how it should behave .................... compiled into AGENTS.md'
+        '    observations/  what it worked out on its own ........... when the subject comes up'
+        '    prompts/       what you typed to an AI ................. never, unless you ask'
+        ''
+        'All of it lives in your hub folder rather than inside one AI tool, so every'
+        'assistant on every one of your machines reads the same thing.'
+        ''
+        'Write a new one here as `some-fact.md`, with a `name` and a one-line'
+        '`description` at the top so a session can tell whether to open it.'
     )
     Set-KbTextFile -Path $idx -Lines $lines
-    Write-KbOk "memory: created the index at $idx"
+    Write-KbOk "memory: created the page at $idx"
 }
 
 function Join-KitMemory {
-    <#  Point the assistant's private memory folder at the hub's memory/ folder,
-        so one memory is shared by every machine and every assistant. #>
+    <#  Point the assistant's private memory folder at the hub's observations/ folder,
+        which is where what an assistant works out on its own belongs, so one memory is
+        shared by every machine and every assistant. #>
     param([Parameter(Mandatory)][string]$Hub)
 
     # The index belongs to the hub, not to any one tool, so it is seeded even
@@ -115,7 +164,7 @@ function Join-KitMemory {
         return
     }
 
-    $mem  = Join-Path $Hub 'memory'
+    $mem  = Join-Path $Hub 'observations'
     $link = Get-KitMemoryLinkPath -Hub $Hub
 
     $item = Get-Item $link -Force -ErrorAction SilentlyContinue
