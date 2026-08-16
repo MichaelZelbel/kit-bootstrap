@@ -1412,11 +1412,11 @@ kb_store_notebook_token() {
   if [ -f "$store" ]; then
     "$(kb_age)" -d -i "$key" "$store" 2>/dev/null | grep -v '^MENERIO_' > "$plain" || true
   fi
-  # One token, two names, because the two programs that use it were written apart: the
-  # assistant's connection reads MENERIO_MCP_TOKEN and the file sync reads
-  # MENERIO_HUB_API_KEY. A reader should paste one thing, not two.
-  printf 'MENERIO_MCP_TOKEN=%s\n' "$token" >> "$plain"
-  printf 'MENERIO_HUB_API_KEY=%s\n' "$token" >> "$plain"
+  # One credential, one name. Menerio used to hand out a separate connector token and
+  # API key, and this wrote the same value under both names so a reader still pasted one
+  # thing. Since 2026-08-16 an API key with "Hub access" opens both doors, so there is
+  # one name and nothing to reconcile.
+  printf 'MENERIO_API_KEY=%s\n' "$token" >> "$plain"
   if "$(kb_age)" -r "$recipient" -o "$store" "$plain" 2>/dev/null; then
     rm -f "$plain"
     ok "notebook: your credential is kept inside your hub folder, locked."
@@ -1441,7 +1441,7 @@ kb_write_mcp_config() {
 {
   "_comment": [
     "This tells your assistant where your notebook is (the book, Chapter 24 and 28).",
-    "It NAMES the credential rather than carrying it: ${MENERIO_MCP_TOKEN} is read from",
+    "It NAMES the credential rather than carrying it: ${MENERIO_API_KEY} is read from",
     "this computer's environment when the assistant starts, so this file holds no secret",
     "and is safe to keep in the folder. The value itself lives locked in secrets/, and",
     "travels with the folder to every computer you own.",
@@ -1451,7 +1451,7 @@ kb_write_mcp_config() {
     "menerio": {
       "url": "https://mcp.menerio.com",
       "headers": {
-        "Authorization": "Bearer ${MENERIO_MCP_TOKEN}",
+        "Authorization": "Bearer ${MENERIO_API_KEY}",
         "Accept": "application/json, text/event-stream",
         "Content-Type": "application/json"
       }
@@ -1553,7 +1553,7 @@ kb_connect_notebook() {
 # kb_persist_notebook_env <hub>
 # Put the notebook credential into this computer's environment at shell start-up.
 #
-# .mcp.json NAMES the credential (${MENERIO_MCP_TOKEN}) instead of carrying it, which is
+# .mcp.json NAMES the credential (${MENERIO_API_KEY}) instead of carrying it, which is
 # what makes that file safe to keep in the folder. Something has to supply the value, and
 # a line in your shell start-up is the one place that reaches every program you launch
 # from a terminal. The line reads the locked store each time, so the value itself is never

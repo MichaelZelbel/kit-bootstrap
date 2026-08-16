@@ -544,7 +544,7 @@ Check "the connection NAMES the credential rather than carrying one" {
         $hub = New-NotebookHub 'nb7'
         Write-KitMcpConfig -Hub $hub | Out-Null
         $auth = (Get-Content (Join-Path $hub '.mcp.json') -Raw | ConvertFrom-Json).mcpServers.menerio.headers.Authorization
-        $auth -eq 'Bearer ${MENERIO_MCP_TOKEN}'
+        $auth -eq 'Bearer ${MENERIO_API_KEY}'
     }
 }
 Check "a reader's own .mcp.json is never overwritten" {
@@ -639,15 +639,15 @@ if ((Get-Command age -ErrorAction SilentlyContinue) -and (Get-Command age-keygen
             (Get-KitNotebookState -Hub $hub) -eq 'connected'
         }
     }
-    Check "the token reads back exactly as it was pasted, and answers both programs" {
+    Check "the key reads back exactly as it was pasted, once, because one key does both jobs" {
         Invoke-NotebookCase {
             param($h)
             $hub = New-NotebookHub 'nb15'
             $env:HUB_AGE_KEY = Join-Path $h '.hub\age-key.txt'
             [void](Save-KitNotebookToken -Hub $hub -Token 'test-token-not-a-real-one-0123456789')
             $lines = @(& age -d -i $env:HUB_AGE_KEY (Join-Path $hub 'secrets\hub-secrets.env.age'))
-            ($lines -contains 'MENERIO_MCP_TOKEN=test-token-not-a-real-one-0123456789') -and
-            ($lines -contains 'MENERIO_HUB_API_KEY=test-token-not-a-real-one-0123456789')
+            ($lines -contains 'MENERIO_API_KEY=test-token-not-a-real-one-0123456789') -and
+            (@($lines | Where-Object { $_ -like 'MENERIO_*' }).Count -eq 1)
         }
     }
     Check "connecting again replaces the credential instead of keeping two" {
@@ -658,8 +658,8 @@ if ((Get-Command age -ErrorAction SilentlyContinue) -and (Get-Command age-keygen
             [void](Save-KitNotebookToken -Hub $hub -Token 'first-token-not-real-0123456789')
             [void](Save-KitNotebookToken -Hub $hub -Token 'second-token-not-real-98765432')
             $lines = @(& age -d -i $env:HUB_AGE_KEY (Join-Path $hub 'secrets\hub-secrets.env.age'))
-            (@($lines | Where-Object { $_ -like 'MENERIO_MCP_TOKEN=*' }).Count -eq 1) -and
-            ($lines -contains 'MENERIO_MCP_TOKEN=second-token-not-real-98765432')
+            (@($lines | Where-Object { $_ -like 'MENERIO_API_KEY=*' }).Count -eq 1) -and
+            ($lines -contains 'MENERIO_API_KEY=second-token-not-real-98765432')
         }
     }
     Check "a folder this PC cannot open reports 'locked-out', and is never rewritten" {
@@ -674,7 +674,7 @@ if ((Get-Command age -ErrorAction SilentlyContinue) -and (Get-Command age-keygen
             & age-keygen -o $other 2>$null | Out-Null
             $recip = (& age-keygen -y $other | Select-Object -First 1)
             $plain = Join-Path $h 'plain.txt'
-            Set-KbTextFile -Path $plain -Lines @('MENERIO_MCP_TOKEN=belongs-to-someone-else-0123456789')
+            Set-KbTextFile -Path $plain -Lines @('MENERIO_API_KEY=belongs-to-someone-else-0123456789')
             & age -r $recip -o (Join-Path $hub 'secrets\hub-secrets.env.age') $plain
             $env:HUB_AGE_KEY = Join-Path $h '.hub\age-key.txt'
             & age-keygen -o $env:HUB_AGE_KEY 2>$null | Out-Null

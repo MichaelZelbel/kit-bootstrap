@@ -1016,11 +1016,11 @@ function Save-KitNotebookToken {
     if (Test-Path $store) {
         $lines = @(& (Get-KitAge) -d -i $key $store 2>$null | Where-Object { $_ -notmatch '^MENERIO_' })
     }
-    # One token, two names, because the two programs that use it were written apart:
-    # the assistant's connection reads MENERIO_MCP_TOKEN and the file sync reads
-    # MENERIO_HUB_API_KEY. A reader should paste one thing, not two.
-    $lines += "MENERIO_MCP_TOKEN=$Token"
-    $lines += "MENERIO_HUB_API_KEY=$Token"
+    # One credential, one name. Menerio used to hand out a separate connector token
+    # and API key, and this wrote the same value under both names so a reader still
+    # pasted one thing. Since 2026-08-16 an API key with "Hub access" opens both
+    # doors, so there is one name and nothing to reconcile.
+    $lines += "MENERIO_API_KEY=$Token"
     $plain = Join-Path ([System.IO.Path]::GetTempPath()) ("kb-store-" + [guid]::NewGuid().ToString('N').Substring(0,8))
     Set-KbTextFile -Path $plain -Lines $lines
     & (Get-KitAge) -r $recipient -o $store $plain 2>$null
@@ -1042,7 +1042,7 @@ function Write-KitMcpConfig {
         '{',
         '  "_comment": [',
         '    "This tells your assistant where your notebook is (the book, Chapter 24 and 28).",',
-        '    "It NAMES the credential rather than carrying it: ${MENERIO_MCP_TOKEN} is read from",',
+        '    "It NAMES the credential rather than carrying it: ${MENERIO_API_KEY} is read from",',
         '    "this computer''s environment when the assistant starts, so this file holds no secret",',
         '    "and is safe to keep in the folder. The value itself lives locked in secrets/, and",',
         '    "travels with the folder to every computer you own.",',
@@ -1052,7 +1052,7 @@ function Write-KitMcpConfig {
         '    "menerio": {',
         '      "url": "https://mcp.menerio.com",',
         '      "headers": {',
-        '        "Authorization": "Bearer ${MENERIO_MCP_TOKEN}",',
+        '        "Authorization": "Bearer ${MENERIO_API_KEY}",',
         '        "Accept": "application/json, text/event-stream",',
         '        "Content-Type": "application/json"',
         '      }',

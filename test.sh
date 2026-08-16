@@ -568,7 +568,7 @@ rm -f "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-key.age"
 kb_write_mcp_config "$_n/hub" >/dev/null 2>&1
 t "the assistant is given an .mcp.json" "$([ -f "$_n/hub/.mcp.json" ] && echo yes || echo no)" "yes"
 t "the connection NAMES the credential rather than carrying one" \
-  "$(grep -c 'Bearer \${MENERIO_MCP_TOKEN}' "$_n/hub/.mcp.json")" "1"
+  "$(grep -c 'Bearer \${MENERIO_API_KEY}' "$_n/hub/.mcp.json")" "1"
 t "and it is valid JSON, which is the only way an assistant will read it" \
   "$(python3 -c 'import json,sys;json.load(open(sys.argv[1]));print("ok")' "$_n/hub/.mcp.json" 2>/dev/null)" "ok"
 printf 'mine\n' > "$_n/hub/.mcp.json"
@@ -634,20 +634,20 @@ if command -v age >/dev/null 2>&1 && command -v age-keygen >/dev/null 2>&1; then
   t "the folder now reports itself connected on this computer" \
     "$(kb_notebook_state "$_n/hub")" "connected"
   t "the token can be read back out, exactly as it was pasted" \
-    "$(age -d -i "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-secrets.env.age" | sed -n 's/^MENERIO_MCP_TOKEN=//p')" \
+    "$(age -d -i "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-secrets.env.age" | sed -n 's/^MENERIO_API_KEY=//p')" \
     "test-token-not-a-real-one-0123456789"
-  t "one paste answers both programs that need it" \
-    "$(age -d -i "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-secrets.env.age" | grep -c '^MENERIO_')" "2"
+  t "one paste leaves exactly one credential, because one key does both jobs" \
+    "$(age -d -i "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-secrets.env.age" | grep -c '^MENERIO_')" "1"
   ( kb_store_notebook_token "$_n/hub" "second-token-still-not-real-98765" ) >/dev/null 2>&1
   t "connecting again replaces the credential instead of keeping two" \
-    "$(age -d -i "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-secrets.env.age" | grep -c '^MENERIO_MCP_TOKEN=')" "1"
+    "$(age -d -i "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-secrets.env.age" | grep -c '^MENERIO_API_KEY=')" "1"
   # THE CASE THAT ALMOST DESTROYED A REAL HUB. A folder carrying credentials this
   # computer cannot open must be REFUSED, never rewritten: re-locking it to this
   # machine's key shuts every other computer out of every credential at once, silently.
   # This is what happened on 2026-08-16, to a live hub, during a test run.
   _other=$(mktemp -d)
   age-keygen -o "$_other/key" 2>/dev/null
-  printf 'MENERIO_MCP_TOKEN=belongs-to-someone-else-0123456789
+  printf 'MENERIO_API_KEY=belongs-to-someone-else-0123456789
 '     | age -r "$(age-keygen -y "$_other/key")" -o "$_n/hub/secrets/hub-secrets.env.age"
   _before="$(sha256sum "$_n/hub/secrets/hub-secrets.env.age" | cut -d' ' -f1)"
   t "a folder this computer cannot open reports 'locked-out', never 'none'"     "$(kb_notebook_state "$_n/hub")" "locked-out"
