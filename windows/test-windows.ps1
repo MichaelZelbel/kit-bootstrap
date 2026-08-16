@@ -662,6 +662,30 @@ if ((Get-Command age -ErrorAction SilentlyContinue) -and (Get-Command age-keygen
             ($lines -contains 'MENERIO_MCP_TOKEN=second-token-not-real-98765432')
         }
     }
+    Check "a folder this PC cannot open reports 'locked-out', and is never rewritten" {
+        # THE CASE THAT ALMOST DESTROYED A REAL HUB. A folder carrying credentials this
+        # computer cannot open must be REFUSED, never rewritten: re-locking it to this
+        # machine's key shuts every other computer out of every credential at once,
+        # silently. It happened on 2026-08-16, to a live hub, during a test run.
+        Invoke-NotebookCase {
+            param($h)
+            $hub = New-NotebookHub 'nb18'
+            $other = Join-Path $h 'other-key.txt'
+            & age-keygen -o $other 2>$null | Out-Null
+            $recip = (& age-keygen -y $other | Select-Object -First 1)
+            $plain = Join-Path $h 'plain.txt'
+            Set-KbTextFile -Path $plain -Lines @('MENERIO_MCP_TOKEN=belongs-to-someone-else-0123456789')
+            & age -r $recip -o (Join-Path $hub 'secrets\hub-secrets.env.age') $plain
+            $env:HUB_AGE_KEY = Join-Path $h '.hubge-key.txt'
+            & age-keygen -o $env:HUB_AGE_KEY 2>$null | Out-Null
+            $store = Join-Path $hub 'secrets\hub-secrets.env.age'
+            $before = (Get-FileHash $store).Hash
+            $state = Get-KitNotebookState -Hub $hub
+            $refused = (Save-KitNotebookToken -Hub $hub -Token 'a-new-token-0123456789') -eq $false
+            Connect-KitNotebook -Hub $hub 3>&1 4>&1 | Out-Null
+            ($state -eq 'locked-out') -and $refused -and ((Get-FileHash $store).Hash -eq $before)
+        }
+    }
     Check "a key that does not open the folder's credentials is refused, not sealed" {
         Invoke-NotebookCase {
             param($h)

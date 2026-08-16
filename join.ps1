@@ -875,9 +875,18 @@ function Test-KitInteractive {
 }
 
 function Get-KitNotebookState {
-    <#  connected = this PC can already open the credentials in that folder
-        sealed    = the folder carries them and the key, waiting for a passphrase
-        none      = no notebook here yet, which is a complete way to own a hub #>
+    <#  connected  = this PC can already open the credentials in that folder
+        sealed     = the folder carries them and the key, waiting for a passphrase
+        locked-out = the folder carries credentials, this PC cannot open them, and there
+                     is no sealed key to ask a passphrase for. Nothing may be written.
+        none       = no notebook here yet, which is a complete way to own a hub
+
+        LOCKED-OUT IS THE ONE THAT MATTERS, and it was missing on the day this was
+        written. Without it, a run on a machine that already had somebody's hub read
+        "I cannot open this" as "there is nothing here", took a new token and re-locked
+        the whole store to THIS computer's key - shutting every other computer sharing
+        that folder out of every credential in it at once, silently. It happened during
+        testing and was survivable only because the file was committed. #>
     param([Parameter(Mandatory)][string]$Hub)
     $key   = Get-KitHubKeyPath
     $store = Join-Path $Hub 'secrets\hub-secrets.env.age'
@@ -886,6 +895,7 @@ function Get-KitNotebookState {
         if ($LASTEXITCODE -eq 0) { return 'connected' }
     }
     if (Test-Path (Join-Path $Hub 'secrets\hub-key.age')) { return 'sealed' }
+    if (Test-Path $store) { return 'locked-out' }
     return 'none'
 }
 
@@ -982,6 +992,17 @@ function Save-KitNotebookToken {
     }
     $key   = Get-KitHubKeyPath
     $store = Join-Path $Hub 'secrets\hub-secrets.env.age'
+    # NEVER re-lock a store this PC cannot already open. Writing it would encrypt the whole
+    # thing to this machine's key and shut out every other computer sharing the folder -
+    # all of them, from every credential, in one step and without a word.
+    if (Test-Path $store) {
+        $canOpen = $false
+        if (Test-Path $key) { & (Get-KitAge) -d -i $key $store > $null 2>&1; $canOpen = ($LASTEXITCODE -eq 0) }
+        if (-not $canOpen) {
+            Write-KbWarn "notebook: that folder already carries credentials this PC cannot open, so I am not touching them. Unlock it first with the hub passphrase, or point me at a different folder."
+            return $false
+        }
+    }
     New-Item -ItemType Directory -Force (Split-Path $key -Parent) | Out-Null
     New-Item -ItemType Directory -Force (Join-Path $Hub 'secrets') | Out-Null
     if (-not (Test-Path $key)) {
@@ -1140,6 +1161,10 @@ function Connect-KitNotebook {
     switch ($state) {
         'connected' { Write-KbOk "notebook: already connected on this computer" }
         'sealed'    { [void](Unlock-KitHubKey -Hub $Hub) }
+        'locked-out' {
+            Write-KbWarn "notebook: that folder already carries credentials, and this PC cannot open them. Nothing was changed. Copy .hub\age-key.txt from the computer that can open it, or seal it there so a passphrase is enough here."
+            return
+        }
         default {
             if (-not $Token) { $Token = $env:KB_NOTEBOOK_TOKEN }
             if (-not $Token) {

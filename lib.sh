@@ -1292,10 +1292,20 @@ kb_have_age()   { command -v "$(kb_age)" >/dev/null 2>&1 && command -v "$(kb_age
 
 kb_hub_key_path() { printf '%s' "${HUB_AGE_KEY:-$HOME/.hub/age-key.txt}"; }
 
-# kb_notebook_state <hub> -> connected | sealed | none
-#   connected  this computer can already open the credentials in that folder
-#   sealed     the folder carries them, and the key to them, waiting for a passphrase
-#   none       there is no notebook here yet, which is a complete way to own a hub
+# kb_notebook_state <hub> -> connected | sealed | locked-out | none
+#   connected   this computer can already open the credentials in that folder
+#   sealed      the folder carries them, and the key to them, waiting for a passphrase
+#   locked-out  the folder carries credentials, this computer cannot open them, and there
+#               is no sealed key to ask a passphrase for. Nothing may be written here.
+#   none        there is no notebook here yet, which is a complete way to own a hub
+#
+# LOCKED-OUT IS THE ONE THAT MATTERS, and it was missing on the day this was written.
+# Without it, a run on a machine that already had somebody's hub read "I cannot open this"
+# as "there is nothing here", took a new token and re-locked the whole store to THIS
+# computer's key. Every other computer sharing that folder would have been shut out of
+# every credential in it at once, silently. It happened during testing and was survivable
+# only because the file was committed. A wrong answer here destroys the thing the feature
+# exists to protect, so it gets its own name and its own refusal.
 kb_notebook_state() {
   local hub="${1:-}" key store
   key="$(kb_hub_key_path)"; store="$hub/secrets/hub-secrets.env.age"
@@ -1304,6 +1314,7 @@ kb_notebook_state() {
     printf 'connected'; return 0
   fi
   if [ -f "$hub/secrets/hub-key.age" ]; then printf 'sealed'; return 0; fi
+  if [ -f "$store" ]; then printf 'locked-out'; return 0; fi
   printf 'none'
 }
 
@@ -1382,6 +1393,13 @@ kb_store_notebook_token() {
   [ -n "$token" ] || return 1
   kb_have_age || { warn "notebook: this computer needs the 'age' program to keep a credential safely. Install it (Linux: apt install age, Mac: brew install age) and run this again."; return 1; }
   key="$(kb_hub_key_path)"; store="$hub/secrets/hub-secrets.env.age"
+  # NEVER re-lock a store this computer cannot already open. Writing it would encrypt the
+  # whole thing to this machine's key and shut out every other computer that shares the
+  # folder - all of them, from every credential, in one step and without a word.
+  if [ -f "$store" ] && { [ ! -r "$key" ] || ! "$(kb_age)" -d -i "$key" "$store" >/dev/null 2>&1; }; then
+    warn "notebook: that folder already carries credentials this computer cannot open, so I am not touching them. Unlock it first with the hub passphrase, or point me at a different folder."
+    return 1
+  fi
   mkdir -p "$(dirname "$key")" "$hub/secrets"
   if [ ! -r "$key" ]; then
     "$(kb_age_keygen)" -o "$key" >/dev/null 2>&1 || { warn "notebook: I could not make a key on this computer."; return 1; }
@@ -1508,6 +1526,9 @@ kb_connect_notebook() {
       ok "notebook: already connected on this computer" ;;
     sealed)
       kb_unseal_hub_key "$hub" || true ;;
+    locked-out)
+      warn "notebook: that folder already carries credentials, and this computer cannot open them. Nothing was changed. Copy ~/.hub/age-key.txt from the computer that can open it, or seal it there so a passphrase is enough here."
+      return 0 ;;
     none)
       token="${KB_NOTEBOOK_TOKEN:-}"
       if [ -z "$token" ]; then

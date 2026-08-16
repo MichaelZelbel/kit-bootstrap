@@ -641,6 +641,22 @@ if command -v age >/dev/null 2>&1 && command -v age-keygen >/dev/null 2>&1; then
   ( kb_store_notebook_token "$_n/hub" "second-token-still-not-real-98765" ) >/dev/null 2>&1
   t "connecting again replaces the credential instead of keeping two" \
     "$(age -d -i "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-secrets.env.age" | grep -c '^MENERIO_MCP_TOKEN=')" "1"
+  # THE CASE THAT ALMOST DESTROYED A REAL HUB. A folder carrying credentials this
+  # computer cannot open must be REFUSED, never rewritten: re-locking it to this
+  # machine's key shuts every other computer out of every credential at once, silently.
+  # This is what happened on 2026-08-16, to a live hub, during a test run.
+  _other=$(mktemp -d)
+  age-keygen -o "$_other/key" 2>/dev/null
+  printf 'MENERIO_MCP_TOKEN=belongs-to-someone-else-0123456789
+'     | age -r "$(age-keygen -y "$_other/key")" -o "$_n/hub/secrets/hub-secrets.env.age"
+  _before="$(sha256sum "$_n/hub/secrets/hub-secrets.env.age" | cut -d' ' -f1)"
+  t "a folder this computer cannot open reports 'locked-out', never 'none'"     "$(kb_notebook_state "$_n/hub")" "locked-out"
+  t "and pasting a token into it is refused"     "$(kb_store_notebook_token "$_n/hub" "a-new-token-0123456789" >/dev/null 2>&1; echo $?)" "1"
+  t "the other computers' credentials are byte-for-byte untouched"     "$(sha256sum "$_n/hub/secrets/hub-secrets.env.age" | cut -d' ' -f1)" "$_before"
+  t "and the whole connect step changes nothing there either"     "$(kb_connect_notebook "$_n/hub" >/dev/null 2>&1; sha256sum "$_n/hub/secrets/hub-secrets.env.age" | cut -d' ' -f1)" "$_before"
+  rm -rf "$_other" "$_n/hub/secrets/hub-secrets.env.age"
+  ( kb_store_notebook_token "$_n/hub" "test-token-not-a-real-one-0123456789" ) >/dev/null 2>&1
+
   # A key that opens nothing must never be sealed: the machine that would find out is
   # the new one, at the moment it has no other way in.
   age-keygen -o "$_n/home/.hub/age-key.txt" 2>/dev/null
