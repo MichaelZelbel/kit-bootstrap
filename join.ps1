@@ -367,7 +367,13 @@ function Install-KitPromptHarvest {
     # The installed program first, the hub's own copy second. The second is only for a
     # hub set up before the programs were installed on the machine, so nothing breaks
     # between the two.
-    $installed = Join-Path $HOME '.localin\prompt-harvest.js'
+    # The path below held a literal BACKSPACE byte (0x08) where the backslash-b of
+    # '.local\bin' was meant, so it could never exist. The fallback does not exist for
+    # a reader's hub either, so this returned before scheduling anything: EVERY Windows
+    # reader got no prompt archive at all, silently, while the installer reported success.
+    # Invisible to grep, because the bytes do not spell what the screen shows. Second time
+    # a control character has switched something off in this codebase (see D-107).
+    $installed = Join-Path $HOME '.local\bin\prompt-harvest.js'
     $js = if (Test-Path $installed) { $installed } else { Join-Path $Hub 'bin\prompt-harvest.js' }
     if (-not (Test-Path $js)) { return }
 
