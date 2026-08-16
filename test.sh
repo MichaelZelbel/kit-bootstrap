@@ -541,6 +541,13 @@ echo "  $pass passed, $fail failed"
 TEST
 rc=$?
 
+# Bytes, not appearance. join.ps1 carried a literal backspace where the backslash-b of
+# '.local\bin' belonged, so the path could never exist and every Windows reader silently got
+# no prompt archive. It reads correctly on screen and matches neither obvious grep.
+echo
+echo "== no hidden control characters"
+bash test-no-control-characters.sh || rc=1
+
 echo
 [ "$rc" -eq 0 ] && echo "ALL PASS" || echo "FAILURES ABOVE"
 exit "$rc"
