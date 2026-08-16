@@ -676,7 +676,7 @@ if ((Get-Command age -ErrorAction SilentlyContinue) -and (Get-Command age-keygen
             $plain = Join-Path $h 'plain.txt'
             Set-KbTextFile -Path $plain -Lines @('MENERIO_MCP_TOKEN=belongs-to-someone-else-0123456789')
             & age -r $recip -o (Join-Path $hub 'secrets\hub-secrets.env.age') $plain
-            $env:HUB_AGE_KEY = Join-Path $h '.hubge-key.txt'
+            $env:HUB_AGE_KEY = Join-Path $h '.hub\age-key.txt'
             & age-keygen -o $env:HUB_AGE_KEY 2>$null | Out-Null
             $store = Join-Path $hub 'secrets\hub-secrets.env.age'
             $before = (Get-FileHash $store).Hash
