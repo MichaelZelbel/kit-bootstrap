@@ -1597,8 +1597,10 @@ kb_connect_notebook() {
         kb_tell ""
         kb_tell "A notebook is optional. Everything in this book works on plain files without one."
         kb_tell "It adds one thing: searching your hub by MEANING instead of by exact word."
+        kb_tell "It needs a free account at menerio.com, which is Chapters 23 and 24 of the book."
         ask_yes "Connect a notebook now?" "n" || { ok "notebook: not connected, which is a complete way to own a hub. Run this installer again whenever you change your mind."; return 0; }
-        token="$(ask "Paste the token from your notebook's settings page")"
+        kb_tell "In Menerio: Settings, then API Keys, then Generate new API key with the box 'Hub access' ticked."
+        token="$(ask "Paste that key here")"
       fi
       [ -n "$token" ] || { ok "notebook: nothing pasted, so nothing was connected."; return 0; }
       kb_store_notebook_token "$hub" "$token" || return 0

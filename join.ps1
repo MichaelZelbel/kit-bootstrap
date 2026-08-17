@@ -1221,12 +1221,14 @@ function Connect-KitNotebook {
                 Write-Host ""
                 Write-Host "A notebook is optional. Everything in this book works on plain files without one."
                 Write-Host "It adds one thing: searching your hub by MEANING instead of by exact word."
+                Write-Host "It needs a free account at menerio.com, which is Chapters 23 and 24 of the book."
                 $yn = Read-Host "Connect a notebook now? (y/N)"
                 if ($yn -notmatch '^[Yy]') {
                     Write-KbOk "notebook: not connected, which is a complete way to own a hub. Run this again whenever you change your mind."
                     return
                 }
-                $Token = Read-Host "Paste the token from your notebook's settings page"
+                Write-Host "In Menerio: Settings, then API Keys, then Generate new API key with the box 'Hub access' ticked."
+                $Token = Read-Host "Paste that key here"
             }
             if (-not $Token) { Write-KbOk "notebook: nothing pasted, so nothing was connected."; return }
             if (-not (Save-KitNotebookToken -Hub $Hub -Token $Token)) { return }
