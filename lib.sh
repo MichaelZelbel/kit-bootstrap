@@ -1000,6 +1000,12 @@ kb_install_hub_cli() {
 kb_install_hub_tools() {
   local hub="${1:-}" repo="${2:-}" sub="${3:-tools}" tmp bindir f base n=0
   [ -n "$hub" ] || return 0
+  # A join does not retype the product. The kit the tools came from is written down in
+  # ~/.hub/device.env the first time it is known (below, beside HUB_DIR), so a later run
+  # that names no kit, which is what join.sh does, refreshes them instead of skipping.
+  if [ -z "$repo" ] && [ -r "$HOME/.hub/device.env" ]; then
+    repo="$(sed -n 's/^[[:space:]]*HUB_TOOLS_REPO=//p' "$HOME/.hub/device.env" | head -1)"
+  fi
   [ -n "$repo" ] || return 0          # nothing to fetch from: not an error, just nothing to do
 
   tmp="$(mktemp -d 2>/dev/null)" || return 0
@@ -1042,6 +1048,10 @@ kb_install_hub_tools() {
   # environment never has to guess. The programs read this file already.
   if [ ! -f "$HOME/.hub/device.env" ] || ! grep -q '^[[:space:]]*HUB_DIR=' "$HOME/.hub/device.env" 2>/dev/null; then
     printf 'HUB_DIR=%s\n' "$hub" >> "$HOME/.hub/device.env"
+  fi
+  # And where the tools came from, so the next run can refresh them unprompted.
+  if ! grep -q '^[[:space:]]*HUB_TOOLS_REPO=' "$HOME/.hub/device.env" 2>/dev/null; then
+    printf 'HUB_TOOLS_REPO=%s\n' "$repo" >> "$HOME/.hub/device.env"
   fi
 
   kb_persist_path
@@ -1599,7 +1609,7 @@ kb_connect_notebook() {
         kb_tell "It adds one thing: searching your hub by MEANING instead of by exact word."
         kb_tell "It needs a free account at menerio.com, which is Chapters 23 and 24 of the book."
         ask_yes "Connect a notebook now?" "n" || { ok "notebook: not connected, which is a complete way to own a hub. Run this installer again whenever you change your mind."; return 0; }
-        kb_tell "In Menerio: Settings, then API Keys, then Generate new API key with the box 'Hub access' ticked."
+        kb_tell "In Menerio: Settings, then API Keys, then Generate new API key. Leave every box ticked (that is the default)."
         token="$(ask "Paste that key here")"
       fi
       [ -n "$token" ] || { ok "notebook: nothing pasted, so nothing was connected."; return 0; }

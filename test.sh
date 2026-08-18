@@ -408,6 +408,8 @@ t "an existing hand-written job is left alone" "$(wc -l < "$_cronfile" | tr -d '
 _kit="$_f/kit"; mkdir -p "$_kit/tools" "$_f/hub2/memory"
 printf 'console.log(1)\n'                    > "$_kit/tools/prompt-harvest.js"
 printf '#!/usr/bin/env python3\nprint(1)\n'  > "$_kit/tools/hub-prompt-archive"
+printf '#!/bin/sh\nexit 0\n'                 > "$_kit/tools/hub-notebook-sync"
+printf '#!/bin/sh\nexit 0\n'                 > "$_kit/tools/hub-notebook-env"
 printf '# not a program\n'                   > "$_kit/tools/README.md"
 git -C "$_kit" init -q >/dev/null 2>&1
 git -C "$_kit" add -A >/dev/null 2>&1
@@ -426,6 +428,13 @@ t "there is one command that starts it" \
   "$([ -x "$_f/.local/bin/hub-prompt-harvest" ] && echo yes || echo no)" "yes"
 t "a README is not installed as a program" \
   "$([ -e "$_f/.local/bin/README.md" ] && echo yes || echo no)" "no"
+# The notebook step further down schedules ~/.local/bin/hub-notebook-sync and silently
+# does nothing when it is missing, so THIS function is what decides whether a reader's
+# notebook ever updates itself.
+t "the notebook runner is installed on the machine with them" \
+  "$([ -f "$_f/.local/bin/hub-notebook-sync" ] && echo yes || echo no)" "yes"
+t "and the credential helper it needs is beside it" \
+  "$([ -f "$_f/.local/bin/hub-notebook-env" ] && echo yes || echo no)" "yes"
 
 # THE ONE THAT MATTERS. Chapter 4 promises the hub is a folder of text files. A Node program
 # and a Python program appearing in it would be the first two things in there that are not.
@@ -439,6 +448,17 @@ t "where the hub is was written down for the scheduled job" \
   "$(grep -c "^HUB_DIR=" "$_f/.hub/device.env" 2>/dev/null)" "1"
 t "and a second run does not write it twice" \
   "$(HOME="$_f" kb_install_hub_tools "$_f/hub2" "$_kit" >/dev/null 2>&1; grep -c '^HUB_DIR=' "$_f/.hub/device.env")" "1"
+
+# A JOIN names no kit (join.sh passes only KB_TOOLS_REPO, which is usually unset), so
+# the kit the tools came from is written down at install time and read back when the
+# argument is empty. Without this, a joined machine never got the runner, and the
+# notebook step found nothing to schedule.
+t "the kit the tools came from was written down beside it" \
+  "$(grep -c '^HUB_TOOLS_REPO=' "$_f/.hub/device.env" 2>/dev/null)" "1"
+rm -f "$_f/.local/bin/hub-notebook-sync"
+( HOME="$_f" kb_install_hub_tools "$_f/hub2" "" ) >/dev/null 2>&1
+t "a later run that names no kit refreshes from the one written down" \
+  "$([ -f "$_f/.local/bin/hub-notebook-sync" ] && echo yes || echo no)" "yes"
 
 # THE ONE THAT BIT US ON THE FIRST LIVE RUN. kb_install_hub_cli puts SYMLINKS in this same
 # folder, pointing back into the hub. `cp` over a symlink writes THROUGH it, so installing a
@@ -669,6 +689,14 @@ t "and running it twice does not write the line twice" \
 # needs none. This is the case that must never nag.
 t "a reader who says no is not asked again and nothing is written" \
   "$(KB_NOTEBOOK=skip kb_connect_notebook "$_n/hub" 2>&1)" ""
+
+# Every front door offers the notebook, not only the create path. Until 2026-08-18
+# only setup-hub.sh called the connect step: a joined second machine got the runner
+# installed and the credentials sitting in the folder, and nothing introduced them.
+t "join.sh offers the notebook connection" \
+  "$(grep -c '^kb_connect_notebook "\$HUB"' join.sh)" "1"
+t "the Windows join offers it too" \
+  "$(grep -c '^Connect-KitNotebook -Hub \$Hub' join.ps1)" "1"
 
 # The real round trip, where age is installed. It is the mechanism the whole promise
 # rests on, so it is proven rather than assumed - and skipped OUT LOUD where it cannot be.

@@ -102,6 +102,13 @@ kb_install_hub_tools "$HUB" "${KB_TOOLS_REPO:-}"
 #     covers the machine you were sitting at when you thought of it.
 kb_install_prompt_harvest "$HUB"
 
+# 2e. The notebook. A joined machine is exactly the machine this step was made for: the
+#     credentials travel inside the folder, so if the hub carries them this unseals and
+#     wires the sync here too, and asks nothing. Sits after 2c on purpose, because it
+#     schedules the runner that step just installed. Quiet and complete for the reader
+#     who never connects one, and piped from curl with no keyboard it stays silent.
+kb_connect_notebook "$HUB"
+
 # 3. Skills, if this hub keeps them where the assistants other than Claude Code
 #    can be pointed at them. Harmless when it has none.
 if [ -d "$HUB/.claude/skills" ] && [ ! -e "$HUB/.agents/skills" ]; then

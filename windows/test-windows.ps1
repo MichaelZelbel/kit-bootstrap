@@ -368,6 +368,8 @@ function New-TestKit {
     New-Item -ItemType Directory -Force (Join-Path $Path 'tools') | Out-Null
     Set-Content (Join-Path $Path 'tools\prompt-harvest.js')   'console.log(1)'
     Set-Content (Join-Path $Path 'tools\hub-prompt-archive')  'print(1)'
+    Set-Content (Join-Path $Path 'tools\hub-notebook-sync')   "#!/bin/sh`nexit 0"
+    Set-Content (Join-Path $Path 'tools\hub-notebook-env')    "#!/bin/sh`nexit 0"
     Set-Content (Join-Path $Path 'tools\README.md')           '# not a program'
     git -C $Path init -q
     git -C $Path add -A 2>&1 | Out-Null
@@ -399,6 +401,37 @@ Check "the two programs land on the PC and a README does not" {
         Set-Variable -Name HOME -Value $home0 -Scope Global -Force
         $env:HOME = $home0
     }
+}
+Check "the notebook runner lands with them, and a join refreshes from the kit written down" {
+    # The notebook step schedules ~\.local\bin\hub-notebook-sync and silently does
+    # nothing when it is missing, so this install is what decides whether a reader's
+    # notebook ever updates itself. And a JOIN names no kit, so a later run with an
+    # empty -ToolsRepo must refresh from the repo written down at install time.
+    $kit = New-TestDir 'kit2'; New-TestKit -Path $kit
+    $hub = New-TestDir 'tools-hub2'
+    $home0 = $HOME
+    try {
+        $env:HOME = New-TestDir 'tools-home2'
+        Set-Variable -Name HOME -Value $env:HOME -Scope Global -Force
+        Install-KitHubTools -Hub $hub -ToolsRepo $kit | Out-Null
+        $bin = Join-Path $HOME '.local\bin'
+        $landed = Test-Path (Join-Path $bin 'hub-notebook-sync')
+        Remove-Item (Join-Path $bin 'hub-notebook-sync') -Force -ErrorAction SilentlyContinue
+        Install-KitHubTools -Hub $hub -ToolsRepo '' | Out-Null
+        $landed -and
+        (Test-Path (Join-Path $bin 'hub-notebook-sync')) -and
+        (@(Get-Content (Join-Path $HOME '.hub\device.env') | Where-Object { $_ -match '^HUB_TOOLS_REPO=' }).Count -eq 1)
+    } finally {
+        Set-Variable -Name HOME -Value $home0 -Scope Global -Force
+        $env:HOME = $home0
+    }
+}
+Check "the standalone join offers the notebook connection" {
+    # Until 2026-08-18 only setup-hub.ps1 called the connect step: a joined second
+    # machine got the runner installed and the credentials sitting in the folder,
+    # and nothing introduced them.
+    $joinText = Get-Content (Join-Path $PSScriptRoot '..\join.ps1') -Raw
+    $joinText -match '(?m)^Connect-KitNotebook -Hub \$Hub'
 }
 
 Write-Host ""

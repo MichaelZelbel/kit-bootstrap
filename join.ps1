@@ -523,6 +523,16 @@ function Install-KitHubTools {
         [string]$ToolsPath = 'tools'
     )
 
+    # A join does not retype the product. The kit the tools came from is written
+    # down in ~\.hub\device.env the first time it is known (below, beside HUB_DIR),
+    # so a later run that names no kit refreshes them instead of skipping.
+    if (-not $ToolsRepo) {
+        $devEnv = Join-Path $HOME '.hub\device.env'
+        if (Test-Path $devEnv) {
+            $line = @(Get-Content $devEnv | Where-Object { $_ -match '^\s*HUB_TOOLS_REPO=' })[0]
+            if ($line) { $ToolsRepo = ($line -replace '^\s*HUB_TOOLS_REPO=', '').Trim() }
+        }
+    }
     if (-not $ToolsRepo) { return }
 
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("kb-tools-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
@@ -565,6 +575,9 @@ function Install-KitHubTools {
         $devEnv = Join-Path $HOME '.hub\device.env'
         $has = (Test-Path $devEnv) -and ((Get-Content $devEnv) -match '^\s*HUB_DIR=')
         if (-not $has) { Add-Content -Path $devEnv -Value "HUB_DIR=$Hub" -Encoding ascii }
+        # And where the tools came from, so the next run can refresh them unprompted.
+        $hasRepo = (Test-Path $devEnv) -and ((Get-Content $devEnv) -match '^\s*HUB_TOOLS_REPO=')
+        if (-not $hasRepo) { Add-Content -Path $devEnv -Value "HUB_TOOLS_REPO=$ToolsRepo" -Encoding ascii }
 
         Update-KitPath
         $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -1257,7 +1270,7 @@ function Connect-KitNotebook {
                     Write-KbOk "notebook: not connected, which is a complete way to own a hub. Run this again whenever you change your mind."
                     return
                 }
-                Write-Host "In Menerio: Settings, then API Keys, then Generate new API key with the box 'Hub access' ticked."
+                Write-Host "In Menerio: Settings, then API Keys, then Generate new API key. Leave every box ticked (that is the default)."
                 $Token = Read-Host "Paste that key here"
             }
             if (-not $Token) { Write-KbOk "notebook: nothing pasted, so nothing was connected."; return }
@@ -1306,6 +1319,12 @@ Install-KitHubCli -Hub $Hub
 # The daily job that files what you type to an AI on this machine into the hub.
 Install-KitHubTools -Hub $Hub -ToolsRepo $env:KB_TOOLS_REPO
 Install-KitPromptHarvest -Hub $Hub
+
+# The notebook. A joined machine is exactly the machine this step was made for: the
+# credentials travel inside the folder, so if the hub carries them this unseals and
+# wires the sync here too. Sits after the tools step on purpose, because it schedules
+# the runner that step just installed. Quiet for the reader who never connects one.
+Connect-KitNotebook -Hub $Hub
 
 $skills = Join-Path $Hub '.claude\skills'
 $agents = Join-Path $Hub '.agents\skills'
