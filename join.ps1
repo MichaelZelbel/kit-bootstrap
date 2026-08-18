@@ -627,15 +627,45 @@ function Install-KitPromptHarvest {
         return
     }
 
-    if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
+    # NEVER make node.exe the task's own executable: the task then flashes a terminal
+    # window at the owner every hour it fires (reported 2026-08-18, on two of Michael's
+    # machines). The job goes through wscript + a tiny .vbs launcher instead, which runs
+    # the same command with its window hidden. The launcher is written here, next to the
+    # collector, because a reader's hub ships no such file. A task found running node
+    # directly is from before this fix and gets replaced.
+    $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if ($existing -and $existing.Actions[0].Execute -match 'wscript') {
         Write-KbOk "prompt archive: already scheduled on this computer"
         return
     }
+    if ($existing) {
+        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+        Write-KbOk "prompt archive: replacing the old job, which opened a visible window every hour"
+    }
+
+    $vbs = Join-Path (Split-Path $js) 'run-hidden.vbs'
+    @(
+        "' Run any console command with no visible window (written by the kit installer).",
+        "' Usage: wscript run-hidden.vbs <workdir> <exe> [args...]",
+        'Option Explicit',
+        'Dim sh, i, cmd, a',
+        'If WScript.Arguments.Count < 2 Then WScript.Quit 2',
+        'Set sh = CreateObject("WScript.Shell")',
+        'sh.CurrentDirectory = WScript.Arguments(0)',
+        'cmd = ""',
+        'For i = 1 To WScript.Arguments.Count - 1',
+        '  a = WScript.Arguments(i)',
+        '  If InStr(a, " ") > 0 Then a = """" & a & """"',
+        '  cmd = cmd & a & " "',
+        'Next',
+        'sh.Run Trim(cmd), 0, False'
+    ) | Set-Content -Path $vbs -Encoding ascii
 
     try {
         # Hourly, not nightly, and the job does nothing if it already ran today. A fixed
         # time in the small hours is right for a server and wrong for a laptop that is shut.
-        $action = New-ScheduledTaskAction -Execute $node -Argument "`"$js`" --once-a-day" -WorkingDirectory $Hub
+        $action = New-ScheduledTaskAction -Execute 'wscript.exe' `
+            -Argument "`"$vbs`" `"$Hub`" `"$node`" `"$js`" --once-a-day" -WorkingDirectory $Hub
         $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) `
             -RepetitionInterval (New-TimeSpan -Hours 1) -RepetitionDuration (New-TimeSpan -Days 3650)
         $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
