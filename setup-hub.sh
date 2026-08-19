@@ -96,7 +96,8 @@ fi
 # Newer than the network copy is a real state, not a theoretical one: this script
 # and the v1 branch are published by two separate acts, so either can be ahead.
 for fn in kb_install_prereqs kb_new_hub kb_copy_starter_hub kb_link_ai_memory kb_install_hub_cli \
-          kb_install_hub_tools kb_install_prompt_harvest kb_sync_report kb_write_prompt_sources; do
+          kb_install_hub_tools kb_install_prompt_harvest kb_sync_report kb_write_prompt_sources \
+          kb_update_hub kb_connect_notebook; do
   if ! command -v "$fn" >/dev/null 2>&1; then
     echo "[stop] the install code on this computer is incomplete ($fn is missing)." >&2
     echo "       Run the newest command from https://github.com/MichaelZelbel/kit-bootstrap" >&2
@@ -137,8 +138,11 @@ if [ -n "$FOUND" ]; then
   # The starter can grow after a hub is born (dev/ and its .gitignore arrived
   # 2026-08-19). Top up whatever is missing, top level only and never over
   # anything already there, so a re-run delivers new rooms without treading on
-  # a word the person wrote. Before this line, an update run never looked at
-  # the starter at all, so a new room only ever reached new hubs.
+  # a word the person wrote. The one exception is .gitignore, which is merged
+  # line-by-line inside kb_copy_starter_hub: every hub already has one, and
+  # skip-if-present would keep the dev/ fence from ever reaching an old hub.
+  # Before this line, an update run never looked at the starter at all, so a
+  # new room only ever reached new hubs.
   TOPUP_BEFORE="$(ls -A "$HUB" 2>/dev/null | sort)"
   kb_copy_starter_hub "$HUB" "$STARTER_REPO" "$STARTER_PATH" || true
   TOPUP_AFTER="$(ls -A "$HUB" 2>/dev/null | sort)"

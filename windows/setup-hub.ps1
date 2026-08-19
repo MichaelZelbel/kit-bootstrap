@@ -157,8 +157,11 @@ if ($found) {
     # The starter can grow after a hub is born (dev/ and its .gitignore arrived
     # 2026-08-19). Top up whatever is missing, top level only and never over
     # anything already there, so a re-run delivers new rooms without treading on
-    # a word the person wrote. Before this line, an update run never looked at
-    # the starter at all, so a new room only ever reached new hubs.
+    # a word the person wrote. The one exception is .gitignore, which is merged
+    # line-by-line inside Copy-KitStarterHub: every hub already has one, and
+    # skip-if-present would keep the dev/ fence from ever reaching an old hub.
+    # Before this line, an update run never looked at the starter at all, so a
+    # new room only ever reached new hubs.
     $topupBefore = @(Get-ChildItem -Force -Name $Hub | Sort-Object)
     try { Copy-KitStarterHub -Path $Hub -StarterRepo $StarterRepo -StarterPath $StarterPath | Out-Null } catch {}
     $topupAfter = @(Get-ChildItem -Force -Name $Hub | Sort-Object)

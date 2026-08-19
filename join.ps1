@@ -815,9 +815,22 @@ function Copy-KitStarterHub {
         New-Item -ItemType Directory -Force $Path | Out-Null
         # -Force so hidden files come too, and never overwriting: a second run must
         # not tread on a sentence the person has already written about themselves.
+        #
+        # One exception: .gitignore GROWS. Every hub already has one from day one,
+        # so skip-if-present means a rule the starter learns later (the dev/ fence,
+        # 2026-08-19) never reaches an existing hub - and the miss is not stale
+        # text but a whole nested repository committed into the hub's history. For
+        # that one file, append the starter's pattern lines the hub does not
+        # already have (comments and blanks skipped, so a re-run adds nothing twice).
         Get-ChildItem $src -Force | ForEach-Object {
             $dest = Join-Path $Path $_.Name
-            if (-not (Test-Path $dest)) { Copy-Item $_.FullName $dest -Recurse -Force }
+            if (-not (Test-Path $dest)) {
+                Copy-Item $_.FullName $dest -Recurse -Force
+            } elseif ($_.Name -eq '.gitignore' -and -not $_.PSIsContainer) {
+                $have = @(Get-Content $dest -ErrorAction SilentlyContinue)
+                $add = @(Get-Content $_.FullName | Where-Object { $_ -and $_ -notmatch '^\s*#' -and ($have -notcontains $_) })
+                if ($add.Count) { Add-Content -Path $dest -Value $add }
+            }
         }
         return $true
     } catch {

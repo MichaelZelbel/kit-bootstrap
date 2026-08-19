@@ -1256,10 +1256,26 @@ kb_copy_starter_hub() {
   # Top level only, and never over something already there, so a second run cannot
   # tread on a sentence the person has already written about themselves. The
   # .[!.]* pattern catches dotfiles without matching . or .. themselves.
+  #
+  # One exception: .gitignore GROWS. Every hub already has one from day one, so
+  # skip-if-present means a rule the starter learns later (the dev/ fence,
+  # 2026-08-19) never reaches an existing hub - and the miss is not stale text
+  # but a whole nested repository committed into the hub's history. For that one
+  # file, append the starter's pattern lines the hub does not already have
+  # (comments and blanks skipped, so a re-run adds nothing twice).
   for f in "$tmp/$sub"/* "$tmp/$sub"/.[!.]*; do
     [ -e "$f" ] || continue
     base="$(basename "$f")"
-    [ -e "$path/$base" ] && continue
+    if [ -e "$path/$base" ]; then
+      if [ "$base" = ".gitignore" ] && [ -f "$f" ] && [ -f "$path/$base" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+          [ -n "$line" ] || continue
+          case "$line" in '#'*) continue ;; esac
+          grep -qxF -- "$line" "$path/$base" 2>/dev/null || printf '%s\n' "$line" >> "$path/$base"
+        done < "$f"
+      fi
+      continue
+    fi
     cp -R "$f" "$path/" 2>/dev/null || true
   done
   rm -rf "$tmp"
