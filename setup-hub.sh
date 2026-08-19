@@ -134,6 +134,17 @@ if [ -n "$FOUND" ]; then
   if [ -n "$BEFORE" ] && [ -n "$AFTER" ] && [ "$BEFORE" != "$AFTER" ]; then
     ok "it was out of date. Brought it up to date ($BEFORE to $AFTER)."
   fi
+  # The starter can grow after a hub is born (dev/ and its .gitignore arrived
+  # 2026-08-19). Top up whatever is missing, top level only and never over
+  # anything already there, so a re-run delivers new rooms without treading on
+  # a word the person wrote. Before this line, an update run never looked at
+  # the starter at all, so a new room only ever reached new hubs.
+  TOPUP_BEFORE="$(ls -A "$HUB" 2>/dev/null | sort)"
+  kb_copy_starter_hub "$HUB" "$STARTER_REPO" "$STARTER_PATH" || true
+  TOPUP_AFTER="$(ls -A "$HUB" 2>/dev/null | sort)"
+  if [ "$TOPUP_BEFORE" != "$TOPUP_AFTER" ]; then
+    ok "the starter grew since this hub was made; added what was missing, touched nothing else."
+  fi
 else
   IS_NEW=1
   [ -n "$HUB" ] || HUB="$HOME/hub"

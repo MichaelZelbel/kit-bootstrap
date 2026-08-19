@@ -154,6 +154,17 @@ if ($found) {
     if ($before -and $after -and $before -ne $after) {
         Write-KbOk "it was out of date. Brought it up to date ($before to $after)."
     }
+    # The starter can grow after a hub is born (dev/ and its .gitignore arrived
+    # 2026-08-19). Top up whatever is missing, top level only and never over
+    # anything already there, so a re-run delivers new rooms without treading on
+    # a word the person wrote. Before this line, an update run never looked at
+    # the starter at all, so a new room only ever reached new hubs.
+    $topupBefore = @(Get-ChildItem -Force -Name $Hub | Sort-Object)
+    try { Copy-KitStarterHub -Path $Hub -StarterRepo $StarterRepo -StarterPath $StarterPath | Out-Null } catch {}
+    $topupAfter = @(Get-ChildItem -Force -Name $Hub | Sort-Object)
+    if (Compare-Object $topupBefore $topupAfter) {
+        Write-KbOk "the starter grew since this hub was made; added what was missing, touched nothing else."
+    }
 } else {
     $isNew = $true
     if (-not $Hub) { $Hub = 'C:\hub' }
