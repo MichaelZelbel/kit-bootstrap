@@ -180,11 +180,19 @@ Check "the real book kit's starter folder is reachable and has what the book nam
     if (-not $got) { Write-Host "        (skipped: no network)"; return $true }
     $missing = @()
     foreach ($f in 'AGENTS.md', 'profile\about-me.md', 'profile\people.md', 'profile\voice.md',
-                    'procedures.md', 'decisions.md', 'observations\MEMORY.md', 'skills\plan-my-day.md') {
+                    'procedures.md', 'decisions.md', 'observations\MEMORY.md', 'rules', 'skills') {
         if (-not (Test-Path (Join-Path $d $f))) { $missing += $f }
     }
     if ($missing.Count) { Write-Host "        missing: $($missing -join ', ')" }
-    $missing.Count -eq 0
+    # skills/ must ARRIVE and must arrive EMPTY. It used to ship the book's five starter
+    # recipes, so Chapter 13 opened on "it has been sitting there empty" about a folder
+    # holding five files, one of them the very recipe that chapter teaches you to build.
+    # They moved to the kit's own skills/ on 2026-08-20, where Chapter 14 already said
+    # they were, so the first recipe in a reader's folder is one they wrote themselves.
+    $recipes = @(Get-ChildItem (Join-Path $d 'skills') -File -ErrorAction SilentlyContinue |
+                 Where-Object { $_.Extension -eq '.md' }).Count
+    if ($recipes -gt 0) { Write-Host "        skills/ arrived with $recipes recipe(s) in it" }
+    ($missing.Count -eq 0) -and ($recipes -eq 0)
 }
 
 Write-Host ""
@@ -367,6 +375,7 @@ function New-TestKit {
     param([string]$Path)
     New-Item -ItemType Directory -Force (Join-Path $Path 'tools') | Out-Null
     Set-Content (Join-Path $Path 'tools\prompt-harvest.js')   'console.log(1)'
+    Set-Content (Join-Path $Path 'tools\compile-rules.js')    'console.log(1)'
     Set-Content (Join-Path $Path 'tools\hub-prompt-archive')  'print(1)'
     Set-Content (Join-Path $Path 'tools\hub-notebook-sync')   "#!/bin/sh`nexit 0"
     Set-Content (Join-Path $Path 'tools\hub-notebook-env')    "#!/bin/sh`nexit 0"
@@ -379,7 +388,7 @@ Check "no kit named means nothing installed and nothing said" {
     $out = Install-KitHubTools -Hub (New-TestDir 'tools-none') -ToolsRepo '' 3>&1 4>&1 | Out-String
     $out.Trim() -eq ''
 }
-Check "the two programs land on the PC and a README does not" {
+Check "the three programs land on the PC and a README does not" {
     $kit = New-TestDir 'kit'; New-TestKit -Path $kit
     $hub = New-TestDir 'tools-hub'
     $home0 = $HOME
@@ -391,10 +400,16 @@ Check "the two programs land on the PC and a README does not" {
         (Test-Path (Join-Path $bin 'hub-prompt-archive')) -and
         (Test-Path (Join-Path $bin 'prompt-harvest.js')) -and
         (Test-Path (Join-Path $bin 'hub-prompt-harvest.cmd')) -and
+        # The rules compiler is the one program in here a reader types by hand. Until
+        # 2026-08-21 it was Python and the book named a path inside the hub that nobody
+        # has. Without the .cmd, a bare compile-rules.js silently does nothing in
+        # PowerShell, which is worse than an error.
+        (Test-Path (Join-Path $bin 'compile-rules.js')) -and
+        (Test-Path (Join-Path $bin 'hub-compile-rules.cmd')) -and
         -not (Test-Path (Join-Path $bin 'README.md')) -and
         # THE ONE THAT MATTERS: nothing was put inside the hub folder.
         (@(Get-ChildItem $hub -Recurse -File -ErrorAction SilentlyContinue |
-           Where-Object { $_.Name -in 'hub-prompt-archive', 'prompt-harvest.js' }).Count -eq 0) -and
+           Where-Object { $_.Name -in 'hub-prompt-archive', 'prompt-harvest.js', 'compile-rules.js' }).Count -eq 0) -and
         # A scheduled job gets almost no environment, so where the hub is must be written down.
         (@(Get-Content (Join-Path $HOME '.hub\device.env') | Where-Object { $_ -match '^HUB_DIR=' }).Count -eq 1)
     } finally {

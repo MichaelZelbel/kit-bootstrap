@@ -407,6 +407,7 @@ t "an existing hand-written job is left alone" "$(wc -l < "$_cronfile" | tr -d '
 # When you change one side, change both.
 _kit="$_f/kit"; mkdir -p "$_kit/tools" "$_f/hub2/memory"
 printf 'console.log(1)\n'                    > "$_kit/tools/prompt-harvest.js"
+printf 'console.log(1)\n'                    > "$_kit/tools/compile-rules.js"
 printf '#!/usr/bin/env python3\nprint(1)\n'  > "$_kit/tools/hub-prompt-archive"
 printf '#!/bin/sh\nexit 0\n'                 > "$_kit/tools/hub-notebook-sync"
 printf '#!/bin/sh\nexit 0\n'                 > "$_kit/tools/hub-notebook-env"
@@ -426,6 +427,12 @@ t "the runner is installed beside it, which is how it finds it" \
   "$([ -f "$_f/.local/bin/prompt-harvest.js" ] && echo yes || echo no)" "yes"
 t "there is one command that starts it" \
   "$([ -x "$_f/.local/bin/hub-prompt-harvest" ] && echo yes || echo no)" "yes"
+# The rules compiler is the one program in here a reader types by hand, and until
+# 2026-08-21 it was Python and the book named a path inside the hub that nobody has.
+t "the rules compiler is installed on the machine" \
+  "$([ -f "$_f/.local/bin/compile-rules.js" ] && echo yes || echo no)" "yes"
+t "and there is one command that runs it, which is what the book prints" \
+  "$([ -x "$_f/.local/bin/hub-compile-rules" ] && echo yes || echo no)" "yes"
 t "a README is not installed as a program" \
   "$([ -e "$_f/.local/bin/README.md" ] && echo yes || echo no)" "no"
 # The notebook step further down schedules ~/.local/bin/hub-notebook-sync and silently

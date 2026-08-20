@@ -1036,12 +1036,23 @@ kb_install_hub_tools() {
   rm -rf "$tmp"
   [ "$n" -gt 0 ] || return 0
 
-  # The launcher. Not a symlink and not the .js file's own shebang: this way the program is
+  # The launchers. Not symlinks and not the .js files' own shebangs: this way the program is
   # started by the node on PATH at the time it runs, and it finds its other half by sitting in
   # the same folder, which is the one thing a scheduled job can always be told.
   if [ -f "$bindir/prompt-harvest.js" ]; then
     printf '#!/bin/sh\nexec node "$(dirname "$0")/prompt-harvest.js" "$@"\n' > "$bindir/hub-prompt-harvest"
     chmod +x "$bindir/hub-prompt-harvest" 2>/dev/null || true
+  fi
+
+  # The rules compiler, which a reader types by hand rather than the schedule running it.
+  # It was a Python program until 2026-08-21, and the book printed it as a path inside the
+  # hub, which is a folder this installer deliberately keeps free of programs. So nobody had
+  # that path, and this installer has never installed Python either: the one command Chapter
+  # 17 asks a reader to type worked for nobody. Node is already a prerequisite, so it is a
+  # Node program with a launcher, exactly like the collector above.
+  if [ -f "$bindir/compile-rules.js" ]; then
+    printf '#!/bin/sh\nexec node "$(dirname "$0")/compile-rules.js" "$@"\n' > "$bindir/hub-compile-rules"
+    chmod +x "$bindir/hub-compile-rules" 2>/dev/null || true
   fi
 
   # Where the hub is, recorded once, so a job started by the schedule with almost no

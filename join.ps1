@@ -570,6 +570,20 @@ function Install-KitHubTools {
                 Set-Content -Path (Join-Path $bin 'hub-prompt-harvest.cmd') -Encoding ascii
         }
 
+        # The rules compiler, which a reader types by hand rather than the schedule
+        # running it. It was a Python program until 2026-08-21 and the book printed it as
+        # a path inside the hub, which is a folder this installer deliberately keeps free
+        # of programs. Nobody had that path, and nothing here installs Python either, so
+        # the one command Chapter 17 asks a reader to type worked for nobody. Node is
+        # already a prerequisite, so it is a Node program with a .cmd, exactly like the
+        # collector above. Without the .cmd a bare compile-rules.js silently does nothing
+        # in PowerShell, which is worse than an error.
+        $rulesJs = Join-Path $bin 'compile-rules.js'
+        if (Test-Path $rulesJs) {
+            @('@echo off', "node `"%~dp0compile-rules.js`" %*") |
+                Set-Content -Path (Join-Path $bin 'hub-compile-rules.cmd') -Encoding ascii
+        }
+
         # Where the hub is, recorded once, so a job started by the schedule with almost
         # no environment never has to guess. The programs read this file already.
         $devEnv = Join-Path $HOME '.hub\device.env'
