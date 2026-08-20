@@ -505,7 +505,7 @@ function Install-KitHubTools {
         kb_install_hub_tools in lib.sh.
 
         WHY THESE ARE NOT IN THE HUB FOLDER. The hub is a folder of text files
-        and the book says so in Chapter 4: "Nothing here needs a terminal." A
+        and the book says so in its folder tour: "Nothing here needs a terminal." A
         Node program and a Python program sitting in it would be the first two
         things in there that are not text a person can read. So they are
         installed the way an assistant is installed, on the machine, and they
@@ -938,7 +938,7 @@ Download ZIP, and copy the starter-hub folder from inside it into $Path
 # side, change the other, and add the case to BOTH test.sh and test-windows.ps1.
 #
 # Added 2026-08-16. Before this, the installer had no credential step of any kind
-# on either front door. The book promised in Chapter 25 that every computer you own
+# on either front door. The book promised that every computer you own
 # reads the same hub, and said nothing about the one thing that did NOT travel: the
 # key to your notebook. A reader joining a second machine got their files and a
 # notebook that was simply absent, with nothing anywhere saying so.
@@ -1146,7 +1146,7 @@ function Write-KitMcpConfig {
     $lines = @(
         '{',
         '  "_comment": [',
-        '    "This tells your assistant where your notebook is (the book, Chapter 24 and 28).",',
+        '    "This tells your assistant where your notebook is.",',
         '    "It NAMES the credential rather than carrying it: ${MENERIO_API_KEY} is read from",',
         '    "this computer''s environment when the assistant starts, so this file holds no secret",',
         '    "and is safe to keep in the folder. The value itself lives locked in secrets/, and",',
@@ -1199,7 +1199,7 @@ function Install-KitNotebookSync {
             $posix = $runner -replace '\\', '/'
             Set-KbTextFile -Path $hook -Lines @(
                 '#!/bin/sh',
-                '# Keep your notebook current the moment you save (Teach It Once, Chapter 23).',
+                '# Keep your notebook current the moment you save (Teach It Once).',
                 '# Never blocks, never fails the save, and does nothing if you have no notebook.',
                 ('"' + $posix + '" >/dev/null 2>&1 &'),
                 'exit 0'
@@ -1277,7 +1277,7 @@ function Connect-KitNotebook {
                 Write-Host ""
                 Write-Host "A notebook is optional. Everything in this book works on plain files without one."
                 Write-Host "It adds one thing: searching your hub by MEANING instead of by exact word."
-                Write-Host "It needs a free account at menerio.com, which is Chapters 23 and 24 of the book."
+                Write-Host "It needs a free account at menerio.com, and the book has a whole chapter on it later."
                 $yn = Read-Host "Connect a notebook now? (y/N)"
                 if ($yn -notmatch '^[Yy]') {
                     Write-KbOk "notebook: not connected, which is a complete way to own a hub. Run this again whenever you change your mind."

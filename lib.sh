@@ -450,7 +450,7 @@ kb_skip_claude_first_run() {
 
 # Give the assistant permission to work, in advance.
 #
-# Chapter 25 of the book teaches exactly this and it applies to the installer
+# The book teaches exactly this, in its chapter on the always-on server, and it applies here
 # itself: on a laptop the leash is a question, and on a server there is nobody
 # awake to answer it, so a question is a refusal. Without this the reader is
 # asked to approve every single file read, one at a time, during their own
@@ -986,7 +986,7 @@ kb_install_hub_cli() {
 # Put the kit's own small programs on this computer.
 #
 # WHY THESE ARE NOT IN THE HUB FOLDER. The hub is a folder of text files and the book says so
-# in Chapter 4: "Nothing here needs a terminal." A Node program and a Python program sitting in
+# in the folder tour: "Nothing here needs a terminal." A Node program and a Python program sitting in
 # it would be the first two things in there that are not text files a person can read. So they
 # are installed the way an assistant is installed, on the machine, and they write into the
 # folder from outside. Same reasoning as kb_install_hub_cli one function up.
@@ -1345,7 +1345,7 @@ kb_new_hub() {
 # YOUR NOTEBOOK: CONNECT IT ONCE, AND THE CONNECTION TRAVELS WITH THE FOLDER
 #
 # Added 2026-08-16. Before this, the installer had no credential step of any kind.
-# The book promised in Chapter 25 that every computer you own reads the same hub, and
+# The book promised that every computer you own reads the same hub, and
 # said nothing at all about the one thing that did NOT travel: the key to your notebook.
 # A reader who joined a second machine got their files and a notebook that was simply
 # absent, with nothing anywhere saying so.
@@ -1527,7 +1527,7 @@ kb_write_mcp_config() {
   cat > "$f" <<'JSONEOF'
 {
   "_comment": [
-    "This tells your assistant where your notebook is (the book, Chapter 24 and 28).",
+    "This tells your assistant where your notebook is.",
     "It NAMES the credential rather than carrying it: ${MENERIO_API_KEY} is read from",
     "this computer's environment when the assistant starts, so this file holds no secret",
     "and is safe to keep in the folder. The value itself lives locked in secrets/, and",
@@ -1571,7 +1571,7 @@ kb_install_notebook_sync() {
       # than no hook at all.
       {
         printf '#!/bin/sh\n'
-        printf '# Keep your notebook current the moment you save (Teach It Once, Chapter 23).\n'
+        printf '# Keep your notebook current the moment you save (Teach It Once).\n'
         printf '# Never blocks, never fails the save, and does nothing at all if you have no notebook.\n'
         printf '"%s" >/dev/null 2>&1 &\n' "$runner"
         printf 'exit 0\n'
@@ -1623,7 +1623,7 @@ kb_connect_notebook() {
         kb_tell ""
         kb_tell "A notebook is optional. Everything in this book works on plain files without one."
         kb_tell "It adds one thing: searching your hub by MEANING instead of by exact word."
-        kb_tell "It needs a free account at menerio.com, which is Chapters 23 and 24 of the book."
+        kb_tell "It needs a free account at menerio.com, and the book has a whole chapter on it later."
         ask_yes "Connect a notebook now?" "n" || { ok "notebook: not connected, which is a complete way to own a hub. Run this installer again whenever you change your mind."; return 0; }
         kb_tell "In Menerio: Settings, then API Keys, then Generate new API key. Leave every box ticked (that is the default)."
         token="$(ask "Paste that key here")"
