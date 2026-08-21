@@ -180,11 +180,18 @@ Check "the real book kit's starter folder is reachable and has what the book nam
     if (-not $got) { Write-Host "        (skipped: no network)"; return $true }
     $missing = @()
     foreach ($f in 'AGENTS.md', 'profile\about-me.md', 'profile\people.md', 'profile\voice.md',
-                    'procedures.md', 'decisions.md', 'observations\MEMORY.md', 'skills\plan-my-day.md') {
+                    'procedures.md', 'decisions.md', 'observations\MEMORY.md', 'rules', 'skills') {
         if (-not (Test-Path (Join-Path $d $f))) { $missing += $f }
     }
     if ($missing.Count) { Write-Host "        missing: $($missing -join ', ')" }
-    $missing.Count -eq 0
+    # skills/ must ARRIVE and must arrive EMPTY. The five starter recipes moved out of
+    # starter-hub/ into the kit's own skills/ on 2026-08-20, so the first recipe in a
+    # reader's folder is one they wrote themselves. This branch kept looking for one of
+    # them, which is a red that is not true.
+    $recipes = @(Get-ChildItem (Join-Path $d 'skills') -File -ErrorAction SilentlyContinue |
+                 Where-Object { $_.Extension -eq '.md' }).Count
+    if ($recipes -gt 0) { Write-Host "        skills/ arrived with $recipes recipe(s) in it" }
+    ($missing.Count -eq 0) -and ($recipes -eq 0)
 }
 
 Write-Host ""
