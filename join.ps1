@@ -592,6 +592,44 @@ function Install-KitHubTools {
     }
 }
 
+function Write-KitHiddenLauncher {
+    <#  Write the tiny .vbs that runs a console program with no visible window, and
+        return its path.
+
+        WHY EVERY SCHEDULED JOB MUST GO THROUGH THIS. A Windows scheduled task whose
+        program is a console program (bash.exe, node.exe, python.exe) opens a terminal
+        window in the owner's face every single time it fires. On a reader's PC that is
+        an unexplained window flashing once an hour, forever, with nothing to click.
+        The task's own "Hidden" setting does NOT prevent it: that hides the task in the
+        Task Scheduler list, not the window the program opens.
+
+        WHY IT IS A FUNCTION AND NOT A COPIED BLOCK. It was a copied block, in the
+        prompt archive step only, and the notebook step written eight days later missed
+        it: readers on Windows would have got exactly the window this file already knew
+        how to avoid, and Michael found it flashing on his own PC on 2026-08-21. One
+        copy, used by both. #>
+    param([Parameter(Mandatory)][string]$Dir)
+    New-Item -ItemType Directory -Force $Dir | Out-Null
+    $vbs = Join-Path $Dir 'run-hidden.vbs'
+    @(
+        "' Run any console command with no visible window (written by the kit installer).",
+        "' Usage: wscript run-hidden.vbs <workdir> <exe> [args...]",
+        'Option Explicit',
+        'Dim sh, i, cmd, a',
+        'If WScript.Arguments.Count < 2 Then WScript.Quit 2',
+        'Set sh = CreateObject("WScript.Shell")',
+        'sh.CurrentDirectory = WScript.Arguments(0)',
+        'cmd = ""',
+        'For i = 1 To WScript.Arguments.Count - 1',
+        '  a = WScript.Arguments(i)',
+        '  If InStr(a, " ") > 0 Then a = """" & a & """"',
+        '  cmd = cmd & a & " "',
+        'Next',
+        'sh.Run Trim(cmd), 0, False'
+    ) | Set-Content -Path $vbs -Encoding ascii
+    return $vbs
+}
+
 function Install-KitPromptHarvest {
     <#  Make this PC file what its owner types to an AI, by itself, every day.
         The Windows twin of kb_install_prompt_harvest in lib.sh: same promise,
@@ -656,23 +694,7 @@ function Install-KitPromptHarvest {
         Write-KbOk "prompt archive: replacing the old job, which opened a visible window every hour"
     }
 
-    $vbs = Join-Path (Split-Path $js) 'run-hidden.vbs'
-    @(
-        "' Run any console command with no visible window (written by the kit installer).",
-        "' Usage: wscript run-hidden.vbs <workdir> <exe> [args...]",
-        'Option Explicit',
-        'Dim sh, i, cmd, a',
-        'If WScript.Arguments.Count < 2 Then WScript.Quit 2',
-        'Set sh = CreateObject("WScript.Shell")',
-        'sh.CurrentDirectory = WScript.Arguments(0)',
-        'cmd = ""',
-        'For i = 1 To WScript.Arguments.Count - 1',
-        '  a = WScript.Arguments(i)',
-        '  If InStr(a, " ") > 0 Then a = """" & a & """"',
-        '  cmd = cmd & a & " "',
-        'Next',
-        'sh.Run Trim(cmd), 0, False'
-    ) | Set-Content -Path $vbs -Encoding ascii
+    $vbs = Write-KitHiddenLauncher -Dir (Split-Path $js)
 
     try {
         # Hourly, not nightly, and the job does nothing if it already ran today. A fixed
@@ -1200,19 +1222,31 @@ function Install-KitNotebookSync {
         Write-KbWarn "notebook: I could not find Git Bash, so the hourly catch-up was not scheduled. Your notebook still updates when you save."
         return
     }
-    if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
+    # NEVER make bash.exe the task's own executable: the task then flashes a terminal
+    # window at the reader every hour it fires. It goes through wscript and the shared
+    # launcher instead (see Write-KitHiddenLauncher). A task found starting bash
+    # directly was registered before this fix and is replaced here, so a reader who
+    # already installed gets the window taken away by re-running the installer.
+    $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if ($existing -and $existing.Actions[0].Execute -match 'wscript') {
         Write-KbOk "notebook: the hourly catch-up is already on this PC"
         return
     }
+    if ($existing) {
+        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+        Write-KbOk "notebook: replacing the old hourly job, which opened a visible window every hour"
+    }
     try {
         $posix = $runner -replace '\\', '/'
-        $action  = New-ScheduledTaskAction -Execute $bash -Argument ('-lc "' + $posix + '"')
+        $vbs   = Write-KitHiddenLauncher -Dir (Split-Path $runner)
+        $action  = New-ScheduledTaskAction -Execute 'wscript.exe' `
+                       -Argument ("`"$vbs`" `"$Hub`" `"$bash`" -lc `"$posix`"") -WorkingDirectory $Hub
         $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).Date.AddMinutes(37) `
                        -RepetitionInterval (New-TimeSpan -Hours 1)
         $set     = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries `
                        -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
         Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $set `
-            -Description 'Keeps your notebook current with what changed in your hub (Teach It Once).' | Out-Null
+            -Description 'Keeps your notebook current with what changed in your hub (Teach It Once).' -Force | Out-Null
         Write-KbOk "notebook: this PC will also catch up once an hour"
     } catch {
         Write-KbWarn "notebook: I could not add the hourly job to this PC's schedule ($($_.Exception.Message)). Your notebook still updates when you save."
