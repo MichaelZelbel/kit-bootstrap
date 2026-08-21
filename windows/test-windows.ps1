@@ -646,6 +646,49 @@ Check "running the installer twice does not stack up two hourly jobs" {
         }
     }
 }
+Check "the hourly job never opens a terminal window at the reader" {
+    # A scheduled task whose own program is bash.exe opens a console window every time
+    # it fires. The prompt archive step learned that on 2026-08-18 and went through
+    # wscript; this step was written afterwards and did not, so between then and
+    # 2026-08-21 every Windows reader got a window flashing at :37 past every hour.
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'nb14'
+        git -C $hub init -q
+        Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`nexit 0"
+        try {
+            Install-KitNotebookSync -Hub $hub -TaskName $NotebookTask | Out-Null
+            if (-not (Get-KitGitBash)) { return $true }  # nothing to schedule without Git Bash
+            $t = Get-ScheduledTask -TaskName $NotebookTask -ErrorAction SilentlyContinue
+            ($null -ne $t) -and ($t.Actions[0].Execute -match 'wscript') -and
+                (Test-Path (Join-Path $h '.local\bin\run-hidden.vbs'))
+        } finally {
+            Unregister-ScheduledTask -TaskName $NotebookTask -Confirm:$false -ErrorAction SilentlyContinue
+        }
+    }
+}
+Check "an hourly job from before that fix is replaced, not left flashing" {
+    # The readers who already installed are the ones who cannot fix it themselves.
+    # Re-running the installer has to take the window away.
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'nb15'
+        git -C $hub init -q
+        Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`nexit 0"
+        try {
+            $bash = Get-KitGitBash
+            if (-not $bash) { return $true }
+            Register-ScheduledTask -TaskName $NotebookTask -Force `
+                -Action (New-ScheduledTaskAction -Execute $bash -Argument '-lc "exit 0"') `
+                -Trigger (New-ScheduledTaskTrigger -Once -At (Get-Date).AddYears(1)) | Out-Null
+            Install-KitNotebookSync -Hub $hub -TaskName $NotebookTask | Out-Null
+            $t = Get-ScheduledTask -TaskName $NotebookTask -ErrorAction SilentlyContinue
+            ($null -ne $t) -and ($t.Actions[0].Execute -match 'wscript')
+        } finally {
+            Unregister-ScheduledTask -TaskName $NotebookTask -Confirm:$false -ErrorAction SilentlyContinue
+        }
+    }
+}
 Check "a hook the reader wrote themselves is left exactly as it was" {
     Invoke-NotebookCase {
         param($h)
