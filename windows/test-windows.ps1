@@ -62,7 +62,8 @@ foreach ($fn in 'Find-KitHub', 'Test-KitHub', 'Update-KitHub', 'Join-KitMemory',
                  'Get-KitNotebookState', 'Unlock-KitHubKey', 'Protect-KitHubKey',
                  'Save-KitNotebookToken', 'Write-KitMcpConfig', 'Install-KitNotebookSync',
                  'Set-KitNotebookEnv', 'Connect-KitNotebook', 'Test-KitInteractive',
-                 'Set-KitPromptSources', 'Write-KitSyncReport', 'Get-KitHome') {
+                 'Set-KitPromptSources', 'Write-KitSyncReport', 'Get-KitHome',
+                 'Write-KitExpiryRecord') {
     Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
 }
 
@@ -596,6 +597,41 @@ Check "a reader's own .mcp.json is never overwritten" {
         Set-Content (Join-Path $hub '.mcp.json') 'mine'
         Write-KitMcpConfig -Hub $hub | Out-Null
         (Get-Content (Join-Path $hub '.mcp.json') -Raw).Trim() -eq 'mine'
+    }
+}
+
+# WHEN A KEY RUNS OUT: the record beside the keys. The Windows twin of the same block in
+# test.sh. A key is a thing with a lifespan, and the day it dies nothing announces it.
+Check "a hub with no record gets one, and it explains its own columns" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'nbx1'
+        Write-KitExpiryRecord -Hub $hub | Out-Null
+        $f = Join-Path $hub 'secrets\expires.txt'
+        $raw = if (Test-Path $f) { Get-Content $f -Raw } else { '' }
+        (Test-Path $f) -and $raw.Contains('the page you get a new one from') -and
+            $raw.Contains('NEVER PUT A KEY ITSELF IN HERE')
+    }
+}
+Check "the record holds no key of its own: every line in it is a comment" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'nbx2'
+        Write-KitExpiryRecord -Hub $hub | Out-Null
+        $live = @(Get-Content (Join-Path $hub 'secrets\expires.txt') |
+                  Where-Object { $_.Trim() -ne '' -and -not $_.TrimStart().StartsWith('#') })
+        $live.Count -eq 0
+    }
+}
+Check "running the installer again never touches what the reader wrote in it" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'nbx3'
+        Write-KitExpiryRecord -Hub $hub | Out-Null
+        $f = Join-Path $hub 'secrets\expires.txt'
+        Add-Content $f 'MY_KEY  2027-01-01  https://example.com  # mine'
+        Write-KitExpiryRecord -Hub $hub | Out-Null
+        @(Get-Content $f | Where-Object { $_ -like 'MY_KEY*' }).Count -eq 1
     }
 }
 

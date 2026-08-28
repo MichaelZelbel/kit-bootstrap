@@ -36,7 +36,8 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_enabled_sources kb_write_prompt_sources kb_sync_report \
          kb_age kb_age_keygen kb_have_age kb_hub_key_path kb_notebook_state \
          kb_unseal_hub_key kb_seal_hub_key kb_store_notebook_token kb_write_mcp_config \
-         kb_install_notebook_sync kb_persist_notebook_env kb_connect_notebook; do
+         kb_install_notebook_sync kb_persist_notebook_env kb_connect_notebook \
+         kb_seed_expiry_record; do
   declare -F "$f" >/dev/null || printf "%s " "$f"
 done')"
 [ -z "$missing" ] || { echo "  MISSING: $missing"; exit 1; }
@@ -635,8 +636,17 @@ kb_write_mcp_config "$_n/hub" >/dev/null 2>&1
 t "the assistant is given an .mcp.json" "$([ -f "$_n/hub/.mcp.json" ] && echo yes || echo no)" "yes"
 t "the connection NAMES the credential rather than carrying one" \
   "$(grep -c 'Bearer \${MENERIO_API_KEY}' "$_n/hub/.mcp.json")" "1"
-t "and it is valid JSON, which is the only way an assistant will read it" \
-  "$(python3 -c 'import json,sys;json.load(open(sys.argv[1]));print("ok")' "$_n/hub/.mcp.json" 2>/dev/null)" "ok"
+# python3, then python. Git Bash on Windows ships the launcher as `python` only, and this
+# suite is run there because that is where the .exe installer is built. A test that fails for
+# want of an interpreter reads exactly like a broken installer, and it hid nothing useful.
+_py=""
+for _c in python3 python; do "$_c" -c '' >/dev/null 2>&1 && { _py="$_c"; break; }; done
+if [ -n "$_py" ]; then
+  t "and it is valid JSON, which is the only way an assistant will read it" \
+    "$("$_py" -c 'import json,sys;json.load(open(sys.argv[1]));print("ok")' "$_n/hub/.mcp.json" 2>/dev/null)" "ok"
+else
+  echo "  skip  valid JSON: no python on this machine to read it with"
+fi
 printf 'mine\n' > "$_n/hub/.mcp.json"
 kb_write_mcp_config "$_n/hub" >/dev/null 2>&1
 t "a reader's own .mcp.json is never overwritten" "$(cat "$_n/hub/.mcp.json")" "mine"
@@ -743,6 +753,58 @@ else
 fi
 HOME="$_home0"; export HOME
 rm -rf "$_n"
+
+# ---------------------------------------------------------------------------
+# WHEN A KEY RUNS OUT: the record beside the keys.
+#
+# A key is a thing with a lifespan, and the day it dies nothing announces it.
+# This file is the only place a date is written down, so the morning brief and
+# hub-check-keys can both read it. It must never hold a key, must never
+# overwrite what the reader wrote in it, and must arrive on BOTH roads: a hub
+# made fresh by the installer, and a hub that gains keys later.
+# ---------------------------------------------------------------------------
+echo
+echo "== when a key runs out (secrets/expires.txt)"
+_x="$(mktemp -d)"
+mkdir -p "$_x/hub"
+
+kb_seed_expiry_record "$_x/hub" >/dev/null 2>&1
+t "a hub with no record gets one" \
+  "$([ -f "$_x/hub/secrets/expires.txt" ] && echo yes || echo no)" "yes"
+t "and it explains its own three columns, so nobody has to be told twice" \
+  "$(grep -c 'the page you get a new one from' "$_x/hub/secrets/expires.txt")" "1"
+t "and it warns against the one thing that would ruin it" \
+  "$(grep -c 'NEVER PUT A KEY ITSELF IN HERE' "$_x/hub/secrets/expires.txt")" "1"
+t "it holds no key of its own: every line in it is a comment" \
+  "$(grep -vc '^[[:space:]]*\(#.*\)\?$' "$_x/hub/secrets/expires.txt")" "0"
+
+printf 'MY_KEY  2027-01-01  https://example.com  # mine\n' >> "$_x/hub/secrets/expires.txt"
+kb_seed_expiry_record "$_x/hub" >/dev/null 2>&1
+t "running the installer again never touches what the reader wrote in it" \
+  "$(grep -c '^MY_KEY' "$_x/hub/secrets/expires.txt")" "1"
+t "and it is silent the second time, because there was nothing to do" \
+  "$(kb_seed_expiry_record "$_x/hub" 2>&1)" ""
+
+# The other road: a hub that had no record and then gains keys. Before this, the
+# record only ever reached a hub made after the day it was written, so every
+# reader who already had one carried keys with no dates and nothing said so.
+rm -rf "$_x/hub2"; mkdir -p "$_x/hub2"
+kb_new_hub "$_x/hub2" >/dev/null 2>&1 || true
+t "a brand new hub carries the record from day one, not after an upgrade" \
+  "$([ -f "$_x/hub2/secrets/expires.txt" ] && echo yes || echo no)" "yes"
+
+# The two roads must lay down the SAME file. The reader kit ships its own copy
+# inside starter-hub/, so a fresh hub gets it by copy and an older one gets it
+# from the function above. Two copies of one file is two places to fix a typo,
+# and the one nobody edits is the one every reader ends up with.
+_starter="$(cd "$(dirname "$0")/../teach-it-once-kit" 2>/dev/null && pwd)"
+if [ -n "$_starter" ] && [ -f "$_starter/starter-hub/secrets/expires.txt" ]; then
+  t "the copy in the reader kit's starter folder is the same file, to the byte" \
+    "$(cmp -s "$_starter/starter-hub/secrets/expires.txt" "$_x/hub2/secrets/expires.txt" 2>/dev/null && echo same || echo different)" "same"
+else
+  echo "  skip  the starter folder's copy is not on this computer to compare with"
+fi
+rm -rf "$_x"
 
 rm -rf "$_f"
 

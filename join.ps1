@@ -937,6 +937,7 @@ Download ZIP, and copy the starter-hub folder from inside it into $Path
         Set-KbTextFile -Path $agents -Lines $starter
         Write-KbOk "wrote a starter $agents for you to make your own"
     }
+    Write-KitExpiryRecord -Hub $Path
     Write-KbOk "your hub is now at $Path"
 }
 
@@ -1145,6 +1146,61 @@ function Save-KitNotebookToken {
     return $false
 }
 
+function Write-KitExpiryRecord {
+    <#  The file that remembers WHEN each of your keys dies. The Windows twin of
+        kb_seed_expiry_record in lib.sh.
+
+        WHY IT EXISTS. A key is not just a thing you own, it is a thing with a lifespan,
+        and the day it dies nothing announces it. The service simply starts saying no,
+        and the message it gives back blames whatever asked rather than the date. Most
+        keys never expire; the ones that do usually last a year, which is exactly long
+        enough to have forgotten.
+
+        WHY A FILE AND NOT A CALENDAR ENTRY. A calendar entry belongs to one account on
+        one service. This travels in the folder with the key it is about, every computer
+        reads it, the morning brief can read it, and hub-check-keys can read it. It also
+        survives changing calendars, which people do.
+
+        Never overwrites one that is already there, and holds no key: names, dates and
+        links only. #>
+    param([Parameter(Mandatory)][string]$Hub)
+    $f = Join-Path $Hub 'secrets\expires.txt'
+    if (Test-Path $f) { return }
+    New-Item -ItemType Directory -Force (Join-Path $Hub 'secrets') | Out-Null
+    $lines = @(
+        '# When your keys run out.'
+        '#'
+        '# Some keys last forever. Some die after a year, and on that morning nothing tells you:'
+        '# whatever used the key simply stops working, and the error blames the wrong thing. This'
+        '# file is how your hub knows the date before you do.'
+        '#'
+        '# One key per line. Three things, separated by spaces:'
+        '#'
+        '#     NAME_OF_THE_KEY     the date it dies     the page you get a new one from'
+        '#'
+        '# Like this:'
+        '#'
+        '#     SOME_SERVICE_TOKEN  2027-03-14  https://example.com/account/tokens  # what it opens'
+        '#'
+        '# The date is written year first: 2027-03-14 is the 14th of March, 2027. Write `never`'
+        '# instead of a date for a key you have checked and that does not expire. Write `-` instead'
+        '# of a page when there is nowhere to go and get one.'
+        '#'
+        '# The words after the # are for you. Say what the key opens, in your own words, because in'
+        '# a year you will not remember what its name meant.'
+        '#'
+        '# NEVER PUT A KEY ITSELF IN HERE. This file is plain text and travels with your folder.'
+        '# Names, dates and links only. The keys themselves are locked, next door.'
+        '#'
+        '# WHAT READS IT: your morning brief, which starts mentioning a key two months before it'
+        '# dies (once a week), then every morning for the last fortnight, and every morning after'
+        '# it has died. Changing the date here is the off switch. And hub-check-keys, any time'
+        '# you want to ask.'
+    )
+    Set-KbTextFile -Path $f -Lines $lines
+    Write-KbOk "keys: made secrets\expires.txt, where you write down when a key runs out"
+}
+
 function Write-KitMcpConfig {
     <#  The file that tells your assistant where your notebook is. It NAMES the
         credential rather than carrying it, so the file holds no secret and is safe
@@ -1313,6 +1369,7 @@ function Connect-KitNotebook {
         }
     }
     Write-KitMcpConfig -Hub $Hub
+    Write-KitExpiryRecord -Hub $Hub
     Install-KitNotebookSync -Hub $Hub
     Set-KitNotebookEnv -Hub $Hub
 }

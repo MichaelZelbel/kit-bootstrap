@@ -1321,6 +1321,7 @@ kb_new_hub() {
   # Returns early when the starter already brought one, so the product's own
   # index survives instead of being replaced by a blank.
   kb_seed_memory_index "$path"
+  kb_seed_expiry_record "$path"
   ok "your hub is now at $path"
   return 0
 }
@@ -1498,6 +1499,60 @@ kb_store_notebook_token() {
   return 1
 }
 
+# kb_seed_expiry_record <hub>
+# The file that remembers WHEN each of your keys dies.
+#
+# WHY IT EXISTS. A key is not just a thing you own, it is a thing with a lifespan, and the
+# day it dies nothing announces it. The service simply starts saying no, and the message it
+# gives back blames whatever asked rather than the date. Most keys never expire; the ones
+# that do usually last a year, which is exactly long enough to have forgotten.
+#
+# WHY A FILE AND NOT A CALENDAR ENTRY. A calendar entry belongs to one account on one
+# service. This travels in the folder with the key it is about, every computer you own reads
+# it, your morning brief can read it, and `hub-check-keys` can read it. It also survives you
+# changing calendars, which people do.
+#
+# Never overwrites one you already have, and holds no key: names, dates and links only.
+kb_seed_expiry_record() {
+  local hub="${1:-}" f
+  [ -n "$hub" ] || return 0
+  f="$hub/secrets/expires.txt"
+  [ -f "$f" ] && return 0
+  mkdir -p "$hub/secrets" 2>/dev/null || return 0
+  cat > "$f" <<'EXPIRYEOF'
+# When your keys run out.
+#
+# Some keys last forever. Some die after a year, and on that morning nothing tells you:
+# whatever used the key simply stops working, and the error blames the wrong thing. This
+# file is how your hub knows the date before you do.
+#
+# One key per line. Three things, separated by spaces:
+#
+#     NAME_OF_THE_KEY     the date it dies     the page you get a new one from
+#
+# Like this:
+#
+#     SOME_SERVICE_TOKEN  2027-03-14  https://example.com/account/tokens  # what it opens
+#
+# The date is written year first: 2027-03-14 is the 14th of March, 2027. Write `never`
+# instead of a date for a key you have checked and that does not expire. Write `-` instead
+# of a page when there is nowhere to go and get one.
+#
+# The words after the # are for you. Say what the key opens, in your own words, because in
+# a year you will not remember what its name meant.
+#
+# NEVER PUT A KEY ITSELF IN HERE. This file is plain text and travels with your folder.
+# Names, dates and links only. The keys themselves are locked, next door.
+#
+# WHAT READS IT: your morning brief, which starts mentioning a key two months before it
+# dies (once a week), then every morning for the last fortnight, and every morning after
+# it has died. Changing the date here is the off switch. And `hub-check-keys`, any time
+# you want to ask.
+EXPIRYEOF
+  ok "keys: made secrets/expires.txt, where you write down when a key runs out"
+  return 0
+}
+
 # kb_write_mcp_config <hub>
 # The file that tells your assistant where your notebook is. It NAMES the credential
 # rather than carrying it, so this file is safe to keep in the folder and to push: the
@@ -1618,6 +1673,7 @@ kb_connect_notebook() {
   esac
 
   kb_write_mcp_config "$hub"
+  kb_seed_expiry_record "$hub"
   kb_install_notebook_sync "$hub"
   kb_persist_notebook_env "$hub"
   return 0
