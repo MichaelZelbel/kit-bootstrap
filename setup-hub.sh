@@ -78,8 +78,16 @@ done
 KB_SELF=""
 case "$0" in */*) [ -f "$0" ] && KB_SELF="$(cd "$(dirname "$0")" && pwd)" ;; esac
 
+# THE FETCH IS CHECKED BEFORE IT IS RUN, and it was not until 2026-08-29. This used to
+# read `if eval "$(curl ...)"`, and `eval ""` SUCCEEDS, so a machine with no network took
+# the first branch, loaded nothing, and fell straight into the refusal below. The copy
+# sitting beside this very script was never tried: the fallback under it had never once
+# been reachable. A reader on a plane, behind a captive portal or behind a company proxy
+# was told to check their internet connection while a perfectly good library lay next to
+# the file they had just downloaded.
 KB_LOADED=0
-if eval "$(curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v1/lib.sh 2>/dev/null)" 2>/dev/null; then
+KB_LIB_TEXT="$(curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v1/lib.sh 2>/dev/null)"
+if [ -n "$KB_LIB_TEXT" ] && eval "$KB_LIB_TEXT" 2>/dev/null; then
   KB_LOADED=1
 elif [ -n "$KB_SELF" ] && [ -f "$KB_SELF/lib.sh" ]; then
   # shellcheck disable=SC1091
