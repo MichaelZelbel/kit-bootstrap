@@ -1692,10 +1692,18 @@ moving it forward is what replacing a key looks like from outside, so the remind
 
 ## You do not need a calendar
 
-Not for any of this. If you have one, your assistant can put a single entry on the last day of each
-window so the deadline shows up on your phone with no hub around, and you can create one of these
-by writing an event that says `hub: from 1 Feb`. Both are extras. **The calendar never decides when
-you get nagged and never knows whether you acted.**
+Not for any of this. If you do have one, your assistant can add **one entry per thing**, and one is
+the whole rule. It goes on the day your hub starts being loud, not on the day the thing dies, and
+the death date goes in the title so the single entry says both. Never two entries about one date:
+the day they disagree with each other you stop believing either.
+
+It comes out again when you finish, as long as the day has not passed yet. That is the part that
+makes one entry safe, because otherwise an entry you already acted on sits there being wrong. A day
+that has already gone by is left alone: it is a record of what happened.
+
+You can also go the other way and add one from your phone, by writing an event that says
+`hub: from 1 Feb`. **The calendar never decides when you get nagged and never knows whether you
+acted.**
 
 ## The commands
 
