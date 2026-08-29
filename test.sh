@@ -37,7 +37,7 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_age kb_age_keygen kb_have_age kb_hub_key_path kb_notebook_state \
          kb_unseal_hub_key kb_seal_hub_key kb_store_notebook_token kb_write_mcp_config \
          kb_install_notebook_sync kb_persist_notebook_env kb_connect_notebook \
-         kb_seed_expiry_record; do
+         kb_seed_expiry_record kb_seed_due_folder; do
   declare -F "$f" >/dev/null || printf "%s " "$f"
 done')"
 [ -z "$missing" ] || { echo "  MISSING: $missing"; exit 1; }
@@ -805,6 +805,90 @@ else
   echo "  skip  the starter folder's copy is not on this computer to compare with"
 fi
 rm -rf "$_x"
+
+
+# ---------------------------------------------------------------------------
+# WHAT RUNS OUT, AND WHEN (due/). A calendar reminder fires on a date and knows nothing
+# else, so it goes off about something already done and a person stops reading reminders.
+# This room is the other shape, and the installer has to deliver it to BOTH kinds of hub:
+# a brand new one and one somebody has had for months.
+# ---------------------------------------------------------------------------
+echo
+echo "== the things with a last day (due/)"
+_x="$(mktemp -d)"
+mkdir -p "$_x/hub"
+
+kb_seed_due_folder "$_x/hub" >/dev/null 2>&1
+t "a hub with no due room gets one" \
+  "$([ -f "$_x/hub/due/README.md" ] && echo yes || echo no)" "yes"
+t "and it teaches the window rather than a due date" \
+  "$(grep -c 'the first day you can do the thing, and the last day you' "$_x/hub/due/README.md")" "1"
+t "and it says a reader needs no calendar for any of it" \
+  "$(grep -c 'You do not need a calendar' "$_x/hub/due/README.md")" "1"
+t "and it carries the refusal that keeps this from becoming a to-do list" \
+  "$(grep -c 'No date, not eligible' "$_x/hub/due/README.md")" "1"
+t "and it says the fourth question is the one that matters" \
+  "$(grep -c 'How could your hub tell you did it, without asking you' "$_x/hub/due/README.md")" "1"
+
+printf 'mine\n' > "$_x/hub/due/car-service.md"
+kb_seed_due_folder "$_x/hub" >/dev/null 2>&1
+t "running the installer again never touches a deadline the reader wrote" \
+  "$(cat "$_x/hub/due/car-service.md")" "mine"
+t "and it is silent the second time, because there was nothing to do" \
+  "$(kb_seed_due_folder "$_x/hub" 2>&1)" ""
+
+# The other road: a hub made from nothing today. Before the expiry record learned this
+# lesson, a new room only ever reached hubs made after the day it was written.
+rm -rf "$_x/hub3"; mkdir -p "$_x/hub3"
+kb_new_hub "$_x/hub3" >/dev/null 2>&1 || true
+t "a brand new hub carries the due room from day one, not after an upgrade" \
+  "$([ -f "$_x/hub3/due/README.md" ] && echo yes || echo no)" "yes"
+
+# The two roads must lay down the SAME file, for the same reason the expiry record must.
+_starter="$(cd "$(dirname "$0")/../teach-it-once-kit" 2>/dev/null && pwd)"
+if [ -n "$_starter" ] && [ -f "$_starter/starter-hub/due/README.md" ]; then
+  t "the copy in the reader kit's starter folder is the same file, to the byte" \
+    "$(cmp -s "$_starter/starter-hub/due/README.md" "$_x/hub3/due/README.md" 2>/dev/null && echo same || echo different)" "same"
+  t "and the card the book sends the reader to is in the kit" \
+    "$([ -f "$_starter/procedures/what-runs-out-and-when.md" ] && echo yes || echo no)" "yes"
+  t "and the card says in its own words that no Google account is needed" \
+    "$(grep -c 'You do not need a Google account' "$_starter/procedures/what-runs-out-and-when.md")" "1"
+  t "and the program the card tells the reader to type is in the kit" \
+    "$([ -f "$_starter/tools/due.js" ] && echo yes || echo no)" "yes"
+else
+  echo "  skip  the reader kit is not on this computer to compare with"
+fi
+rm -rf "$_x"
+
+# ---------------------------------------------------------------------------
+# THE LAUNCHERS. Every command the book tells a reader to TYPE needs one. Before
+# 2026-08-29 only the prompt collector got one on either platform, so hub-check-keys and
+# hub-compile-rules were shell scripts with no launcher, and the book printed both.
+# ---------------------------------------------------------------------------
+echo
+echo "== a launcher for every command the book prints"
+_l="$(mktemp -d)"
+mkdir -p "$_l/kit/tools" "$_l/hub"
+for f in prompt-harvest.js compile-rules.js check-keys.js due.js; do printf '// %s\n' "$f" > "$_l/kit/tools/$f"; done
+git -C "$_l/kit" init -q 2>/dev/null
+git -C "$_l/kit" add -A >/dev/null 2>&1
+git -C "$_l/kit" -c user.email=t@t -c user.name=t commit -q -m tools >/dev/null 2>&1
+HOME="$_l/home" kb_install_hub_tools "$_l/hub" "$_l/kit" >/dev/null 2>&1
+for cmd in hub-prompt-harvest hub-compile-rules hub-check-keys hub-due; do
+  t "$cmd got a launcher" "$([ -f "$_l/home/.local/bin/$cmd" ] && echo yes || echo no)" "yes"
+done
+t "and a launcher runs the program next to it, not a path baked in at install time" \
+  "$(grep -c 'dirname "\$0"' "$_l/home/.local/bin/hub-due")" "1"
+# A kit that ships none of them must get none of them, silently: every other product
+# using this library ships no tools folder at all.
+rm -f "$_l/kit/tools/due.js"
+git -C "$_l/kit" add -A >/dev/null 2>&1
+git -C "$_l/kit" -c user.email=t@t -c user.name=t commit -q -m drop >/dev/null 2>&1
+rm -rf "$_l/home"
+HOME="$_l/home" kb_install_hub_tools "$_l/hub" "$_l/kit" >/dev/null 2>&1
+t "a kit that ships no due.js gets no hub-due, and says nothing about it" \
+  "$([ -f "$_l/home/.local/bin/hub-due" ] && echo yes || echo no)" "no"
+rm -rf "$_l"
 
 rm -rf "$_f"
 

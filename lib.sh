@@ -1036,13 +1036,22 @@ kb_install_hub_tools() {
   rm -rf "$tmp"
   [ "$n" -gt 0 ] || return 0
 
-  # The launcher. Not a symlink and not the .js file's own shebang: this way the program is
-  # started by the node on PATH at the time it runs, and it finds its other half by sitting in
-  # the same folder, which is the one thing a scheduled job can always be told.
-  if [ -f "$bindir/prompt-harvest.js" ]; then
-    printf '#!/bin/sh\nexec node "$(dirname "$0")/prompt-harvest.js" "$@"\n' > "$bindir/hub-prompt-harvest"
-    chmod +x "$bindir/hub-prompt-harvest" 2>/dev/null || true
-  fi
+  # The launchers. Not symlinks and not the .js files' own shebangs: this way each program is
+  # started by the node on PATH at the time it runs, and it finds its other half by sitting in the
+  # same folder, which is the one thing a scheduled job can always be told.
+  #
+  # ONE TABLE, BOTH PLATFORMS. Every command the book tells a reader to TYPE needs a launcher, and
+  # the Windows twin needs the same list, so the list lives in one obvious place in each file
+  # rather than as a growing pile of if-blocks. Before 2026-08-29 only the prompt collector got
+  # one, so on Windows `hub-check-keys` and `hub-compile-rules` were shell scripts nothing could
+  # run, and the book printed both as commands. A kit that ships none of these gets none of them.
+  for pair in "prompt-harvest.js:hub-prompt-harvest" "compile-rules.js:hub-compile-rules" \
+              "check-keys.js:hub-check-keys" "due.js:hub-due"; do
+    lsrc="${pair%%:*}"; lcmd="${pair##*:}"
+    [ -f "$bindir/$lsrc" ] || continue
+    printf '#!/bin/sh\nexec node "$(dirname "$0")/%s" "$@"\n' "$lsrc" > "$bindir/$lcmd"
+    chmod +x "$bindir/$lcmd" 2>/dev/null || true
+  done
 
   # Where the hub is, recorded once, so a job started by the schedule with almost no
   # environment never has to guess. The programs read this file already.
@@ -1322,6 +1331,7 @@ kb_new_hub() {
   # index survives instead of being replaced by a blank.
   kb_seed_memory_index "$path"
   kb_seed_expiry_record "$path"
+  kb_seed_due_folder "$path"
   ok "your hub is now at $path"
   return 0
 }
@@ -1553,6 +1563,157 @@ EXPIRYEOF
   return 0
 }
 
+# kb_seed_due_folder <hub>
+# The room that holds everything in the person's life with a last day.
+#
+# WHY IT EXISTS. A calendar reminder fires on a date and knows nothing else, so it goes off about
+# something already done, and once that has happened a few times a person stops reading reminders.
+# The one that mattered then goes past too. This room is the other shape: two dates per thing, and
+# how loud the hub gets follows how much of the window between them is left.
+#
+# WHY IT IS SEEDED HERE AS WELL AS SHIPPED IN starter-hub/. kb_copy_starter_hub tops up a hub that
+# already exists, which covers almost everybody, but it needs the network and the starter
+# repository. This costs nothing and covers the reader whose top-up could not run. Same reason
+# kb_seed_expiry_record exists.
+#
+# THE TEXT BELOW IS A COPY OF teach-it-once-kit/starter-hub/due/README.md, byte for byte, and
+# test.sh compares them. Two copies of one file is two places to fix a typo, and the one nobody
+# edits is the one every reader ends up with. Change the kit's copy, then copy it here and into
+# the Write-KitDueFolder twin in join.ps1.
+#
+# Never overwrites a README the person already has, and never touches an obligation file.
+kb_seed_due_folder() {
+  local hub="${1:-}" f
+  [ -n "$hub" ] || return 0
+  f="$hub/due/README.md"
+  [ -f "$f" ] && return 0
+  mkdir -p "$hub/due" 2>/dev/null || return 0
+  cat > "$f" <<'DUEEOF'
+# due - the things with a last day
+
+**This room starts empty, and an empty one costs you nothing.** It fills the first time you tell
+your hub about something with a deadline (Chapter 33). If you never do, you have an empty folder
+and you have lost nothing.
+
+## Why this is not a reminder
+
+A calendar reminder fires on a date and knows nothing else. It cannot tell whether you already did
+the thing, so it goes off afterwards, and after that happens a few times you stop reading
+reminders. Then one of them stops on its last occurrence whether or not the job got done, and that
+is the one that mattered.
+
+Everything in here is built to fix both halves of that.
+
+## The window
+
+Every file in here holds **the first day you can do the thing, and the last day you still can.**
+Not a due date. A window.
+
+How loud your hub gets follows how much of the window is left, as a fraction:
+
+| Left of the window | Your hub |
+|---|---|
+| more than half | says it once when the window opens, then at most monthly |
+| half to a quarter | a line in your brief about every fortnight |
+| a quarter to a tenth | its own line, near the top, about weekly |
+| under a tenth, and always the last day | every morning |
+
+**One rule, whether the window is a week or a year.** That is the whole reason you can have a
+hundred of these. There is nothing to tune per item, and if a thing feels like it needs its own
+setting, the window is wrong rather than the rule.
+
+## What a file looks like
+
+One file per thing, named however you like:
+
+```
+due/car-service.md
+
+TITLE:          Car service before the warranty runs out
+DONE-WHEN:      The car has been serviced at a garage the warranty accepts.
+COST-IF-MISSED: The warranty ends. A gearbox after that is mine to pay for.
+SELF-CHECK:     none
+SELF-CHECK-ARG:
+REPEATS:        yearly
+LINK:           https://example.com/book-a-service
+SOURCE:         me, 2026-08-29
+
+## Windows
+STRIP: 2026-09-01 2027-02-28 open
+
+## Log
+- 2026-08-29 created, window 2026-09-01 to 2027-02-28
+```
+
+Plain text. Read it, edit it, delete it. The program writes the same shape you would.
+
+**A repeating thing is ONE file that grows a new window each time**, never one file per occurrence.
+That is what keeps a hundred of these at a hundred files instead of thousands.
+
+## The four questions, asked once
+
+When you add one, answer four things and never be asked again:
+
+1. What is true when this is finished?
+2. From when to when can you do it?
+3. What does it cost you if it slips?
+4. **How could your hub tell you did it, without asking you?**
+
+The fourth is the one that matters and the one everybody skips. Some things can answer it. A key is
+replaced when the date in `secrets/expires.txt` moves. A backup happened if the file is newer than
+the window. Those close themselves and never nag you again after you act, which is exactly the
+failure that kills every reminder app.
+
+Most things cannot answer it, and **that is a fine answer**. Nobody can tell your hub that you
+submitted a timesheet into somebody else's website. Those say so and wait for you to say the word.
+Ask the question anyway, every time, because knowing which kind a thing is changes what you build
+around it.
+
+## No date, not eligible
+
+`hub-due add` refuses anything without both dates, in those words. That refusal is the only thing
+standing between this folder and a to-do app you stop maintaining.
+
+## Three states, and only three
+
+**open, done, dropped.** Done can happen by itself when there is a self check. **Dropped only ever
+comes from you**, and it deletes the file and everything it remembers, which is why the command
+makes you type `--yes`.
+
+Something whose window closed without being done **stays open**. Nothing tidies it away, because
+for a deadline "nobody got to it" is the failure, not a quiet success.
+
+## Your keys are already in here
+
+If you have `secrets/expires.txt` from Chapter 27, `hub-due` reads it and treats each key as one of
+these. You never write a date in two places, and there is one thing nagging you rather than two
+that disagree. Moving the date in that file is still the off switch, and it is now also the proof:
+moving it forward is what replacing a key looks like from outside, so the reminder closes itself.
+
+## You do not need a calendar
+
+Not for any of this. If you have one, your assistant can put a single entry on the last day of each
+window so the deadline shows up on your phone with no hub around, and you can create one of these
+by writing an event that says `hub: from 1 Feb`. Both are extras. **The calendar never decides when
+you get nagged and never knows whether you acted.**
+
+## The commands
+
+```
+hub-due                     everything, loudest first
+hub-due today               at most three, which is what your morning brief reads
+hub-due add <name> ...      make one
+hub-due done <name>         you did it
+hub-due drop <name> --yes   delete it
+hub-due check               run the self checks, close what is provably done
+```
+
+The card is `procedures/what-runs-out-and-when.md` in the kit. Chapter 33.
+DUEEOF
+  ok "deadlines: made due/, the room for everything with a last day"
+  return 0
+}
+
 # kb_write_mcp_config <hub>
 # The file that tells your assistant where your notebook is. It NAMES the credential
 # rather than carrying it, so this file is safe to keep in the folder and to push: the
@@ -1674,6 +1835,7 @@ kb_connect_notebook() {
 
   kb_write_mcp_config "$hub"
   kb_seed_expiry_record "$hub"
+  kb_seed_due_folder "$hub"
   kb_install_notebook_sync "$hub"
   kb_persist_notebook_env "$hub"
   return 0

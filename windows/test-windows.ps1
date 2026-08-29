@@ -20,6 +20,20 @@ $Pass = 0
 $Fail = 0
 $Root = Join-Path ([System.IO.Path]::GetTempPath()) ("kb-test-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
 
+# THE SUITE PUTS THE USER'S REAL PATH BACK WHEN IT FINISHES, AND IT HAS TO.
+#
+# Install-KitHubTools prepends its bin folder to the PERSISTED user PATH, and skips doing so when
+# that exact folder is already in there. In real life the folder is $HOME\.local\bin and never
+# moves, so it is written once. In here every case gets a fresh temporary HOME, so every case is a
+# folder that was never in the list, and every run of this suite left a few more dead temporary
+# paths behind for good. Found on 2026-08-29 with 44 of them in one account and the variable
+# 4,221 characters long, at which point Windows starts refusing to set it and the last cases in
+# this file fail with "Environment variable name or value is too long" - a message that names
+# nothing about what actually happened.
+#
+# So: remember it now, put it back at the end, and never mind what any case did in between.
+$UserPath0 = [Environment]::GetEnvironmentVariable('Path', 'User')
+
 function Check {
     param([string]$Name, [scriptblock]$Body)
     try {
@@ -63,7 +77,7 @@ foreach ($fn in 'Find-KitHub', 'Test-KitHub', 'Update-KitHub', 'Join-KitMemory',
                  'Save-KitNotebookToken', 'Write-KitMcpConfig', 'Install-KitNotebookSync',
                  'Set-KitNotebookEnv', 'Connect-KitNotebook', 'Test-KitInteractive',
                  'Set-KitPromptSources', 'Write-KitSyncReport', 'Get-KitHome',
-                 'Write-KitExpiryRecord') {
+                 'Write-KitExpiryRecord', 'Write-KitDueFolder') {
     Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
 }
 
@@ -871,6 +885,129 @@ Check "no source file carries a stray control byte" {
     }
     $hits -eq 0
 }
+
+
+Write-Host ""
+Write-Host "-- the things with a last day (due/), the twin of the same block in test.sh"
+
+# A calendar reminder fires on a date and knows nothing else, so it goes off about something
+# already done and a person stops reading reminders. This room is the other shape, and the
+# installer has to deliver it to BOTH kinds of hub: a brand new one and one somebody has had
+# for months.
+Check "a hub with no due room gets one, and it teaches the window rather than a due date" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'due1'
+        Write-KitDueFolder -Hub $hub | Out-Null
+        $f = Join-Path $hub 'due\README.md'
+        $raw = if (Test-Path $f) { Get-Content $f -Raw } else { '' }
+        (Test-Path $f) -and
+            $raw.Contains('the first day you can do the thing, and the last day you') -and
+            $raw.Contains('No date, not eligible')
+    }
+}
+Check "and it says a reader needs no calendar for any of it" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'due2'
+        Write-KitDueFolder -Hub $hub | Out-Null
+        (Get-Content (Join-Path $hub 'due\README.md') -Raw).Contains('You do not need a calendar')
+    }
+}
+Check "running the installer again never touches a deadline the reader wrote" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'due3'
+        Write-KitDueFolder -Hub $hub | Out-Null
+        Set-Content (Join-Path $hub 'due\car-service.md') 'mine'
+        Write-KitDueFolder -Hub $hub | Out-Null
+        ((Get-Content (Join-Path $hub 'due\car-service.md') -Raw).Trim() -eq 'mine')
+    }
+}
+Check "a brand new hub carries the due room from day one, not after an upgrade" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = Join-Path (New-TestDir 'due4') 'hub'
+        New-KitHub -Path $hub 3>&1 4>&1 6>&1 | Out-Null
+        Test-Path (Join-Path $hub 'due\README.md')
+    }
+}
+# THE TWO ROADS MUST LAY DOWN THE SAME WORDS. Compared line by line rather than byte for byte,
+# because this side writes Windows line endings and the bash twin writes Unix ones: that is the
+# one difference allowed, and comparing raw bytes would fail forever on a difference nobody can
+# see or should care about. Every other difference is a typo fixed in one copy and not the other.
+Check "the words are the same as the reader kit's own copy, line for line" {
+    Invoke-NotebookCase {
+        param($h)
+        $kit = Join-Path $PSScriptRoot '..\..\teach-it-once-kit\starter-hub\due\README.md'
+        if (-not (Test-Path $kit)) { Write-Host "        (the reader kit is not on this PC to compare with)"; return $true }
+        $hub = New-NotebookHub 'due5'
+        Write-KitDueFolder -Hub $hub | Out-Null
+        $mine  = @(Get-Content (Join-Path $hub 'due\README.md'))
+        $theirs = @(Get-Content $kit)
+        if ($mine.Count -ne $theirs.Count) { Write-Host "        line counts differ: $($mine.Count) vs $($theirs.Count)"; return $false }
+        for ($i = 0; $i -lt $mine.Count; $i++) {
+            if ($mine[$i] -cne $theirs[$i]) { Write-Host "        line $($i+1) differs"; return $false }
+        }
+        return $true
+    }
+}
+
+Write-Host ""
+Write-Host "-- a launcher for every command the book prints"
+
+# Before 2026-08-29 only the prompt collector got a .cmd here, so on Windows hub-check-keys and
+# hub-compile-rules were extension-less shell scripts nothing could run, while the book printed
+# both as commands a reader types.
+Check "every .js the book names as a command gets a .cmd launcher" {
+    Invoke-NotebookCase {
+        param($h)
+        $kit = New-TestDir 'launch-kit'
+        New-Item -ItemType Directory -Force (Join-Path $kit 'tools') | Out-Null
+        foreach ($f in 'prompt-harvest.js', 'compile-rules.js', 'check-keys.js', 'due.js') {
+            Set-Content (Join-Path $kit "tools\$f") "// $f"
+        }
+        git -C $kit init -q 2>&1 | Out-Null
+        git -C $kit add -A 2>&1 | Out-Null
+        git -C $kit -c user.email='t@t' -c user.name='t' commit -q -m tools 2>&1 | Out-Null
+        $hub = New-NotebookHub 'launch-hub'
+        Install-KitHubTools -Hub $hub -ToolsRepo $kit 3>&1 4>&1 6>&1 | Out-Null
+        $bin = Join-Path $h '.local\bin'
+        $missing = @('hub-prompt-harvest', 'hub-compile-rules', 'hub-check-keys', 'hub-due') |
+                   Where-Object { -not (Test-Path (Join-Path $bin ($_ + '.cmd'))) }
+        if ($missing) { Write-Host "        no launcher for: $($missing -join ', ')" }
+        $missing.Count -eq 0
+    }
+}
+Check "a launcher runs the program beside it, not a path baked in at install time" {
+    Invoke-NotebookCase {
+        param($h)
+        $kit = New-TestDir 'launch-kit2'
+        New-Item -ItemType Directory -Force (Join-Path $kit 'tools') | Out-Null
+        Set-Content (Join-Path $kit 'tools\due.js') '// due'
+        git -C $kit init -q 2>&1 | Out-Null
+        git -C $kit add -A 2>&1 | Out-Null
+        git -C $kit -c user.email='t@t' -c user.name='t' commit -q -m tools 2>&1 | Out-Null
+        Install-KitHubTools -Hub (New-NotebookHub 'launch-hub2') -ToolsRepo $kit 3>&1 4>&1 6>&1 | Out-Null
+        (Get-Content (Join-Path $h '.local\bin\hub-due.cmd') -Raw).Contains('%~dp0due.js')
+    }
+}
+Check "a kit that ships no due.js gets no hub-due, and says nothing about it" {
+    Invoke-NotebookCase {
+        param($h)
+        $kit = New-TestDir 'launch-kit3'
+        New-Item -ItemType Directory -Force (Join-Path $kit 'tools') | Out-Null
+        Set-Content (Join-Path $kit 'tools\prompt-harvest.js') '// ph'
+        git -C $kit init -q 2>&1 | Out-Null
+        git -C $kit add -A 2>&1 | Out-Null
+        git -C $kit -c user.email='t@t' -c user.name='t' commit -q -m tools 2>&1 | Out-Null
+        Install-KitHubTools -Hub (New-NotebookHub 'launch-hub3') -ToolsRepo $kit 3>&1 4>&1 6>&1 | Out-Null
+        -not (Test-Path (Join-Path $h '.local\bin\hub-due.cmd'))
+    }
+}
+
+# Put the real user PATH back, whatever the cases above did to it. See $UserPath0 at the top.
+try { [Environment]::SetEnvironmentVariable('Path', $UserPath0, 'User') } catch { }
 
 Remove-Item $Root -Recurse -Force -ErrorAction SilentlyContinue
 
