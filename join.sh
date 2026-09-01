@@ -54,7 +54,7 @@ if [ -n "$KB_SELF" ] && [ -f "$KB_SELF/lib.sh" ]; then
   # shellcheck disable=SC1091
   . "$KB_SELF/lib.sh"
 else
-  eval "$(curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v1/lib.sh)" \
+  eval "$(curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v2/lib.sh)" \
     || { echo "[stop] could not load the shared install code from the network." >&2
          echo "       Download join.sh and lib.sh into the same folder and run it from there." >&2
          exit 1; }

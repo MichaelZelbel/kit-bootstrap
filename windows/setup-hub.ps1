@@ -87,7 +87,7 @@ $Join    = $null
 $cache   = Join-Path $env:LOCALAPPDATA 'Hub\join.ps1'
 try {
     Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 `
-        -Uri 'https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v1/join.ps1' `
+        -Uri 'https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v2/join.ps1' `
         -OutFile $cache -ErrorAction Stop
     $Join = $cache
     Write-Host "   ok: got the current install code"

@@ -21,7 +21,7 @@
 # itself exactly this way - and it is NOT the native way on Windows. What is kept
 # identical is the promise: one thing to run, no decisions, it works out the rest.
 #
-#   curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v1/setup-hub.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v2/setup-hub.sh | bash
 #
 # Options (all optional):
 #   --hub <path>            where the hub is, or should go     (default: ~/hub)
@@ -39,6 +39,13 @@ set -uo pipefail
 
 KB_TAG="setup"
 export KB_TAG
+
+# WHICH BRANCH THIS SCRIPT PULLS ITS LIBRARY FROM, in one place, because getting
+# it wrong is invisible. A v2 script that fetches v1/lib.sh runs v1's code and
+# behaves exactly like v1, so a whole line of work reaches nobody and every test
+# that pipes from the network still passes. Overridable so a test can point at a
+# branch without editing this file.
+KB_BRANCH="${KB_BRANCH:-v2}"
 
 HUB=""
 REPO_URL=""
@@ -86,7 +93,7 @@ case "$0" in */*) [ -f "$0" ] && KB_SELF="$(cd "$(dirname "$0")" && pwd)" ;; esa
 # was told to check their internet connection while a perfectly good library lay next to
 # the file they had just downloaded.
 KB_LOADED=0
-KB_LIB_TEXT="$(curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v1/lib.sh 2>/dev/null)"
+KB_LIB_TEXT="$(curl -fsSL "https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/$KB_BRANCH/lib.sh" 2>/dev/null)"
 if [ -n "$KB_LIB_TEXT" ] && eval "$KB_LIB_TEXT" 2>/dev/null; then
   KB_LOADED=1
 elif [ -n "$KB_SELF" ] && [ -f "$KB_SELF/lib.sh" ]; then
@@ -102,7 +109,7 @@ if [ "$KB_LOADED" -ne 1 ] || ! command -v kb_find_hub >/dev/null 2>&1; then
 fi
 
 # Newer than the network copy is a real state, not a theoretical one: this script
-# and the v1 branch are published by two separate acts, so either can be ahead.
+# and the published branch are published by two separate acts, so either can be ahead.
 for fn in kb_install_prereqs kb_new_hub kb_copy_starter_hub kb_link_ai_memory kb_install_hub_cli \
           kb_install_hub_tools kb_install_prompt_harvest kb_sync_report kb_write_prompt_sources \
           kb_update_hub kb_connect_notebook; do
@@ -190,11 +197,7 @@ kb_install_prompt_harvest "$HUB"  # the daily job that files what you type to an
 # Quiet and complete for the reader who never connects one - which is most of the book.
 kb_connect_notebook "$HUB"
 
-if [ -d "$HUB/.claude/skills" ] && [ ! -e "$HUB/.agents/skills" ]; then
-  mkdir -p "$HUB/.agents"
-  ln -sfn "$HUB/.claude/skills" "$HUB/.agents/skills"
-  ok "skills: assistants other than Claude Code can now read them too"
-fi
+kb_wire_skills "$HUB"   # one real room, links to it, and it counts what it wired
 
 # -----------------------------------------------------------------------------
 # 5. What just happened, in words.

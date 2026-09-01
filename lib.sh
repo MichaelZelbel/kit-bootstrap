@@ -8,7 +8,7 @@
 # Consumers use it one of two ways, and both read THIS file as the source:
 #
 #   Runtime fetch (free installers - the book kit, found.sh):
-#     eval "$(curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v1/lib.sh)"
+#     eval "$(curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v2/lib.sh)"
 #
 #   Vendored at build time (paid kits - Hermes, OpenClaw, Paperclip):
 #     build.sh pins a tag and copies this file into the tarball, so the buyer
@@ -23,7 +23,7 @@
 #   - Breaking changes go to a v2 branch. The v1 branch only gets fixes.
 # =============================================================================
 
-KB_LIB_VERSION="1.0.0"
+KB_LIB_VERSION="2.0.0"
 
 # --- Output ------------------------------------------------------------------
 # The same colour-printf block that was pasted into all four installers. The
@@ -538,6 +538,180 @@ Then paste this one line:
   $prompt
 ===================================================================
 EOF
+}
+
+# --- The skills room, and the one rule that keeps it a single room -----------
+#
+# WHY THIS EXISTS, AND WHAT IT REPLACES. Until 2026-09-01 the installer ran three
+# lines that looked harmless: if the hub had a .claude/skills folder, link
+# .agents/skills to it and say "assistants other than Claude Code can now read
+# them too". On a hub whose recipes live in the VISIBLE skills/ room, which is the
+# arrangement the book teaches, that sentence was false. The starter top-up had
+# just created an EMPTY .claude/skills, so the link pointed every non-Claude
+# assistant at an empty folder while the reader's recipes sat in skills/ untouched
+# and unreachable. Measured on a real reader-shaped hub: 0 recipes reachable, 6
+# present, and a green tick printed over it.
+#
+# So the rule is one real folder and links to it, never two real folders, and the
+# installer must COUNT what it wired rather than trust that it wired anything.
+
+# kb_json_str <text>
+# One string, quoted for JSON. Paths are not always tame: a reader's folder can
+# hold a space, and on some machines a backslash.
+kb_json_str() {
+  printf '"%s"' "$(printf '%s' "${1:-}" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+}
+
+# kb_count_recipes <dir>
+# How many recipes a folder holds, counting both shapes the book has ever used:
+# a flat <name>.md, and a <name>/SKILL.md folder. Always prints a number and
+# always succeeds, so it is safe inside a test.
+kb_count_recipes() {
+  local d="${1:-}" n
+  [ -n "$d" ] && [ -d "$d" ] || { printf '0'; return 0; }
+  # -L, and it matters. Once .claude/skills is a LINK to the visible room, a
+  # plain find treats it as a symlink rather than a directory and descends into
+  # nothing, so the count comes back 0 for a door that reaches every recipe. The
+  # first version of this function did exactly that and cried wolf on a hub it
+  # had just wired correctly.
+  n=$( { find -L "$d" -maxdepth 1 -type f -name '*.md' 2>/dev/null
+         find -L "$d" -maxdepth 2 -type f -name 'SKILL.md' 2>/dev/null
+       } | sort -u | grep -c . ) || n=0
+  printf '%s' "$n"
+  return 0
+}
+
+# kb_skills_room <hub-dir>
+# Print the folder this reader's recipes ACTUALLY live in. Detected, never
+# assumed: a hub built under the Claude-only batch keeps them in .claude/skills,
+# and a hub built by the book keeps them in the visible skills/. The visible room
+# wins when both hold something, because it is the one the reader can see and the
+# one the book walks them through.
+kb_skills_room() {
+  local hub="${1:-}"
+  [ -n "$hub" ] || return 1
+  if [ "$(kb_count_recipes "$hub/skills")" -gt 0 ]; then printf '%s' "$hub/skills"; return 0; fi
+  if [ "$(kb_count_recipes "$hub/.claude/skills")" -gt 0 ]; then printf '%s' "$hub/.claude/skills"; return 0; fi
+  # An empty or brand new hub: the visible room is the right answer, not a hidden
+  # folder we would then have to teach as a room.
+  printf '%s' "$hub/skills"
+  return 0
+}
+
+# kb_point_at_room <link-path> <real-room>
+# Make <link-path> resolve to <real-room>, whatever it is today. Repairs a link
+# pointing somewhere else, and refuses to destroy a real folder that holds work:
+# that folder is carried in and moved aside with a timestamp, never deleted.
+kb_point_at_room() {
+  local link="${1:-}" room="${2:-}" stash f
+  [ -n "$link" ] && [ -n "$room" ] || return 1
+  # Already resolving to the room, and that covers two cases at once: a link
+  # written earlier with a different spelling of the same path, AND the hub whose
+  # real room IS this very folder. Without the second, a Batch AJ hub whose
+  # recipes live in .claude/skills would have this function copy that folder into
+  # itself and then move it aside, which is the worst outcome in the file.
+  if [ "$(cd "$link" 2>/dev/null && pwd -P)" = "$(cd "$room" 2>/dev/null && pwd -P)" ]; then
+    return 0
+  fi
+  if [ -L "$link" ]; then
+    rm -f "$link"
+  elif [ -d "$link" ]; then
+    if [ "$(kb_count_recipes "$link")" -gt 0 ]; then
+      for f in "$link"/*; do
+        [ -e "$f" ] || continue
+        [ -e "$room/$(basename "$f")" ] || cp -R "$f" "$room/" 2>/dev/null || true
+      done
+      stash="$link.replaced-$(date +%Y%m%d%H%M%S)"
+      mv "$link" "$stash" 2>/dev/null || return 1
+      ok "skills: recipes found in $link were carried into $room, and the old folder is kept at $stash"
+    else
+      # The empty placeholder the old installer made. Nothing to lose.
+      rm -rf "$link" 2>/dev/null || return 1
+    fi
+  fi
+  mkdir -p "$(dirname "$link")" 2>/dev/null || true
+  ln -sfn "$room" "$link" 2>/dev/null || return 1
+  return 0
+}
+
+# kb_hermes_skills_dir <absolute-room>
+# Tell Hermes to read the reader's room, WITHOUT throwing away anything already
+# configured there. `hermes config set` REPLACES a list, so a blind set is how a
+# reader loses the team folder they added last month. Read, merge, write.
+#
+# WHICH hermes is settled by KB_HERMES_BIN, defaulting to whatever is on PATH.
+# That is not decoration. It is what lets the test suite point this at a stub
+# instead of at the machine's real assistant: on 2026-09-01 an early run of this
+# very function, exercised from a scratch folder, wrote a temp path into the
+# author's own live config. A test that can reach the real thing eventually will.
+# It also covers the machine where hermes is installed but not on PATH, which is
+# the same gap cron and systemd already have.
+kb_hermes_skills_dir() {
+  local room="${1:-}" cur line json="" hermes_bin="${KB_HERMES_BIN:-hermes}"
+  [ -n "$room" ] || return 1
+  command -v "$hermes_bin" >/dev/null 2>&1 || {
+    ok "skills: Hermes is not on this machine yet, so there is nothing to tell it. Run this again once it is."
+    return 0
+  }
+  cur="$("$hermes_bin" config get skills.external_dirs 2>/dev/null | sed 's/^[[:space:]]*-[[:space:]]*//')"
+  if printf '%s\n' "$cur" | grep -qxF "$room"; then
+    ok "skills: Hermes already reads $room"
+    return 0
+  fi
+  while IFS= read -r line; do
+    case "$line" in ""|"[]") continue ;; esac
+    json="$json$(kb_json_str "$line"),"
+  done <<EOF
+$cur
+EOF
+  json="[$json$(kb_json_str "$room")]"
+  if "$hermes_bin" config set skills.external_dirs "$json" >/dev/null 2>&1; then
+    ok "skills: Hermes now reads $room"
+  else
+    warn "skills: could not tell Hermes to read $room.
+     Run this by hand: hermes config set skills.external_dirs '$json'"
+  fi
+  return 0
+}
+
+# kb_wire_skills <hub-dir>
+# The whole job: find the real room, point every other name at it, tell Hermes
+# where it is, then PROVE it by counting what is reachable through the door the
+# old code got backwards.
+kb_wire_skills() {
+  local hub="${1:-}" room real have reach
+  [ -n "$hub" ] || { warn "kb_wire_skills needs the hub folder"; return 1; }
+  room="$(kb_skills_room "$hub")"
+  mkdir -p "$room"
+  real="$(cd "$room" && pwd -P)"
+  have="$(kb_count_recipes "$real")"
+
+  # Claude Code only ever looks in .claude/skills, and the book keeps that door
+  # open for the developer's chapter, so it becomes a LINK to the visible room.
+  # This is the direction the old code had backwards.
+  kb_point_at_room "$hub/.claude/skills" "$real" \
+    || warn "skills: could not point $hub/.claude/skills at $real"
+  # .agents/skills is the same story for everything that is not Claude Code.
+  kb_point_at_room "$hub/.agents/skills" "$real" \
+    || warn "skills: could not point $hub/.agents/skills at $real"
+
+  kb_hermes_skills_dir "$real"
+
+  # THE ASSERTION THAT WOULD HAVE CAUGHT THE OLD BUG ON THE DAY IT SHIPPED.
+  # A green tick over an empty room is worse than a red one, because the reader
+  # stops looking.
+  reach="$(kb_count_recipes "$hub/.claude/skills")"
+  if [ "$have" -gt 0 ] && [ "$reach" -eq 0 ]; then
+    warn "skills: $have recipe(s) live in $real but nothing can reach them through $hub/.claude/skills.
+     Nothing was moved and nothing was lost. Do not trust a recipe to fire until this is sorted."
+    return 1
+  fi
+  if [ "$have" -gt 0 ]; then
+    ok "skills: $have recipe(s) in $real, and every assistant reads that one folder"
+  else
+    ok "skills: your room is ready at $real, and every assistant already knows to read it"
+  fi
+  return 0
 }
 
 # --- Joining a machine to a hub that already exists ---------------------------

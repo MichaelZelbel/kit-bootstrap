@@ -899,6 +899,121 @@ rm -rf "$_l"
 
 rm -rf "$_f"
 
+
+echo
+echo "== one skills room, and the installer proves it wired something"
+#
+# THE BUG THESE EXIST FOR. Until 2026-09-01 the installer linked .agents/skills to
+# .claude/skills whenever .claude/skills existed. On a hub whose recipes live in
+# the visible skills/ room, the top-up had just created .claude/skills EMPTY, so
+# every non-Claude assistant was pointed at an empty folder while six recipes sat
+# unreachable, under a green tick. Measured on a real hub, not imagined.
+#
+# Every case below drives Hermes through a STUB. That is not tidiness: an early
+# run of kb_wire_skills from a scratch folder wrote a temp path into the author's
+# own live config, because the function found the real hermes on PATH.
+_sk=$(mktemp -d); mkdir -p "$_sk/bin"
+printf '#!/bin/sh\necho "$*" >> "%s/calls.log"\nif [ "$2" = "get" ]; then printf -- "- /existing/team-skills\\n"; fi\nexit 0\n' "$_sk" > "$_sk/bin/hermes"
+chmod +x "$_sk/bin/hermes"
+export KB_HERMES_BIN="$_sk/bin/hermes"
+
+t "an empty folder holds no recipes"        "$(kb_count_recipes "$_sk/nope")"  "0"
+mkdir -p "$_sk/flat"; : > "$_sk/flat/a.md"; : > "$_sk/flat/b.md"
+t "flat .md recipes are counted"            "$(kb_count_recipes "$_sk/flat")"  "2"
+mkdir -p "$_sk/nested/deep"; : > "$_sk/nested/deep/SKILL.md"
+t "a folder recipe with a SKILL.md counts"  "$(kb_count_recipes "$_sk/nested")" "1"
+
+# Which room is the real one. Detected, never assumed.
+_r1=$(mktemp -d); mkdir -p "$_r1/skills" "$_r1/.claude/skills"; : > "$_r1/skills/a.md"
+t "the visible room wins when it holds the recipes" "$(kb_skills_room "$_r1")" "$_r1/skills"
+_r2=$(mktemp -d); mkdir -p "$_r2/.claude/skills"; : > "$_r2/.claude/skills/a.md"
+t "a Claude-era hub keeps its recipes where they are" "$(kb_skills_room "$_r2")" "$_r2/.claude/skills"
+_r3=$(mktemp -d)
+t "a brand new hub is given the visible room" "$(kb_skills_room "$_r3")" "$_r3/skills"
+
+# The merge. `hermes config set` REPLACES a list, so this is how a reader loses a
+# team folder they added themselves.
+: > "$_sk/calls.log"
+_m=$(mktemp -d); mkdir -p "$_m/skills"; : > "$_m/skills/a.md"
+kb_wire_skills "$_m" >/dev/null 2>&1
+t "an entry already in external_dirs survives" \
+  "$(grep -c '"/existing/team-skills"' "$_sk/calls.log")" "1"
+t "and the hub's room is added, not substituted" \
+  "$(grep -c "\"$_m/skills\"\]" "$_sk/calls.log")" "1"
+
+# Never write when nothing needs writing.
+printf '#!/bin/sh\necho "$*" >> "%s/calls2.log"\nif [ "$2" = "get" ]; then printf -- "- %s\\n"; fi\nexit 0\n' "$_sk" "$_m/skills" > "$_sk/bin/hermes"
+chmod +x "$_sk/bin/hermes"; : > "$_sk/calls2.log"
+kb_wire_skills "$_m" >/dev/null 2>&1
+t "a room Hermes already reads is not written again" \
+  "$(grep -c 'config set' "$_sk/calls2.log")" "0"
+printf '#!/bin/sh\necho "$*" >> "%s/calls.log"\nif [ "$2" = "get" ]; then printf -- "- /existing/team-skills\\n"; fi\nexit 0\n' "$_sk" > "$_sk/bin/hermes"
+chmod +x "$_sk/bin/hermes"
+
+# Git Bash on Windows turns `ln -s` into a COPY, which would pass a naive check
+# while sharing nothing, so the link cases run for real on Linux only. This block
+# probes for itself rather than reusing the one further up, which is torn down
+# long before here: borrowing it made every case below skip silently on Linux,
+# which is the one platform they exist to cover.
+_skprobe=$(mktemp -d); mkdir "$_skprobe/real"; ln -sfn "$_skprobe/real" "$_skprobe/link" 2>/dev/null
+if [ -L "$_skprobe/link" ]; then
+  # The exact shipped defect: recipes visible, .claude/skills empty.
+  _d1=$(mktemp -d); mkdir -p "$_d1/skills" "$_d1/.claude/skills"
+  for _n in a b c d e f; do : > "$_d1/skills/$_n.md"; done
+  : > "$_d1/.claude/skills/.gitkeep"
+  kb_wire_skills "$_d1" >/dev/null 2>&1
+  t "the empty placeholder becomes a link, not a second room" \
+    "$([ -L "$_d1/.claude/skills" ] && echo yes)" "yes"
+  t "and it resolves to the room the reader can see" \
+    "$(cd "$_d1/.claude/skills" && pwd -P)" "$(cd "$_d1/skills" && pwd -P)"
+  t "so Claude Code reaches all six recipes, which was the bug" \
+    "$(kb_count_recipes "$_d1/.claude/skills")" "6"
+  t "and so does everything that is not Claude Code" \
+    "$(kb_count_recipes "$_d1/.agents/skills")" "6"
+  t "exactly one real skills folder exists in the hub" \
+    "$(find "$_d1" -name skills -type d | grep -c .)" "1"
+
+  # A hub whose recipes really do live in .claude/skills must not be fed to
+  # itself. Getting this wrong copies a folder into itself and moves it aside.
+  _d2=$(mktemp -d); mkdir -p "$_d2/.claude/skills"
+  for _n in x y z; do : > "$_d2/.claude/skills/$_n.md"; done
+  kb_wire_skills "$_d2" >/dev/null 2>&1
+  t "a Claude-era hub keeps its three recipes" "$(kb_count_recipes "$_d2/.claude/skills")" "3"
+  t "and nothing was moved aside behind its back" \
+    "$(find "$_d2" -name '*.replaced-*' | grep -c .)" "0"
+
+  # The old backwards link, already on disk, must be repaired rather than trusted.
+  _d3=$(mktemp -d); mkdir -p "$_d3/skills" "$_d3/.claude/skills" "$_d3/.agents"
+  for _n in a b c d e f; do : > "$_d3/skills/$_n.md"; done
+  ln -sfn "$_d3/.claude/skills" "$_d3/.agents/skills"
+  t "before: the old link reached nothing" "$(kb_count_recipes "$_d3/.agents/skills")" "0"
+  kb_wire_skills "$_d3" >/dev/null 2>&1
+  t "after: the same link reaches every recipe" "$(kb_count_recipes "$_d3/.agents/skills")" "6"
+
+  # Twice equals once, or re-running the installer is a thing people fear.
+  _d4=$(mktemp -d); mkdir -p "$_d4/skills"; : > "$_d4/skills/a.md"
+  kb_wire_skills "$_d4" >/dev/null 2>&1
+  find "$_d4" | sort > "$_sk/before.txt"
+  kb_wire_skills "$_d4" >/dev/null 2>&1
+  find "$_d4" | sort > "$_sk/after.txt"
+  t "a second run changes nothing on disk" \
+    "$(cmp -s "$_sk/before.txt" "$_sk/after.txt" && echo same || echo different)" "same"
+
+  # A real folder with real work standing where the link belongs is never deleted.
+  _d5=$(mktemp -d); mkdir -p "$_d5/skills" "$_d5/.claude/skills"
+  : > "$_d5/skills/mine.md"; : > "$_d5/.claude/skills/theirs.md"
+  kb_wire_skills "$_d5" >/dev/null 2>&1
+  t "a recipe found in the hidden folder is carried into the visible room" \
+    "$([ -f "$_d5/skills/theirs.md" ] && echo yes)" "yes"
+  t "and the folder it came from is kept, not deleted" \
+    "$(find "$_d5" -name '*.replaced-*' | grep -c .)" "1"
+else
+  echo "  skip  the link cases need real symlinks (Git Bash copies instead)"
+fi
+rm -rf "$_skprobe"
+unset KB_HERMES_BIN
+rm -rf "$_sk"
+
 echo
 echo "  $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
