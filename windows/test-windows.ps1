@@ -1273,14 +1273,19 @@ function New-HermesStub {
         'if ($args[0] -eq "config" -and $args[1] -eq "get") {',
         '    if ($store -and (Test-Path -LiteralPath $store)) {',
         '        $raw = (Get-Content -LiteralPath $store -Raw).Trim()',
-        '        if ($raw.StartsWith("[")) { (ConvertFrom-Json $raw) | ForEach-Object { "- $_" } }',
+        '        # STUB_OLD_HERMES mimics 0.20.0, which echoes a stored string RAW.',
+        '        if ($env:STUB_OLD_HERMES -eq "1") { $raw }',
+        '        elseif ($raw.StartsWith("[")) { (ConvertFrom-Json $raw) | ForEach-Object { "- $_" } }',
         '        else { $raw }',
         '    }',
         '}',
         'if ($args[0] -eq "config" -and $args[1] -eq "set") {',
         '    $val = [string]$args[3]',
-        '    try { ConvertFrom-Json $val -ErrorAction Stop | Out-Null }',
-        '    catch { $val = "STRING:" + $val }',
+        '    # STUB_OLD_HERMES mimics 0.20.0, which stores the text verbatim, never a list.',
+        '    if ($env:STUB_OLD_HERMES -ne "1") {',
+        '        try { ConvertFrom-Json $val -ErrorAction Stop | Out-Null }',
+        '        catch { $val = "STRING:" + $val }',
+        '    }',
         '    if ($store) { [System.IO.File]::WriteAllText($store, $val) }',
         '}',
         'exit 0'
@@ -1404,6 +1409,25 @@ Check "and a second run does not add the room again" {
     Set-KbTextFile -Path $SkLog -Lines @()
     Connect-KitSkills -Hub $script:SkMergeDir 3>&1 6>&1 | Out-Null
     -not ((Get-Content -LiteralPath $SkLog -Raw) -like '*config set*')
+}
+# THE VERSION THAT STORES A LIST AS TEXT. Hermes 0.20.0 does not parse a JSON list
+# on `config set`: it stores the whole text as one string, which its own readers
+# then ignore, and `config get` echoes the string back RAW. Measured on the book's
+# own rehearsal server. A string is not a list, and a success line over an inert
+# setting is the workspace lie again.
+Check "a raw string read back is no list entry at all" {
+    try { $env:STUB_OLD_HERMES = '1'
+          [System.IO.File]::WriteAllText($env:STUB_SK_STORE, '["C:\\existing\\team-skills"]')
+          @(Get-KitHermesList -Key 'skills.external_dirs').Count -eq 0 }
+    finally { $env:STUB_OLD_HERMES = $null }
+}
+Check "a Hermes that stores the room as text is told on, not celebrated" {
+    try { $env:STUB_OLD_HERMES = '1'
+          $d = New-TestDir 'sk-oldhermes'
+          Add-Recipes (Join-Path $d 'skills') @('a')
+          $txt = (Connect-KitSkills -Hub $d 3>&1 6>&1 | Out-String)
+          $txt -like '*text it does not read*' }
+    finally { $env:STUB_OLD_HERMES = $null }
 }
 
 # Never write when nothing needs writing.
@@ -1568,6 +1592,8 @@ function New-HermesCwdStub {
         '    if ($mode -eq "parrot") { [string]$args[1]; exit 0 }',
         '    # A one-shot that reached no model at all, and still exits 0. Measured.',
         '    if ($mode -eq "http400") { ''HTTP 400: {"detail":"The model is not supported when using Codex with a ChatGPT account."}''; exit 0 }',
+        '    # Hermes 0.20.0 wording for the same condition. Measured on the rehearsal server.',
+        '    if ($mode -eq "noprovider") { "hermes -z: agent failed: No inference provider configured. Run ''hermes model'' to choose a provider and model, or set an API key."; exit 0 }',
         '    if ($mode -eq "ignore") { $d = $env:STUB_ELSEWHERE }',
         '    elseif (Test-Path -LiteralPath $env:STUB_CWDFILE) { $d = (Get-Content -LiteralPath $env:STUB_CWDFILE -Raw).Trim() }',
         '    else { $d = "." }',
@@ -1680,6 +1706,16 @@ Check "and that is not reported as a broken hub, but as a provider problem" {
         ($script:UnreachRes.Text -like '*HTTP 400*') -and
         -not ($script:UnreachRes.Text -like '*could not read a file*')
 }
+Check "a missing inference provider is unreachable, not a broken folder" {
+    # Hermes 0.20.0's wording for the same condition. A credential can be present
+    # (a gh CLI token is auto-detected as one) while no model is configured, so
+    # the credential gate passes and only this net catches it. Measured on the
+    # book's own rehearsal server, where the miss called a wired hub broken.
+    $env:STUB_MODE = 'noprovider'
+    $r = Test-KitHermesReadsHub -Hub (New-TestDir 'hermescwd-noprov')
+    $env:STUB_MODE = ''
+    $r -eq 'unreachable'
+}
 
 # A parrot passes nothing. The token lives only in the file, never in the prompt, so an
 # agent that echoes the prompt straight back cannot fake a read.
@@ -1760,6 +1796,13 @@ function New-HermesApprovalsStub {
         '    return @($raw.Trim("[","]") -split ''","'' | ForEach-Object { $_.Trim(''"'') } | Where-Object { $_ })',
         '}',
         'if ($args[0] -eq "config" -and $args[1] -eq "get" -and $args[2] -eq "approvals.deny") {',
+        '    # STUB_OLD_HERMES mimics 0.20.0: whatever was stored comes back RAW.',
+        '    if ($env:STUB_OLD_HERMES -eq "1") {',
+        '        if ((Test-Path -LiteralPath $env:STUB_DENY) -and (Get-Content -LiteralPath $env:STUB_DENY -Raw).Trim()) {',
+        '            (Get-Content -LiteralPath $env:STUB_DENY -Raw).Trim(); exit 0',
+        '        }',
+        '        "Config key not set: approvals.deny"; exit 1',
+        '    }',
         '    if ((Test-Path -LiteralPath $env:STUB_DENY) -and (Get-Content -LiteralPath $env:STUB_DENY -Raw).Trim().StartsWith("STRING:")) {',
         '        # The real hermes prints the stored string back, no list dashes.',
         '        (Get-Content -LiteralPath $env:STUB_DENY -Raw).Trim().Substring(7); exit 0',
@@ -1781,8 +1824,11 @@ function New-HermesApprovalsStub {
         '    # rules shipped as decoration. The stub now does what the real thing does:',
         '    # valid JSON becomes the list, anything else is stored inert.',
         '    $val = [string]$args[3]',
-        '    try { ConvertFrom-Json $val -ErrorAction Stop | Out-Null }',
-        '    catch { $val = "STRING:" + $val }',
+        '    # STUB_OLD_HERMES mimics 0.20.0, which stores the text verbatim, never a list.',
+        '    if ($env:STUB_OLD_HERMES -ne "1") {',
+        '        try { ConvertFrom-Json $val -ErrorAction Stop | Out-Null }',
+        '        catch { $val = "STRING:" + $val }',
+        '    }',
         '    [System.IO.File]::WriteAllText($env:STUB_DENY, $val)',
         '}',
         'if ($args[0] -eq "approvals" -and $args[1] -eq "test") {',
@@ -1894,6 +1940,25 @@ Check "no Hermes is not a failure here either" {
     $r = Invoke-ApprovalsCase
     $env:KB_HERMES_BIN = $keep
     $r.Ok -and ($r.Text -like '*no rules to give it*')
+}
+# THE VERSION THAT STORES THE LIST AS TEXT. Hermes 0.20.0 stores a JSON list as
+# one plain string, its readers ignore a string, and before Get-KitHermesList
+# learnt to filter, the raw echo fed the next merge and nested the whole list
+# one level deeper on every run. Measured on the book's own rehearsal server.
+Check "a Hermes that stores the rules as text is caught: the leash is NOT on" {
+    try { $env:STUB_OLD_HERMES = '1'
+          [System.IO.File]::WriteAllText($env:STUB_DENY, '')
+          $script:ApOld = Invoke-ApprovalsCase
+          (-not $script:ApOld.Ok) -and ($script:ApOld.Text -like '*NOT on*') }
+    finally { $env:STUB_OLD_HERMES = $null }
+}
+Check "and a second run does not nest the list deeper" {
+    try { $env:STUB_OLD_HERMES = '1'
+          $s1 = (Get-Item -LiteralPath $env:STUB_DENY).Length
+          Invoke-ApprovalsCase | Out-Null
+          (Get-Item -LiteralPath $env:STUB_DENY).Length -eq $s1 }
+    finally { $env:STUB_OLD_HERMES = $null
+              [System.IO.File]::WriteAllText($env:STUB_DENY, '') }
 }
 
 # A healthy `hermes approvals test` answers 3, so the last thing join.ps1 does leaves 3

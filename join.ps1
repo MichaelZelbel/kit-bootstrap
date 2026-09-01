@@ -1864,7 +1864,17 @@ function Set-KitHermesSkillsDir {
     # Through Invoke-KitHermesConfigSet, never &: PowerShell 5.1 eats the JSON's
     # quotes on the way to a native argv, and Hermes then stores a string it ignores.
     if (Invoke-KitHermesConfigSet -Key 'skills.external_dirs' -Value $json) {
-        Write-KbOk "skills: Hermes now reads $Room"
+        # READ IT BACK. Hermes 0.20.0 stores a JSON list as a plain string, which its
+        # own readers then ignore, so the setting lands and does nothing. A success
+        # line over an inert setting is the workspace lie again, so the truth is said
+        # out loud instead. Not fatal: the links keep every recipe reachable.
+        if (@(Get-KitHermesList -Key 'skills.external_dirs') -contains $Room) {
+            Write-KbOk "skills: Hermes now reads $Room"
+        } else {
+            Write-KbWarn "skills: this Hermes stored the room as text it does not read, so Hermes
+     itself will not see $Room until Hermes is updated. Your recipes stay
+     reachable through the links either way."
+        }
     } else {
         Write-KbWarn "skills: could not tell Hermes to read $Room.
      Run this by hand: hermes config set skills.external_dirs '$json'"
@@ -1974,12 +1984,19 @@ function ConvertFrom-KbYamlScalar {
 function Get-KitHermesList {
     <#  A list-valued Hermes setting, one clean value per line. `config get` prints
         "- value" per entry, an unset key prints "Config key not set" and exits 1, and an
-        empty list prints []. All three mean "nothing" to a caller merging into it. #>
+        empty list prints []. All three mean "nothing" to a caller merging into it.
+
+        ONLY "- " LINES ARE ENTRIES. Hermes 0.20.0 stores a JSON list as one plain
+        string and `config get` echoes that string back RAW, and a read that treated
+        the echo as an entry fed it into the next merge, which nested the whole list
+        one level deeper on every single run. Measured on the book's own rehearsal
+        server. A string is not a list, so it is not returned as one. #>
     param([Parameter(Mandatory)][string]$Key)
     if (-not (Test-KitHermesHere)) { return @() }
     $out = @()
     try { $out = @(& (Get-KitHermesBin) config get $Key 2>$null) } catch { return @() }
     return @($out |
+        Where-Object { [string]$_ -match '^\s*-\s' } |
         ForEach-Object { ConvertFrom-KbYamlScalar (([string]$_ -replace '^\s*-\s*', '').Trim()) } |
         Where-Object { $_ -and $_ -ne '[]' -and $_ -notlike 'Config key not set*' })
 }
@@ -2101,7 +2118,8 @@ function Test-KitHermesReadsHub {
     # the installer told the reader their hub was half connected. It was not.
     foreach ($sign in 'HTTP 4', 'HTTP 5', 'API call failed', 'not supported', 'ate limit',
                        'no authentication', 'not configured', 'credit', 'quota',
-                       'nauthorized', 'Connection', 'timed out', 'o provider') {
+                       'nauthorized', 'Connection', 'timed out', 'o provider',
+                       'nference provider') {
         if ([string]$out -like "*$sign*") { return 'unreachable' }
     }
     return 'no'
@@ -2262,6 +2280,16 @@ function Set-KitHermesApprovals {
             Write-KbWarn "safety: could not add the deny rules. Your assistant can still be talked into
      switching off SSH on the server you reach from this PC. Run this by hand:
      hermes config set approvals.deny '$json'"
+            return $false
+        }
+        # READ IT BACK. Hermes 0.20.0 stores a JSON list as one plain string, its
+        # readers ignore a string, and the string echoes back through config get, so
+        # before Get-KitHermesList learnt to filter, every run nested the list one
+        # level deeper. A leash that cannot be read back as entries is a leash that
+        # is NOT on, and the reader hears that instead of a success line.
+        if (-not (@(Get-KitHermesList -Key 'approvals.deny') -contains '*ufw --force reset*')) {
+            Write-KbWarn "safety: this Hermes stored the rules as text it does not enforce. The leash
+     is NOT on. Update Hermes, run this again, and it will check again."
             return $false
         }
         Write-KbOk "safety: added $($add.Count) rule(s) Hermes does not refuse on its own, and kept the ones you had"

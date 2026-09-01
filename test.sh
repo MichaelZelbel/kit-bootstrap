@@ -1051,6 +1051,22 @@ chmod +x "$_sk/bin/hermes"; : > "$_sk/calls2.log"
 kb_wire_skills "$_m" >/dev/null 2>&1
 t "a room Hermes already reads is not written again" \
   "$(grep -c 'config set' "$_sk/calls2.log")" "0"
+
+# THE VERSION THAT STORES A LIST AS TEXT. Hermes 0.20.0 does not parse a JSON
+# list on `config set`: it stores the whole text as one string, which its own
+# readers then ignore, so the setting lands and does nothing. Measured on the
+# book's own rehearsal server. The stub stores verbatim and echoes the store
+# back RAW, exactly as that version does, and the kit must say the truth out
+# loud rather than print a success line over an inert setting.
+printf '#!/bin/sh\nif [ "$2" = "get" ]; then if [ -s "%s/extstore" ]; then cat "%s/extstore"; echo; fi; fi\nif [ "$2" = "set" ]; then printf -- %%s "$4" > "%s/extstore"; fi\nexit 0\n' "$_sk" "$_sk" "$_sk" > "$_sk/bin/hermes"
+chmod +x "$_sk/bin/hermes"
+printf '%s' '["/existing/team-skills"]' > "$_sk/extstore"
+t "a raw string read back is no list entry at all" \
+  "$(kb_hermes_list skills.external_dirs | grep -c .)" "0"
+out="$(kb_hermes_skills_dir "$_m/skills" 2>&1)"
+t "a Hermes that stores the room as text is told on, not celebrated" \
+  "$(printf '%s' "$out" | grep -c 'text it does not read')" "1"
+
 printf '#!/bin/sh\necho "$*" >> "%s/calls.log"\nif [ "$2" = "get" ]; then printf -- "- /existing/team-skills\\n"; fi\nexit 0\n' "$_sk" > "$_sk/bin/hermes"
 chmod +x "$_sk/bin/hermes"
 
@@ -1150,6 +1166,7 @@ if [ "$1" = "-z" ]; then
     # A one-shot that reached no model at all, and still exits 0. Measured on hardware.
     http400) echo 'HTTP 400: {"detail":"The model is not supported when using Codex with a ChatGPT account."}'; exit 0 ;;
     ratelimit) echo 'API call failed after 3 retries: HTTP 429: Rate limit reached for this account.'; exit 0 ;;
+    noprovider) echo "hermes -z: agent failed: No inference provider configured. Run 'hermes model' to choose a provider and model, or set an API key."; exit 0 ;;
     ignore) d="$STUB_ELSEWHERE" ;;
     *)      if [ -s "$STUB_CWDFILE" ]; then d=$(cat "$STUB_CWDFILE"); else d="."; fi ;;
   esac
@@ -1214,6 +1231,13 @@ t "and is shown what Hermes actually said"   "$(printf '%s' "$out" | grep -c 'HT
 t "the half-connected warning is NOT printed for a provider error"   "$(printf '%s' "$out" | grep -c 'could not read a file')" "0"
 STUB_MODE=ratelimit
 t "a rate limit is the same story" "$(kb_hermes_reads_hub "$_hu")" "unreachable"
+# Hermes 0.20.0's wording for the same condition. A credential can be present
+# (a gh CLI token is auto-detected as one) while no model is configured, so the
+# credential gate passes and only this net catches it. Measured on the book's
+# own rehearsal server, where the miss called a correctly wired hub broken.
+STUB_MODE=noprovider
+t "a missing inference provider is unreachable, not a broken folder" \
+  "$(kb_hermes_reads_hub "$_hu")" "unreachable"
 unset STUB_MODE
 
 # A parrot passes nothing. The token lives only in the file, never in the prompt, so an
@@ -1355,6 +1379,36 @@ out="$(kb_hermes_approvals 2>&1)"; _rc=$?
 t "no Hermes is not a failure here either" "$_rc" "0"
 t "and it says there is nothing to give rules to" \
   "$(printf '%s' "$out" | grep -c 'no rules to give it')" "1"
+
+# THE VERSION THAT STORES THE LIST AS TEXT. Hermes 0.20.0 does not parse a JSON
+# list on `config set`: it stores the whole text as ONE STRING, its readers
+# ignore a string, and the string echoes back through `config get` so a blind
+# merge nests it deeper on every run. Measured on the book's own rehearsal
+# server: the second run wrapped the first run's entire JSON inside the new
+# list. The stub stores verbatim and echoes RAW, exactly as that version does.
+cat > "$_ap/bin/hermes-old" <<'STUB'
+#!/bin/sh
+echo "$*" >> "$STUB_LOG"
+if [ "$1" = "config" ] && [ "$2" = "get" ] && [ "$3" = "approvals.deny" ]; then
+  if [ -s "$STUB_DENY" ]; then cat "$STUB_DENY"; echo; else
+    echo "Config key not set: approvals.deny"; exit 1; fi
+fi
+if [ "$1" = "config" ] && [ "$2" = "set" ] && [ "$3" = "approvals.deny" ]; then
+  printf -- '%s' "$4" > "$STUB_DENY"
+fi
+if [ "$1" = "auth" ] && [ "$2" = "list" ]; then echo "openai-codex (1 credentials):"; fi
+exit 0
+STUB
+chmod +x "$_ap/bin/hermes-old"
+KB_HERMES_BIN="$_ap/bin/hermes-old"; export KB_HERMES_BIN
+: > "$STUB_DENY"; : > "$STUB_LOG"
+out="$(kb_hermes_approvals 2>&1)"; _rc=$?
+t "a Hermes that stores the rules as text is caught, not celebrated" "$_rc" "1"
+t "and the message says the leash is NOT on" \
+  "$(printf '%s' "$out" | grep -c 'NOT on')" "1"
+_sz1=$(wc -c < "$STUB_DENY")
+kb_hermes_approvals >/dev/null 2>&1
+t "a second run does not nest the list deeper" "$(wc -c < "$STUB_DENY" | tr -d ' ')" "$(printf '%s' "$_sz1" | tr -d ' ')"
 
 unset KB_HERMES_BIN STUB_LOG STUB_DENY
 rm -rf "$_ap"

@@ -667,7 +667,17 @@ $cur
 EOF
   json="[$json$(kb_json_str "$room")]"
   if "$hermes_bin" config set skills.external_dirs "$json" >/dev/null 2>&1; then
-    ok "skills: Hermes now reads $room"
+    # READ IT BACK. Hermes 0.20.0 stores a JSON list as a plain string, which its
+    # own readers then ignore, so the setting lands and does nothing. A success
+    # line over an inert setting is the workspace lie again, so the truth is said
+    # out loud instead. Not fatal: the links keep every recipe reachable.
+    if kb_hermes_list skills.external_dirs | grep -qxF "$room"; then
+      ok "skills: Hermes now reads $room"
+    else
+      warn "skills: this Hermes stored the room as text it does not read, so Hermes
+     itself will not see $room until Hermes is updated. Your recipes stay
+     reachable through the links either way."
+    fi
   else
     warn "skills: could not tell Hermes to read $room.
      Run this by hand: hermes config set skills.external_dirs '$json'"
@@ -788,11 +798,17 @@ kb_yaml_unquote() {
 # A list-valued Hermes setting, one clean value per line. `config get` prints "- value"
 # per entry, an unset key prints "Config key not set" and exits 1, and an empty list
 # prints []. All three mean "nothing" to a caller merging into it.
+#
+# ONLY "- " LINES ARE ENTRIES. Hermes 0.20.0 stores a JSON list as one plain string
+# and `config get` echoes that string back RAW, and a read that treated the echo as
+# an entry fed it into the next merge, which nested the whole list one level deeper
+# on every single run. Measured on the book's own rehearsal server. A string is not
+# a list, so it is not returned as one.
 kb_hermes_list() {
   local key="${1:-}" line
   [ -n "$key" ] || return 0
   kb_hermes_here || return 0
-  "$(kb_hermes_bin)" config get "$key" 2>/dev/null     | sed 's/^[[:space:]]*-[[:space:]]*//'     | while IFS= read -r line || [ -n "$line" ]; do
+  "$(kb_hermes_bin)" config get "$key" 2>/dev/null     | grep '^[[:space:]]*-[[:space:]]'     | sed 's/^[[:space:]]*-[[:space:]]*//'     | while IFS= read -r line || [ -n "$line" ]; do
         # `|| [ -n "$line" ]`, because a plain read DROPS a final line with no newline
         # after it, and that silently lost the last rule on every single run. The
         # eighteenth rule was therefore never seen as already present, so every re-run
@@ -866,7 +882,7 @@ kb_hermes_reads_hub() {
   # back "HTTP 400 ... not supported when using Codex with a ChatGPT account" and the
   # installer told the reader their hub was half connected. It was not.
   case "$out" in
-    *"HTTP 4"*|*"HTTP 5"*|*"API call failed"*|*"not supported"*|*"ate limit"*|    *"no authentication"*|*"not configured"*|*"credit"*|*"quota"*|*"nauthorized"*|    *"Connection"*|*"timed out"*|*"No provider"*|*"no provider"*)
+    *"HTTP 4"*|*"HTTP 5"*|*"API call failed"*|*"not supported"*|*"ate limit"*|    *"no authentication"*|*"not configured"*|*"credit"*|*"quota"*|*"nauthorized"*|    *"Connection"*|*"timed out"*|*"No provider"*|*"no provider"*|*"nference provider"*)
       printf 'unreachable'; return 0 ;;
   esac
   printf 'no'
@@ -1051,7 +1067,18 @@ EOF
   else
     json="[$(printf '%s' "$json" | sed 's/,$//')]"
     if "$bin" config set approvals.deny "$json" >/dev/null 2>&1; then
-      ok "safety: added $added rule(s) Hermes does not refuse on its own, and kept the ones you had"
+      # READ IT BACK. Hermes 0.20.0 stores a JSON list as one plain string, its
+      # readers ignore a string, and the string echoes back through config get,
+      # so before kb_hermes_list learnt to filter, every run nested the list one
+      # level deeper. A leash that cannot be read back as entries is a leash
+      # that is NOT on, and the reader hears that instead of a success line.
+      if kb_hermes_list approvals.deny | grep -qxF '*ufw --force reset*'; then
+        ok "safety: added $added rule(s) Hermes does not refuse on its own, and kept the ones you had"
+      else
+        warn "safety: this Hermes stored the rules as text it does not enforce. The leash
+     is NOT on. Update Hermes, run this again, and it will check again."
+        return 1
+      fi
     else
       warn "safety: could not add the deny rules. Your assistant can still be talked into
      switching off your own SSH. Run this by hand:
