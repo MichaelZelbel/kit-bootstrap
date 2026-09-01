@@ -19,7 +19,7 @@
 ; =============================================================================
 
 #define AppName        "Hub"
-#define AppVersion     "1.4.0"
+#define AppVersion     "2.0.0"
 #define AppPublisher   "Michael Zelbel"
 #define AppURL         "https://github.com/MichaelZelbel/kit-bootstrap"
 
