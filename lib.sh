@@ -769,11 +769,16 @@ kb_hermes_here() { command -v "$(kb_hermes_bin)" >/dev/null 2>&1; }
 #
 # The loop exists because a config already corrupted that way carries several layers.
 kb_yaml_unquote() {
-  local v="${1:-}" prev=""
+  local v="${1:-}" prev="" q
+  # The quote character in a variable, and every use of it quoted. A bare ' inside
+  # ${v#'} does NOT mean "strip a quote": the shell reads it as opening a quoted
+  # section and the strip silently does nothing, which is exactly how the first version
+  # of this function passed its own tests and then failed on the box.
+  q=$(printf '\047')
   while [ "$v" != "$prev" ]; do
     prev="$v"
     case "$v" in
-      "'"?*"'") v="${v#'}"; v="${v%'}"; v="$(printf '%s' "$v" | sed "s/''/'/g")" ;;
+      "$q"?*"$q") v="${v#"$q"}"; v="${v%"$q"}"; v="$(printf '%s' "$v" | sed "s/$q$q/$q/g")" ;;
     esac
   done
   printf '%s' "$v"

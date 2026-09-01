@@ -949,6 +949,27 @@ t "a Claude-era hub keeps its recipes where they are" "$(kb_skills_room "$_r2")"
 _r3=$(mktemp -d)
 t "a brand new hub is given the visible room" "$(kb_skills_room "$_r3")" "$_r3/skills"
 
+# THE UNQUOTING, WITH EXACT BYTES. Every rule the kit ships starts with `*`, which YAML
+# reads as an ALIAS, so Hermes hands them all back QUOTED. Reading them raw is how a
+# second install run added all eighteen again with the quotes baked in, and the list
+# reached seventy-two entries after three runs on the real box.
+#
+# These use a $q built with printf rather than a literal, because the bug this replaces
+# was ENTIRELY about quoting: ${v#'} does not strip a quote, the shell reads it as
+# opening a quoted section and the strip silently does nothing. A test written with
+# careless quotes would have agreed with the broken version.
+_q=$(printf '\047')
+t "a quoted rule comes back as the rule" \
+  "$(kb_yaml_unquote "${_q}*shred *${_q}")" "*shred *"
+t "an unquoted one is left alone"        \
+  "$(kb_yaml_unquote "*shred *")" "*shred *"
+t "a value already corrupted by the old bug is recovered" \
+  "$(kb_yaml_unquote "${_q}${_q}${_q}*shred *${_q}${_q}${_q}")" "*shred *"
+t "a rule with no star in it is handled the same way" \
+  "$(kb_yaml_unquote "${_q}ufw --force reset${_q}")" "ufw --force reset"
+t "an empty value stays empty"           "$(kb_yaml_unquote "")" ""
+t "and a lone quote is not eaten"        "$(kb_yaml_unquote "$_q")" "$_q"
+
 # The merge. `hermes config set` REPLACES a list, so this is how a reader loses a
 # team folder they added themselves.
 : > "$_sk/calls.log"
@@ -1187,7 +1208,11 @@ rules() {
 /g; s/"//g' "$STUB_DENY"
 }
 if [ "$1" = "config" ] && [ "$2" = "get" ] && [ "$3" = "approvals.deny" ]; then
-  if [ -s "$STUB_DENY" ]; then rules | sed 's/^/- /'; else
+  # QUOTED, the way a real YAML writer hands them back. Every rule starts with a *,
+  # which YAML reads as an alias, so Hermes quotes all of them. This stub echoed them
+  # back bare, and that is exactly why it agreed with a merge that could not read them:
+  # on the real box a second run added all eighteen again, quote characters and all.
+  if [ -s "$STUB_DENY" ]; then rules | sed "s/^/- '/; s/\$/'/"; else
     echo "Config key not set: approvals.deny"; exit 1; fi
 fi
 if [ "$1" = "config" ] && [ "$2" = "set" ] && [ "$3" = "approvals.deny" ]; then
