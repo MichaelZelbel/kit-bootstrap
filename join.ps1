@@ -236,7 +236,7 @@ function Join-KitMemory {
 #
 #   DETECTED  the tool leaves files on this PC, so we can see it is here.
 #   SYNCABLE  this kit can read what the person typed to it: Claude Code
-#             (memory + prompts), Codex (prompts), Hermes chat bots (prompts).
+#             (memory + prompts), Codex (prompts), Hermes (prompts).
 #             Everything else is shown with the reason it is not.
 #   ENABLED   the person said yes. Recorded per device in ~\.hub\device.env as
 #             HUB_PROMPT_SOURCES. The value "-" means NONE: a Windows
@@ -268,7 +268,18 @@ function Test-KitAiTool {
         'claude'         { return ((Test-Path (Join-Path $h '.claude')) -or
                                    [bool](Get-Command claude -ErrorAction SilentlyContinue)) }
         'codex'          { return [bool](Test-Path (Join-Path $h '.codex')) }
-        'hermes'         { return [bool](Test-Path (Join-Path $h '.hermes\profiles')) }
+        # config.yaml is the marker every install has. The old marker, a
+        # profiles\ subfolder, missed any install still on its default profile,
+        # and the old location, ~\.hermes, is not where Windows keeps it - which
+        # between them made Hermes invisible on the machine of the person
+        # writing the book about it. HERMES_HOME wins because that is where a
+        # relocated install actually lives.
+        'hermes'         { foreach ($d in @($env:HERMES_HOME,
+                               $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'hermes' }),
+                               (Join-Path $h '.hermes'))) {
+                               if ($d -and (Test-Path (Join-Path $d 'config.yaml'))) { return $true }
+                           }
+                           return $false }
         'claude-desktop' { return (($null -ne $env:APPDATA -and (Test-Path (Join-Path $env:APPDATA 'Claude'))) -or
                                    ($null -ne $env:LOCALAPPDATA -and (Test-Path (Join-Path $env:LOCALAPPDATA 'AnthropicClaude')))) }
         'muse'           { return ((Test-Path (Join-Path $h '.config\muse')) -or
@@ -293,7 +304,7 @@ function Get-KitAiToolInfo {
     switch ($Id) {
         'claude'         { return 'memory+prompts|Claude Code|' }
         'codex'          { return 'prompts|Codex|' }
-        'hermes'         { return 'prompts|Hermes chat bots|' }
+        'hermes'         { return 'prompts|Hermes|' }
         'claude-desktop' { return 'none|Claude Desktop|keeps your conversations on its own servers, not in files here' }
         'comet'          { return 'none|Perplexity Comet|keeps your conversations on its own servers, not in files here' }
         'muse'           { return 'none|Muse Code|keeps files here, but this kit cannot read its format yet' }
@@ -824,9 +835,29 @@ function Install-KitWingetPackage {
     return $false
 }
 
+function Confirm-KitHermes {
+    <#  The assistant itself, since Batch AK (2026-09-01): Hermes is the taught
+        path from Chapter 3, and Claude Code is Chapter 5's optional developer
+        door. This installer has never installed anything with a window - the
+        Claude desktop app was always the reader's own download - and Hermes
+        Desktop ships its own hermes-setup.exe, so the job here is to CONFIRM
+        Hermes is present and say where to get it when it is not, never to
+        fetch an app behind the wizard's back. #>
+    if ((Test-KitAiTool 'hermes') -or (Test-KitHermesHere)) {
+        Write-KbOk "Hermes is here"
+        return $true
+    }
+    Write-KbWarn "Hermes is not on this PC yet. Download it from https://hermes-agent.nousresearch.com , run its installer, then run this installer again so it can finish the wiring."
+    return $false
+}
+
 function Install-KitClaudeCode {
-    <#  The assistant itself. Anthropic ships a Windows installer of their own, so
-        use that rather than inventing a second way to install their product. #>
+    <#  Claude Code, kept for Chapter 5's developer path. Install-KitPrereqs
+        stopped calling this in Batch AK - the reader-facing installer confirms
+        Hermes instead - but the function stays for the products and the
+        developer chapter that still want it. Anthropic ships a Windows
+        installer of their own, so use that rather than inventing a second way
+        to install their product. #>
     if (Test-KitCommand 'claude') { Write-KbOk "Claude Code is already here"; return $true }
 
     Write-Host "   installing Claude Code..."
@@ -859,7 +890,9 @@ function Install-KitPrereqs {
     if (-not (Install-KitWingetPackage -Id 'Git.Git' -Command 'git' -Human 'Git')) { $missing += 'Git' }
     # node: several hub tools are node programs (calling another machine's AI, for one).
     if (-not (Install-KitWingetPackage -Id 'OpenJS.NodeJS.LTS' -Command 'node' -Human 'Node.js')) { $missing += 'Node.js' }
-    if (-not (Install-KitClaudeCode)) { $missing += 'Claude Code' }
+    # Hermes, not Claude Code, since Batch AK: the book teaches Hermes from
+    # Chapter 3, and a developer who wants Claude Code gets it in Chapter 5.
+    if (-not (Confirm-KitHermes)) { $missing += 'Hermes' }
 
     return $missing
 }

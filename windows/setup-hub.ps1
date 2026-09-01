@@ -136,7 +136,7 @@ foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-
 }
 
 # -----------------------------------------------------------------------------
-# 2. What this PC is missing. Git, Node.js, Claude Code.
+# 2. What this PC is missing. Git, Node.js, and whether Hermes is here.
 # -----------------------------------------------------------------------------
 $missing = @()
 if (-not $SkipPrereqs) {
@@ -194,8 +194,7 @@ if ($found) {
 #    First, which AI tools live here and which may be synced. The wizard's
 #    checklist arrives as -PromptSources; the choice lands on this device before
 #    any wiring runs, so everything below obeys it. Sits AFTER the prerequisites
-#    on purpose: a fresh PC only has Claude Code once step 2 installed it, and
-#    detection must see the machine as it will actually be.
+#    on purpose, so detection sees the machine as step 2 left it.
 # -----------------------------------------------------------------------------
 if ($PromptSources -ne '(auto)') {
     Set-KitPromptSources -Value $PromptSources

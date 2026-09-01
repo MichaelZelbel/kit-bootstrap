@@ -1526,8 +1526,8 @@ kb_link_ai_memory() {
 # Three ideas, kept separate on purpose:
 #   DETECTED  the tool leaves files on this machine, so we can see it is here.
 #   SYNCABLE  this kit knows how to read what the person typed to it. Today that
-#             is Claude Code (memory + prompts), Codex (prompts) and Hermes chat
-#             bots (prompts). Everything else is shown with the reason it is not.
+#             is Claude Code (memory + prompts), Codex (prompts) and Hermes
+#             (prompts). Everything else is shown with the reason it is not.
 #   ENABLED   the person said yes. Recorded per device in ~/.hub/device.env as
 #             HUB_PROMPT_SOURCES, because "my work laptop's Codex must stay out"
 #             is a fact about one machine, not about the hub.
@@ -1557,7 +1557,13 @@ kb_ai_tool_detected() {
   case "$1" in
     claude)         [ -d "$HOME/.claude" ] || command -v claude >/dev/null 2>&1 ;;
     codex)          [ -d "$HOME/.codex" ] ;;
-    hermes)         [ -d "$HOME/.hermes/profiles" ] || [ -d /home/hermes/.hermes/profiles ] ;;
+    # config.yaml is the marker every install has. The old marker, a profiles/
+    # subfolder, missed any install still on its default profile - which is how
+    # Hermes was invisible on the machine of the person writing the book about
+    # it. HERMES_HOME wins because that is where a relocated install lives.
+    hermes)         [ -f "${HERMES_HOME:-/nonexistent}/config.yaml" ] || \
+                    [ -f "$HOME/.hermes/config.yaml" ] || \
+                    [ -f /home/hermes/.hermes/config.yaml ] ;;
     claude-desktop) [ -d "$HOME/Library/Application Support/Claude" ] || \
                     [ -d "${APPDATA:-/nonexistent}/Claude" ] || \
                     [ -d "${LOCALAPPDATA:-/nonexistent}/AnthropicClaude" ] ;;
@@ -1580,7 +1586,7 @@ kb_ai_tool_info() {
   case "$1" in
     claude)         printf 'memory+prompts|Claude Code|' ;;
     codex)          printf 'prompts|Codex|' ;;
-    hermes)         printf 'prompts|Hermes chat bots|' ;;
+    hermes)         printf 'prompts|Hermes|' ;;
     claude-desktop) printf 'none|Claude Desktop|keeps your conversations on its own servers, not in files here' ;;
     comet)          printf 'none|Perplexity Comet|keeps your conversations on its own servers, not in files here' ;;
     muse)           printf 'none|Muse Code|keeps files here, but this kit cannot read its format yet' ;;
@@ -2035,8 +2041,30 @@ kb_install_one() {
   kb_note_missing "$human"; return 1
 }
 
-# The assistant itself. Anthropic ship an installer for macOS and Linux, so use
-# theirs rather than inventing a second way to install their product.
+# The assistant itself. Hermes ships its own installer for macOS and Linux, so
+# use theirs rather than inventing a second way to install their product. Since
+# Batch AK (2026-09-01) this is what the prereqs fetch: Hermes is the taught
+# assistant from Chapter 3, and Claude Code is Chapter 5's optional developer
+# door, installed by the developer who wants it, not by this installer.
+kb_install_hermes() {
+  if kb_hermes_here || [ -x "$HOME/.local/bin/hermes" ]; then
+    [ -x "$HOME/.local/bin/hermes" ] && { export PATH="$HOME/.local/bin:$PATH"; kb_persist_path; }
+    ok "Hermes is already here"; return 0
+  fi
+  log "Installing Hermes..."
+  export PATH="$HOME/.local/bin:$PATH"
+  curl -fsSL https://hermes-agent.nousresearch.com/install.sh 2>/dev/null | bash >/dev/null 2>&1
+  kb_persist_path
+  if kb_hermes_here; then ok "Hermes installed"; return 0; fi
+  warn "Hermes did not become usable. Open a new terminal and run: hermes --version"
+  kb_note_missing "Hermes"; return 1
+}
+
+# Claude Code, kept for the products that still call it and for Chapter 5's
+# developer path. kb_install_prereqs stopped calling this in Batch AK; the
+# reader-facing installer fetches Hermes above instead. Anthropic ship an
+# installer for macOS and Linux, so use theirs rather than inventing a second
+# way to install their product.
 kb_install_claude_code() {
   if command -v claude >/dev/null 2>&1; then ok "Claude Code is already here"; return 0; fi
   if [ -x "$HOME/.local/bin/claude" ]; then
@@ -2061,7 +2089,9 @@ kb_install_prereqs() {
   # git: a hub IS a git folder. node: several hub tools are node programs.
   kb_install_one git  git    git   "Git"     || true
   kb_install_one node nodejs node  "Node.js" || true
-  kb_install_claude_code || true
+  # Hermes, not Claude Code, since Batch AK: the book teaches Hermes from
+  # Chapter 3, and a developer who wants Claude Code gets it in Chapter 5.
+  kb_install_hermes || true
   KB_MISSING="${KB_MISSING# }"
 }
 

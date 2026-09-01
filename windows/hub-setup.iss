@@ -216,7 +216,6 @@ var
   ToolLines: TArrayOfString;
   i, row: Integer;
   id, sync, name, note: String;
-  HaveClaude: Boolean;
 begin
   FoundHub := DetectHub();
   DetectTools(RecordedSources, ToolLines);
@@ -247,15 +246,11 @@ begin
 
   ToolCount := 0;
 
-  { A fresh PC has no Claude Code YET, but this installer is about to install
-    it, so the person decides about it now, at the top of the list where it
-    belongs. }
-  HaveClaude := False;
-  for i := 0 to GetArrayLength(ToolLines) - 1 do
-    if PipeField(ToolLines[i], 0) = 'claude' then HaveClaude := True;
-  if not HaveClaude then
-    AddSyncRow('claude', 'Claude Code (about to be installed) - its memory folder, plus what you type to it and its answers');
-
+  { Nothing is pre-added here any more. This page used to add a Claude Code row
+    on a fresh PC because the installer was about to install Claude Code; since
+    Batch AK it installs no assistant at all - Hermes is the taught path and
+    Hermes Desktop ships its own installer - so the list is exactly what was
+    found on this PC. }
   for i := 0 to GetArrayLength(ToolLines) - 1 do
   begin
     id   := PipeField(ToolLines[i], 0);
@@ -346,7 +341,7 @@ begin
             + Space + GetHubDir('') + NewLine + NewLine;
     if GetRepoUrl('') <> '' then
       Result := Result + 'It will be fetched from:' + NewLine + Space + GetRepoUrl('') + NewLine + NewLine;
-    Result := Result + 'I will also install anything missing that it needs: Git, Node.js and Claude Code. Windows may ask your permission for those, which is normal.';
+    Result := Result + 'I will also install anything missing that it needs: Git and Node.js. Windows may ask your permission for those, which is normal. Hermes itself is a separate download; if it is not on this PC yet I will say so and tell you where to get it.';
   end;
   Result := Result + NewLine + NewLine
           + 'Synced through your hub from this PC: ' + GetSyncSummary();

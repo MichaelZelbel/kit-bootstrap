@@ -17,6 +17,7 @@ This repo is the fix. It is MIT licensed and deliberately boring.
 ## What is in it
 
 **`lib.sh`** — the bash. Output helpers, `sudo_cmd`, `need_tools`,
+`kb_install_hermes` (what the reader-facing prereqs fetch since Batch AK),
 `ensure_claude_code`, `ensure_gh`, the two interactive sign-ins, the
 root-to-normal-user handoff, and `handoff` to Claude Code with its headless
 fallback.

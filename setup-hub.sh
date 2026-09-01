@@ -124,7 +124,7 @@ done
 say "Setting up your hub"
 
 # -----------------------------------------------------------------------------
-# 2. What this computer is missing. Git, Node.js, Claude Code.
+# 2. What this computer is missing. Git, Node.js, Hermes.
 # -----------------------------------------------------------------------------
 KB_MISSING=""
 [ "$SKIP_PREREQS" -eq 1 ] || kb_install_prereqs

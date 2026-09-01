@@ -317,6 +317,90 @@ Check "a PC syncing nothing is told so" {
 }
 
 Write-Host ""
+Write-Host "-- the assistant the prereqs confirm: Hermes, not Claude Code"
+# Batch AK, decided 2026-09-01: Hermes is the taught assistant from Chapter 3,
+# so the prereqs deal in Hermes. Windows installs no app - Hermes Desktop ships
+# its own hermes-setup.exe, exactly as the Claude desktop app was always the
+# reader's own download - so Confirm-KitHermes CONFIRMS and points, never
+# fetches. Install-KitClaudeCode stays defined, the Chapter 5 developer door.
+# These are the Windows twins of the cases in test.sh. Change one, change both.
+$script:RealHermesHome = $env:HERMES_HOME
+$script:RealLocalApp   = $env:LOCALAPPDATA
+
+Check "Confirm-KitHermes is defined" {
+    [bool](Get-Command Confirm-KitHermes -ErrorAction SilentlyContinue)
+}
+Check "Install-KitClaudeCode stays defined, the Chapter 5 door" {
+    [bool](Get-Command Install-KitClaudeCode -ErrorAction SilentlyContinue)
+}
+Check "a PC with Hermes is confirmed" {
+    try { $env:KB_ASSUME_TOOLS = 'hermes'; (Confirm-KitHermes 6>$null) -eq $true }
+    finally { $env:KB_ASSUME_TOOLS = $null }
+}
+Check "a PC without Hermes is pointed at the download, not left guessing" {
+    try { $env:KB_ASSUME_TOOLS = '-'
+          $env:KB_HERMES_BIN = Join-Path $Root 'no-such-hermes.exe'
+          (-not (Confirm-KitHermes 3>$null 6>$null)) -and
+          ((Confirm-KitHermes 3>&1 6>&1 | Out-String).Contains('hermes-agent.nousresearch.com')) }
+    finally { $env:KB_ASSUME_TOOLS = $null; $env:KB_HERMES_BIN = $null }
+}
+Check "the prereqs count a missing Hermes, and never Claude Code" {
+    try { $env:KB_ASSUME_TOOLS = '-'
+          $env:KB_HERMES_BIN = Join-Path $Root 'no-such-hermes.exe'
+          $missing = @(Install-KitPrereqs 6>$null)
+          ($missing -contains 'Hermes') -and ($missing -notcontains 'Claude Code') }
+    finally { $env:KB_ASSUME_TOOLS = $null; $env:KB_HERMES_BIN = $null }
+}
+Check "a PC with Hermes is missing nothing, and Claude Code is never mentioned" {
+    try { $env:KB_ASSUME_TOOLS = 'hermes'
+          $txt = (Install-KitPrereqs 6>&1 | Out-String)
+          $missing = @(Install-KitPrereqs 6>$null)
+          ($missing.Count -eq 0) -and (-not $txt.Contains('Claude Code')) }
+    finally { $env:KB_ASSUME_TOOLS = $null }
+}
+Check "hermes is seen where HERMES_HOME points" {
+    try { $d = New-TestDir 'hm-hh'; Set-Content (Join-Path $d 'config.yaml') 'x'
+          $env:HERMES_HOME = $d; $env:LOCALAPPDATA = New-TestDir 'hm-la0'
+          $env:KB_HOME = New-TestDir 'hm-home0'
+          Test-KitAiTool 'hermes' }
+    finally { $env:HERMES_HOME = $script:RealHermesHome
+              $env:LOCALAPPDATA = $script:RealLocalApp; $env:KB_HOME = $null }
+}
+Check "a native install under LOCALAPPDATA is seen" {
+    try { $env:HERMES_HOME = $null
+          $la = New-TestDir 'hm-la1'
+          New-Item -ItemType Directory -Force (Join-Path $la 'hermes') | Out-Null
+          Set-Content (Join-Path $la 'hermes\config.yaml') 'x'
+          $env:LOCALAPPDATA = $la; $env:KB_HOME = New-TestDir 'hm-home1'
+          Test-KitAiTool 'hermes' }
+    finally { $env:HERMES_HOME = $script:RealHermesHome
+              $env:LOCALAPPDATA = $script:RealLocalApp; $env:KB_HOME = $null }
+}
+Check "a default-profile install with no profiles folder is still seen" {
+    # The old marker required .hermes\profiles and missed exactly this shape,
+    # which is how Hermes was invisible on the machine of the person writing
+    # the book about it.
+    try { $env:HERMES_HOME = $null; $env:LOCALAPPDATA = New-TestDir 'hm-la2'
+          $h = New-TestDir 'hm-home2'
+          New-Item -ItemType Directory -Force (Join-Path $h '.hermes') | Out-Null
+          Set-Content (Join-Path $h '.hermes\config.yaml') 'x'
+          $env:KB_HOME = $h
+          Test-KitAiTool 'hermes' }
+    finally { $env:HERMES_HOME = $script:RealHermesHome
+              $env:LOCALAPPDATA = $script:RealLocalApp; $env:KB_HOME = $null }
+}
+Check "no config file anywhere means not seen" {
+    try { $env:HERMES_HOME = $null; $env:LOCALAPPDATA = New-TestDir 'hm-la3'
+          $env:KB_HOME = New-TestDir 'hm-home3'
+          -not (Test-KitAiTool 'hermes') }
+    finally { $env:HERMES_HOME = $script:RealHermesHome
+              $env:LOCALAPPDATA = $script:RealLocalApp; $env:KB_HOME = $null }
+}
+Check "the report calls it Hermes, not chat bots" {
+    (Get-KitAiToolInfo 'hermes') -eq 'prompts|Hermes|'
+}
+
+Write-Host ""
 Write-Host "-- the memory link, which is the point of the whole thing"
 # Detection is FORCED to "Claude Code is here" for the link cases, because the
 # link is gated on it now and these cases are about the link itself. The gate

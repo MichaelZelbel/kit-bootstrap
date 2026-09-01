@@ -31,6 +31,7 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_ai_memory_path kb_seed_memory_index kb_link_ai_memory \
          kb_hub_looks_real kb_find_hub kb_update_hub kb_install_hub_cli \
          kb_os kb_can_sudo kb_note_missing kb_install_one kb_install_claude_code \
+         kb_install_hermes \
          kb_install_prereqs kb_copy_starter_hub kb_new_hub kb_install_prompt_harvest \
          kb_install_hub_tools kb_ai_tool_detected kb_ai_tool_info kb_detect_ai_tools \
          kb_enabled_sources kb_write_prompt_sources kb_sync_report \
@@ -616,6 +617,70 @@ esac
 t "an already-present tool is not reinstalled" \
   "$(kb_install_one bash definitely-not-a-package definitely-not-a-package Bash >/dev/null 2>&1; echo $?)" "0"
 rm -rf "$_c"
+
+
+# --- THE ASSISTANT THE PREREQS FETCH: HERMES, NOT CLAUDE CODE -----------------
+# Batch AK, decided 2026-09-01: Hermes is the taught assistant from Chapter 3, so
+# the reader-facing installer fetches Hermes. kb_install_claude_code stays
+# defined - Chapter 5's developer door, and other products still call it - but
+# kb_install_prereqs no longer touches it. The network is intercepted by
+# overriding curl in a subshell, the same trick the tty cases play on
+# kb_stdin_is_tty, because this suite never reaches the network.
+_hm="$(mktemp -d)"
+mkdir -p "$_hm/fresh" "$_hm/empty"
+
+t "a Hermes already here is not reinstalled" \
+  "$(KB_HERMES_BIN=/bin/true kb_install_hermes >/dev/null 2>&1; echo $?)" "0"
+t "and it is reported as already here, not fetched" \
+  "$(KB_HERMES_BIN=/bin/true kb_install_hermes 2>&1 | grep -c 'already here')" "1"
+
+# The install path, end to end, with the network stood in for by a local script.
+# The official installer's one observable promise is a hermes command that works
+# afterwards, so that is what the fake delivers and what the case asserts.
+cat > "$_hm/fake-installer.sh" <<'FAKE'
+mkdir -p "$HOME/.local/bin"
+printf '#!/bin/sh\nexit 0\n' > "$HOME/.local/bin/hermes"
+chmod +x "$HOME/.local/bin/hermes"
+FAKE
+out="$( ( curl() { cat "$_hm/fake-installer.sh"; }
+          HOME="$_hm/fresh"; PATH="/usr/bin:/bin"
+          kb_install_hermes; echo "rc=$?" ) 2>&1 )"
+case "$out" in *"rc=0"*) t "an absent Hermes is fetched and becomes usable" yes yes ;;
+               *) t "an absent Hermes is fetched and becomes usable" "$out" "rc=0" ;; esac
+t "and the launcher landed where Hermes puts it" \
+  "$([ -x "$_hm/fresh/.local/bin/hermes" ] && echo yes)" "yes"
+
+# A fetch that delivers nothing must warn and note the miss, never claim success.
+out="$( ( curl() { :; }
+          HOME="$_hm/empty"; PATH="/usr/bin:/bin"
+          KB_MISSING=""; kb_install_hermes >/dev/null 2>&1; echo "rc=$? missing=$KB_MISSING" ) )"
+case "$out" in *"rc=1"*Hermes*) t "a failed fetch warns and notes the miss" yes yes ;;
+               *) t "a failed fetch warns and notes the miss" "$out" "rc=1 ... Hermes" ;; esac
+
+# The composition: which assistant the prereqs ask for. The tool half is stubbed
+# so this never reaches a package manager, per this file's own first promise.
+out="$( ( kb_install_one() { ok "$4 is already here"; }
+          KB_HERMES_BIN=/bin/true; kb_install_prereqs ) 2>&1 )"
+case "$out" in *Hermes*) t "the prereqs fetch Hermes" yes yes ;;
+               *) t "the prereqs fetch Hermes" "$out" "mentions Hermes" ;; esac
+t "and no longer fetch Claude Code" "$(printf '%s' "$out" | grep -c 'Claude Code')" "0"
+
+# The detector, repaired. config.yaml is the marker every install has, where the
+# old profiles/ subfolder missed any install still on its default profile - which
+# is how Hermes was invisible on the machine of the person writing the book about
+# it. HERMES_HOME wins, because that is where a relocated install actually lives.
+mkdir -p "$_hm/hh" "$_hm/native/.hermes" "$_hm/bare"
+: > "$_hm/hh/config.yaml"
+: > "$_hm/native/.hermes/config.yaml"
+t "hermes is seen where HERMES_HOME points" \
+  "$( (HOME="$_hm/bare" HERMES_HOME="$_hm/hh" KB_ASSUME_TOOLS= kb_ai_tool_detected hermes && echo yes) )" "yes"
+t "a default-profile install with no profiles folder is still seen" \
+  "$( (HOME="$_hm/native" HERMES_HOME= KB_ASSUME_TOOLS= kb_ai_tool_detected hermes && echo yes) )" "yes"
+t "no config file anywhere means not seen" \
+  "$( (HOME="$_hm/bare" HERMES_HOME= KB_ASSUME_TOOLS= kb_ai_tool_detected hermes || echo no) )" "no"
+t "the report calls it Hermes, not chat bots" \
+  "$(kb_ai_tool_info hermes)" "prompts|Hermes|"
+rm -rf "$_hm"
 
 
 # --- YOUR NOTEBOOK: CONNECTING IT ONCE, AND THE CONNECTION TRAVELLING ---------
