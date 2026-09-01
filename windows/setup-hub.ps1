@@ -82,12 +82,19 @@ Write-Host ""
 # March's code otherwise, on precisely the machine that has been neglected
 # longest. A PC with no network still finishes, using what it shipped with.
 # -----------------------------------------------------------------------------
+# WHICH BRANCH THIS INSTALLER PULLS ITS LIBRARY FROM, in one place, because getting it
+# wrong is invisible: a v2 installer that fetches v1\join.ps1 runs v1's code and behaves
+# exactly like v1, so a whole line of work reaches nobody while every test that fetches
+# from the network still passes. The bash twin carries KB_BRANCH for the same reason.
+# Overridable so a test can point at a branch without editing this file.
+$KbBranch = if ($env:KB_BRANCH) { $env:KB_BRANCH } else { 'v2' }
+
 $Bundled = Join-Path $PSScriptRoot 'join.ps1'
 $Join    = $null
 $cache   = Join-Path $env:LOCALAPPDATA 'Hub\join.ps1'
 try {
     Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 `
-        -Uri 'https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v2/join.ps1' `
+        -Uri "https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/$KbBranch/join.ps1" `
         -OutFile $cache -ErrorAction Stop
     $Join = $cache
     Write-Host "   ok: got the current install code"
@@ -104,12 +111,14 @@ if (-not $Join) {
 . $Join -AsLibrary
 
 # Newer than the network copy is a real state, not a theoretical one: this .exe
-# and the v1 branch are published by two separate acts, so either can be ahead.
-# Preferring the network blindly would then load code with the parts this
+# and the published branch are published by two separate acts, so either can be
+# ahead. Preferring the network blindly would then load code with the parts this
 # installer needs missing, and fail somewhere further down wearing a confusing
 # name. Check for one function that only the newer code has, and step back to the
-# copy inside the .exe when it is not there.
-if (-not (Get-Command Write-KitSyncReport -ErrorAction SilentlyContinue)) {
+# copy inside the .exe when it is not there. The canary moves forward with the
+# code: it is the NEWEST function this file calls, or the check passes on a copy
+# that is missing everything added since.
+if (-not (Get-Command Connect-KitSkills -ErrorAction SilentlyContinue)) {
     if ($Join -ne $Bundled -and (Test-Path $Bundled)) {
         Write-Warning "the published install code is older than this installer, so I am using the copy that came with it."
         . $Bundled -AsLibrary
@@ -119,7 +128,8 @@ foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-
                  'Join-KitMemory', 'Install-KitHubCli', 'Install-KitHubTools',
                  'Install-KitPromptHarvest', 'Update-KitPath',
                  'Find-KitAiTools', 'Set-KitPromptSources', 'Write-KitSyncReport',
-                 'Connect-KitNotebook', 'Write-KitMcpConfig', 'Install-KitNotebookSync') {
+                 'Connect-KitNotebook', 'Write-KitMcpConfig', 'Install-KitNotebookSync',
+                 'Connect-KitSkills') {
     if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
         Stop-Setup "the install code on this PC is incomplete ($fn is missing). Download the newest installer from https://github.com/MichaelZelbel/kit-bootstrap/releases/latest and run that."
     }
@@ -203,13 +213,11 @@ Install-KitPromptHarvest -Hub $Hub   # the daily job that files what you type to
 # Quiet and complete for the reader who never connects one - which is most of the book.
 Connect-KitNotebook -Hub $Hub
 
-$skills = Join-Path $Hub '.claude\skills'
-$agents = Join-Path $Hub '.agents\skills'
-if ((Test-Path $skills) -and -not (Test-Path $agents)) {
-    New-Item -ItemType Directory -Force (Join-Path $Hub '.agents') | Out-Null
-    New-Item -ItemType Junction -Path $agents -Target $skills | Out-Null
-    Write-KbOk "skills: assistants other than Claude Code can now read them too"
-}
+# One real room, junctions to it, and it counts what it wired. Replaces three lines
+# that pointed .agents\skills at .claude\skills whenever .claude\skills existed, which
+# on a hub built by the book meant pointing every non-Claude assistant at the empty
+# folder the top-up had just made, under a green tick.
+Connect-KitSkills -Hub $Hub | Out-Null
 
 # Remember where it is, so the next run of the installer finds it instantly and so
 # other tools on this PC can stop guessing.

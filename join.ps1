@@ -1572,6 +1572,242 @@ function Connect-KitNotebook {
     Set-KitNotebookEnv -Hub $Hub
 }
 
+# =============================================================================
+# THE SKILLS ROOM, AND THE ONE RULE THAT KEEPS IT A SINGLE ROOM
+#
+# The Windows twin of kb_wire_skills in lib.sh, and it exists for the same defect.
+# Until 2026-09-01 both installers ran three lines that looked harmless: if the hub
+# had a .claude\skills folder, junction .agents\skills to it and say "assistants
+# other than Claude Code can now read them too". On a hub whose recipes live in the
+# VISIBLE skills\ room, which is the arrangement the book teaches, that sentence was
+# false. The starter top-up had just created an EMPTY .claude\skills, so the junction
+# pointed every non-Claude assistant at an empty folder while the reader's recipes sat
+# in skills\ untouched and unreachable. Measured on a real reader-shaped hub: 0 recipes
+# reachable, 6 present, and a green tick printed over it.
+#
+# So the rule is one real folder and links to it, never two real folders, and the
+# installer must COUNT what it wired rather than trust that it wired anything.
+#
+# This is a PORT and not shared code, for the reason at the top of this file: lib.sh
+# is bash, a Windows reader downloads one file, and the link here has to be a JUNCTION
+# because a junction needs no administrator rights. Same names in the same order as the
+# bash, so a change to one is easy to carry to the other.
+# =============================================================================
+
+function ConvertTo-KbJsonString {
+    <#  One string, quoted for JSON.
+
+        Windows is why this cannot be skipped. Every path here carries backslashes,
+        and "C:\hub\skills" is not valid JSON - it has to go out as
+        "C:\\hub\\skills" or Hermes reads a path with escape sequences in it. .NET's
+        Replace and not PowerShell's -replace, because -replace is a regular
+        expression on both sides and backslashes in a regex replacement are their own
+        small trap. #>
+    param([string]$Text)
+    return '"' + ([string]$Text).Replace('\', '\\').Replace('"', '\"') + '"'
+}
+
+function Get-KitRealPath {
+    <#  Where a path really lands, following a junction to whatever it points at.
+
+        PowerShell 5.1 has no ResolveLinkTarget, and Resolve-Path on a junction hands
+        back the junction rather than its target, so this walks .Target itself - the
+        same property Join-KitMemory above already reads. A path that does not exist
+        still gets a normalised answer, because two spellings of the same absent
+        folder have to compare equal. The loop has a ceiling so a junction pointing
+        at itself cannot hang an installer. #>
+    param([string]$Path)
+    if (-not $Path) { return '' }
+    $p = $Path
+    for ($i = 0; $i -lt 16; $i++) {
+        $item = Get-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
+        if (-not $item -or -not $item.LinkType) { break }
+        $t = @($item.Target)[0]
+        if (-not $t) { break }
+        $p = $t
+    }
+    try { $p = [System.IO.Path]::GetFullPath($p) } catch { }
+    return $p.TrimEnd('\', '/')
+}
+
+function Get-KitRecipeCount {
+    <#  How many recipes a folder holds, counting both shapes the book has ever used:
+        a flat <name>.md, and a <name>\SKILL.md folder. Always returns a number and
+        never throws, so it is safe inside an assertion.
+
+        The two levels are spelled out rather than done with -Recurse, and that is
+        deliberate: -Recurse would count a recipe's own notes as further recipes and
+        report a number nobody can reconcile with what they see in the folder.
+
+        Windows needs no equivalent of the bash `find -L`, because a junction is
+        resolved by the filesystem itself and Get-ChildItem walks straight through
+        one. The bash twin learned that the hard way. #>
+    param([string]$Path)
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Container)) { return 0 }
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($f in @(Get-ChildItem -LiteralPath $Path -File -Filter '*.md' -Force -ErrorAction SilentlyContinue)) {
+        [void]$seen.Add($f.FullName)
+    }
+    foreach ($d in @(Get-ChildItem -LiteralPath $Path -Directory -Force -ErrorAction SilentlyContinue)) {
+        $s = Join-Path $d.FullName 'SKILL.md'
+        if (Test-Path -LiteralPath $s -PathType Leaf) { [void]$seen.Add($s) }
+    }
+    return $seen.Count
+}
+
+function Get-KitSkillsRoom {
+    <#  The folder this reader's recipes ACTUALLY live in. Detected, never assumed: a
+        hub built under the Claude-only batch keeps them in .claude\skills, and a hub
+        built by the book keeps them in the visible skills\. The visible room wins
+        when both hold something, because it is the one the reader can see and the one
+        the book walks them through. #>
+    param([Parameter(Mandatory)][string]$Hub)
+    $visible = Join-Path $Hub 'skills'
+    if ((Get-KitRecipeCount $visible) -gt 0) { return $visible }
+    $hidden = Join-Path $Hub '.claude\skills'
+    if ((Get-KitRecipeCount $hidden) -gt 0) { return $hidden }
+    # An empty or brand new hub: the visible room is the right answer, not a hidden
+    # folder we would then have to teach as a room.
+    return $visible
+}
+
+function Set-KitRoomLink {
+    <#  Make $Link resolve to $Room, whatever it is today. Repairs a junction pointing
+        somewhere else, and refuses to destroy a real folder that holds work: that
+        folder is carried in and moved aside with a timestamp, never deleted. Returns
+        $true when the link ends up pointing at the room. #>
+    param([Parameter(Mandatory)][string]$Link, [Parameter(Mandatory)][string]$Room)
+
+    # Already resolving to the room, and that covers two cases at once: a link written
+    # earlier with a different spelling of the same path, AND the hub whose real room
+    # IS this very folder. Without the second, a Claude-era hub whose recipes live in
+    # .claude\skills would have this function copy that folder into itself and then
+    # move it aside, which is the worst outcome in this file.
+    if ((Test-Path -LiteralPath $Link) -and ((Get-KitRealPath $Link) -eq (Get-KitRealPath $Room))) {
+        return $true
+    }
+
+    $item = Get-Item -LiteralPath $Link -Force -ErrorAction SilentlyContinue
+    if ($item -and $item.LinkType) {
+        # .Delete() on the junction removes the reparse point and leaves whatever it
+        # pointed at alone. A recursive delete would walk through it and take the
+        # reader's recipes with it, which is the one mistake this whole file exists to
+        # avoid, so this line is not a style choice.
+        try { $item.Delete() } catch { return $false }
+    }
+    elseif ($item) {
+        if ((Get-KitRecipeCount $Link) -gt 0) {
+            foreach ($f in @(Get-ChildItem -LiteralPath $Link -Force -ErrorAction SilentlyContinue)) {
+                $dest = Join-Path $Room $f.Name
+                if (-not (Test-Path -LiteralPath $dest)) {
+                    Copy-Item -LiteralPath $f.FullName -Destination $dest -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
+            $stash = "$Link.replaced-$(Get-Date -Format yyyyMMddHHmmss)"
+            try { Move-Item -LiteralPath $Link -Destination $stash -ErrorAction Stop } catch { return $false }
+            Write-KbOk "skills: recipes found in $Link were carried into $Room, and the old folder is kept at $stash"
+        }
+        else {
+            # The empty placeholder the old installer made. Nothing to lose. .NET's
+            # recursive delete stops at a reparse point rather than following it, and
+            # the junction case above has already been taken, so this only ever
+            # removes a real and recipe-free folder.
+            try { [System.IO.Directory]::Delete($Link, $true) } catch { return $false }
+        }
+    }
+
+    New-Item -ItemType Directory -Force (Split-Path $Link -Parent) | Out-Null
+    try { New-Item -ItemType Junction -Path $Link -Target $Room -ErrorAction Stop | Out-Null }
+    catch { return $false }
+    return $true
+}
+
+function Set-KitHermesSkillsDir {
+    <#  Tell Hermes to read the reader's room, WITHOUT throwing away anything already
+        configured there. `hermes config set` REPLACES a list, so a blind set is how a
+        reader loses the team folder they added last month. Read, merge, write.
+
+        WHICH hermes is settled by KB_HERMES_BIN, defaulting to whatever is on PATH.
+        That is not decoration: on 2026-09-01 an early run of the bash twin, exercised
+        from a scratch folder, wrote a temp path into the author's own live config,
+        because the function found the real hermes on PATH. A test that can reach the
+        real thing eventually will. The same hook covers the PC where Hermes is
+        installed but not on PATH. #>
+    param([Parameter(Mandatory)][string]$Room)
+
+    $bin = if ($env:KB_HERMES_BIN) { $env:KB_HERMES_BIN } else { 'hermes' }
+    if (-not (Get-Command $bin -ErrorAction SilentlyContinue)) {
+        Write-KbOk "skills: Hermes is not on this PC yet, so there is nothing to tell it. Run this again once it is."
+        return
+    }
+
+    # `hermes config get` prints one path per line, each prefixed "- ". Verified
+    # against a real Hermes 0.21.0 before any of this was written.
+    $cur = @()
+    try {
+        $cur = @(& $bin config get skills.external_dirs 2>$null |
+                 ForEach-Object { ([string]$_ -replace '^\s*-\s*', '').Trim() } |
+                 Where-Object { $_ -and $_ -ne '[]' })
+    } catch { $cur = @() }
+
+    if ($cur -contains $Room) {
+        Write-KbOk "skills: Hermes already reads $Room"
+        return
+    }
+
+    $json = '[' + ((@($cur) + @($Room) | ForEach-Object { ConvertTo-KbJsonString $_ }) -join ',') + ']'
+    & $bin config set skills.external_dirs $json 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-KbOk "skills: Hermes now reads $Room"
+    } else {
+        Write-KbWarn "skills: could not tell Hermes to read $Room.
+     Run this by hand: hermes config set skills.external_dirs '$json'"
+    }
+}
+
+function Connect-KitSkills {
+    <#  The whole job: find the real room, point every other name at it, tell Hermes
+        where it is, then PROVE it by counting what is reachable through the door the
+        old code got backwards. #>
+    param([Parameter(Mandatory)][string]$Hub)
+
+    $room = Get-KitSkillsRoom -Hub $Hub
+    New-Item -ItemType Directory -Force $room | Out-Null
+    $real = Get-KitRealPath $room
+    $have = Get-KitRecipeCount $real
+
+    # Claude Code only ever looks in .claude\skills, and the book keeps that door open
+    # for the developer's chapter, so it becomes a JUNCTION to the visible room. This
+    # is the direction the old code had backwards.
+    $claude = Join-Path $Hub '.claude\skills'
+    $agents = Join-Path $Hub '.agents\skills'
+    if (-not (Set-KitRoomLink -Link $claude -Room $real)) {
+        Write-KbWarn "skills: could not point $claude at $real"
+    }
+    # .agents\skills is the same story for everything that is not Claude Code.
+    if (-not (Set-KitRoomLink -Link $agents -Room $real)) {
+        Write-KbWarn "skills: could not point $agents at $real"
+    }
+
+    Set-KitHermesSkillsDir -Room $real
+
+    # THE ASSERTION THAT WOULD HAVE CAUGHT THE OLD BUG ON THE DAY IT SHIPPED. A green
+    # tick over an empty room is worse than a red one, because the reader stops
+    # looking.
+    $reach = Get-KitRecipeCount $claude
+    if ($have -gt 0 -and $reach -eq 0) {
+        Write-KbWarn "skills: $have recipe(s) live in $real but nothing can reach them through $claude.
+     Nothing was moved and nothing was lost. Do not trust a recipe to fire until this is sorted."
+        return $false
+    }
+    if ($have -gt 0) {
+        Write-KbOk "skills: $have recipe(s) in $real, and every assistant reads that one folder"
+    } else {
+        Write-KbOk "skills: your room is ready at $real, and every assistant already knows to read it"
+    }
+    return $true
+}
+
 if ($AsLibrary) { return }
 
 # ---------------------------------------------------------------- run standalone
@@ -1615,13 +1851,11 @@ Install-KitPromptHarvest -Hub $Hub
 # the runner that step just installed. Quiet for the reader who never connects one.
 Connect-KitNotebook -Hub $Hub
 
-$skills = Join-Path $Hub '.claude\skills'
-$agents = Join-Path $Hub '.agents\skills'
-if ((Test-Path $skills) -and -not (Test-Path $agents)) {
-    New-Item -ItemType Directory -Force (Join-Path $Hub '.agents') | Out-Null
-    New-Item -ItemType Junction -Path $agents -Target $skills | Out-Null
-    Write-KbOk "skills: assistants other than Claude Code can now read them too"
-}
+# One real room, junctions to it, and it counts what it wired. Replaces three lines
+# that pointed .agents\skills at .claude\skills whenever .claude\skills existed, which
+# on a hub built by the book meant pointing every non-Claude assistant at the empty
+# folder the top-up had just made.
+Connect-KitSkills -Hub $Hub | Out-Null
 
 # The completion text is built from what actually happened on THIS PC, never
 # from the promise. The old text here claimed "nothing is stored inside one AI

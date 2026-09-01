@@ -1013,6 +1013,240 @@ Check "a kit that ships no due.js gets no hub-due, and says nothing about it" {
     }
 }
 
+Write-Host ""
+Write-Host "-- one skills room, and the installer proves it wired something"
+#
+# THE BUG THESE EXIST FOR. Until 2026-09-01 both installers junctioned .agents\skills to
+# .claude\skills whenever .claude\skills existed. On a hub whose recipes live in the
+# visible skills\ room, which is the arrangement the book teaches, the starter top-up had
+# just created .claude\skills EMPTY, so every non-Claude assistant was pointed at an empty
+# folder while six recipes sat unreachable, under a green tick. Measured on a real
+# reader-shaped hub during Run 2, not imagined.
+#
+# EVERY CASE BELOW DRIVES HERMES THROUGH A STUB, and that is not tidiness. Hermes is on
+# the author's own PATH. An early run of the bash twin, exercised from a scratch folder,
+# wrote a temporary path into his live config because the function found the real hermes.
+# KB_HERMES_BIN is the hook that makes that impossible from in here, and this block sets
+# it before the first call that could reach outside.
+
+function New-HermesStub {
+    <#  A fake hermes. It records every call, and answers `config get` with whatever the
+        case wants already configured, so the read-merge-write can be checked without a
+        real assistant anywhere near it. #>
+    param([string]$Dir, [string]$Log, [string[]]$Configured = @())
+    New-Item -ItemType Directory -Force $Dir | Out-Null
+    $lines = @('@echo off', "echo %* >> `"$Log`"")
+    foreach ($c in $Configured) { $lines += "if /I `"%2`"==`"get`" echo - $c" }
+    $lines += 'exit /b 0'
+    $stub = Join-Path $Dir 'hermes.cmd'
+    Set-KbTextFile -Path $stub -Lines $lines
+    Set-KbTextFile -Path $Log -Lines @()
+    return $stub
+}
+
+function Add-Recipes {
+    param([string]$Dir, [string[]]$Names)
+    New-Item -ItemType Directory -Force $Dir | Out-Null
+    foreach ($n in $Names) { Set-Content -LiteralPath (Join-Path $Dir "$n.md") -Value "# $n" }
+}
+
+function Get-RealSkillsFolders {
+    <#  Every REAL folder named skills under $Root.
+
+        Walked by hand rather than with -Recurse, and that is the Windows half of the
+        lesson the bash twin learned with `find -L`. On Windows a junction IS a
+        directory, so Get-ChildItem -Recurse walks straight through one and would count
+        the very links this block creates as further rooms - hiding the exact thing the
+        assertion exists to see. #>
+    param([string]$Root, [int]$Depth = 4)
+    if ($Depth -lt 0) { return @() }
+    $found = @()
+    foreach ($d in @(Get-ChildItem -LiteralPath $Root -Directory -Force -ErrorAction SilentlyContinue)) {
+        if ($d.LinkType) { continue }
+        if ($d.Name -eq 'skills') { $found += $d.FullName }
+        $found += @(Get-RealSkillsFolders -Root $d.FullName -Depth ($Depth - 1))
+    }
+    return $found
+}
+
+$SkRoot  = New-TestDir 'skills'
+$SkLog   = Join-Path $SkRoot 'calls.log'
+$Existing = 'C:\existing\team-skills'
+$env:KB_HERMES_BIN = New-HermesStub -Dir (Join-Path $SkRoot 'bin') -Log $SkLog -Configured @($Existing)
+
+foreach ($fn in 'ConvertTo-KbJsonString', 'Get-KitRealPath', 'Get-KitRecipeCount',
+                 'Get-KitSkillsRoom', 'Set-KitRoomLink', 'Set-KitHermesSkillsDir',
+                 'Connect-KitSkills') {
+    Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
+}
+
+Check "an empty folder holds no recipes" { (Get-KitRecipeCount (Join-Path $SkRoot 'nope')) -eq 0 }
+Check "flat .md recipes are counted" {
+    $d = Join-Path $SkRoot 'flat'; Add-Recipes $d @('a', 'b')
+    (Get-KitRecipeCount $d) -eq 2
+}
+Check "a folder recipe with a SKILL.md counts" {
+    $d = Join-Path $SkRoot 'nested'
+    New-Item -ItemType Directory -Force (Join-Path $d 'deep') | Out-Null
+    Set-Content (Join-Path $d 'deep\SKILL.md') '# deep'
+    (Get-KitRecipeCount $d) -eq 1
+}
+
+# A Windows path is the reason the JSON has to be escaped at all: C:\hub\skills goes out
+# as C:\\hub\\skills or Hermes reads a path full of escape sequences.
+Check "a Windows path goes into the JSON with its backslashes doubled" {
+    (ConvertTo-KbJsonString 'C:\hub\skills') -eq '"C:\\hub\\skills"'
+}
+
+# Which room is the real one. Detected, never assumed.
+Check "the visible room wins when it holds the recipes" {
+    $d = New-TestDir 'sk-visible'
+    Add-Recipes (Join-Path $d 'skills') @('a')
+    New-Item -ItemType Directory -Force (Join-Path $d '.claude\skills') | Out-Null
+    (Get-KitSkillsRoom -Hub $d) -eq (Join-Path $d 'skills')
+}
+Check "a Claude-era hub keeps its recipes where they are" {
+    $d = New-TestDir 'sk-claudeera'
+    Add-Recipes (Join-Path $d '.claude\skills') @('a')
+    (Get-KitSkillsRoom -Hub $d) -eq (Join-Path $d '.claude\skills')
+}
+Check "a brand new hub is given the visible room" {
+    $d = New-TestDir 'sk-new'
+    (Get-KitSkillsRoom -Hub $d) -eq (Join-Path $d 'skills')
+}
+
+# The merge. `hermes config set` REPLACES a list, so this is how a reader loses a team
+# folder they added themselves.
+Check "an entry already in external_dirs survives, and the hub's room is added after it" {
+    Set-KbTextFile -Path $SkLog -Lines @()
+    $d = New-TestDir 'sk-merge'
+    Add-Recipes (Join-Path $d 'skills') @('a')
+    Connect-KitSkills -Hub $d 3>&1 6>&1 | Out-Null
+    # cmd's %* shows PowerShell's own quote escaping, so the assertion reads the two
+    # escaped PATHS, which no amount of quoting changes.
+    $log  = Get-Content -LiteralPath $SkLog -Raw
+    $keep = $Existing.Replace('\', '\\')
+    $room = (Get-KitRealPath (Join-Path $d 'skills')).Replace('\', '\\')
+    ($log -like "*$keep*") -and ($log -like "*$room*") -and
+        ($log.IndexOf($keep) -lt $log.IndexOf($room))
+}
+
+# Never write when nothing needs writing.
+Check "a room Hermes already reads is not written again" {
+    $d = New-TestDir 'sk-noop'
+    Add-Recipes (Join-Path $d 'skills') @('a')
+    $log2 = Join-Path $SkRoot 'calls2.log'
+    $env:KB_HERMES_BIN = New-HermesStub -Dir (Join-Path $SkRoot 'bin2') -Log $log2 `
+                            -Configured @((Get-KitRealPath (Join-Path $d 'skills')))
+    Connect-KitSkills -Hub $d 3>&1 6>&1 | Out-Null
+    $r = -not ((Get-Content -LiteralPath $log2 -Raw) -like '*config set*')
+    $env:KB_HERMES_BIN = Join-Path $SkRoot 'bin\hermes.cmd'
+    $r
+}
+Check "a PC with no Hermes is told so, and nothing else breaks" {
+    $d = New-TestDir 'sk-nohermes'
+    Add-Recipes (Join-Path $d 'skills') @('a')
+    $env:KB_HERMES_BIN = Join-Path $SkRoot 'bin\no-such-hermes.cmd'
+    $r = Connect-KitSkills -Hub $d 3>&1 6>&1 | Select-Object -Last 1
+    $env:KB_HERMES_BIN = Join-Path $SkRoot 'bin\hermes.cmd'
+    ($r -eq $true) -and ((Get-KitRecipeCount (Join-Path $d '.claude\skills')) -eq 1)
+}
+
+# The exact shipped defect: recipes visible, .claude\skills empty. Unlike the bash suite,
+# where Git Bash turns ln -s into a copy and the link cases can only run on Linux, a
+# junction is real here, so every one of these runs on the platform it ships to.
+Check "the empty placeholder becomes a junction, not a second room" {
+    $script:SkD1 = New-TestDir 'sk-defect'
+    Add-Recipes (Join-Path $script:SkD1 'skills') @('a', 'b', 'c', 'd', 'e', 'f')
+    New-Item -ItemType Directory -Force (Join-Path $script:SkD1 '.claude\skills') | Out-Null
+    Set-Content (Join-Path $script:SkD1 '.claude\skills\.gitkeep') ''
+    Connect-KitSkills -Hub $script:SkD1 3>&1 6>&1 | Out-Null
+    [bool](Get-Item -LiteralPath (Join-Path $script:SkD1 '.claude\skills') -Force).LinkType
+}
+Check "and it resolves to the room the reader can see" {
+    (Get-KitRealPath (Join-Path $script:SkD1 '.claude\skills')) -eq
+        (Get-KitRealPath (Join-Path $script:SkD1 'skills'))
+}
+Check "so Claude Code reaches all six recipes, which was the bug" {
+    (Get-KitRecipeCount (Join-Path $script:SkD1 '.claude\skills')) -eq 6
+}
+Check "and so does everything that is not Claude Code" {
+    (Get-KitRecipeCount (Join-Path $script:SkD1 '.agents\skills')) -eq 6
+}
+Check "exactly one real skills folder exists in the hub" {
+    (@(Get-RealSkillsFolders -Root $script:SkD1)).Count -eq 1
+}
+
+# A hub whose recipes really do live in .claude\skills must not be fed to itself. Getting
+# this wrong copies a folder into itself and then moves it aside.
+Check "a Claude-era hub keeps its three recipes" {
+    $script:SkD2 = New-TestDir 'sk-aj'
+    Add-Recipes (Join-Path $script:SkD2 '.claude\skills') @('x', 'y', 'z')
+    Connect-KitSkills -Hub $script:SkD2 3>&1 6>&1 | Out-Null
+    (Get-KitRecipeCount (Join-Path $script:SkD2 '.claude\skills')) -eq 3
+}
+Check "and nothing was moved aside behind its back" {
+    @(Get-ChildItem -LiteralPath (Join-Path $script:SkD2 '.claude') -Force -Filter '*.replaced-*' `
+        -ErrorAction SilentlyContinue).Count -eq 0
+}
+
+# The old backwards junction, already on disk, must be repaired rather than trusted.
+Check "before: the old junction reached nothing" {
+    $script:SkD3 = New-TestDir 'sk-repair'
+    Add-Recipes (Join-Path $script:SkD3 'skills') @('a', 'b', 'c', 'd', 'e', 'f')
+    New-Item -ItemType Directory -Force (Join-Path $script:SkD3 '.claude\skills') | Out-Null
+    New-Item -ItemType Directory -Force (Join-Path $script:SkD3 '.agents') | Out-Null
+    New-Item -ItemType Junction -Path (Join-Path $script:SkD3 '.agents\skills') `
+             -Target (Join-Path $script:SkD3 '.claude\skills') | Out-Null
+    (Get-KitRecipeCount (Join-Path $script:SkD3 '.agents\skills')) -eq 0
+}
+Check "after: the same junction reaches every recipe" {
+    Connect-KitSkills -Hub $script:SkD3 3>&1 6>&1 | Out-Null
+    (Get-KitRecipeCount (Join-Path $script:SkD3 '.agents\skills')) -eq 6
+}
+
+# THE WINDOWS FOOTGUN, and it gets its own case. Remove-Item -Recurse on a junction walks
+# through it and deletes what it points at, which is why Set-KitRoomLink calls .Delete()
+# on the reparse point instead. If that ever regresses, a reader loses recipes rather than
+# a link, so this proves the target is untouched.
+Check "repointing a junction never touches what it pointed at" {
+    $d = New-TestDir 'sk-safe'
+    Add-Recipes (Join-Path $d 'skills') @('a', 'b', 'c')
+    Add-Recipes (Join-Path $d 'elsewhere') @('keep1', 'keep2')
+    New-Item -ItemType Directory -Force (Join-Path $d '.agents') | Out-Null
+    New-Item -ItemType Junction -Path (Join-Path $d '.agents\skills') `
+             -Target (Join-Path $d 'elsewhere') | Out-Null
+    Connect-KitSkills -Hub $d 3>&1 6>&1 | Out-Null
+    ((Get-KitRecipeCount (Join-Path $d 'elsewhere')) -eq 2) -and
+        ((Get-KitRecipeCount (Join-Path $d '.agents\skills')) -eq 3)
+}
+
+# Twice equals once, or re-running the installer is a thing people fear.
+Check "a second run changes nothing on disk" {
+    $d = New-TestDir 'sk-twice'
+    Add-Recipes (Join-Path $d 'skills') @('a')
+    Connect-KitSkills -Hub $d 3>&1 6>&1 | Out-Null
+    $before = (@(Get-ChildItem -LiteralPath $d -Recurse -Force -Name | Sort-Object) -join "`n")
+    Connect-KitSkills -Hub $d 3>&1 6>&1 | Out-Null
+    $after  = (@(Get-ChildItem -LiteralPath $d -Recurse -Force -Name | Sort-Object) -join "`n")
+    $before -eq $after
+}
+
+# A real folder with real work standing where the link belongs is never deleted.
+Check "a recipe found in the hidden folder is carried into the visible room" {
+    $script:SkD5 = New-TestDir 'sk-carry'
+    Add-Recipes (Join-Path $script:SkD5 'skills') @('mine')
+    Add-Recipes (Join-Path $script:SkD5 '.claude\skills') @('theirs')
+    Connect-KitSkills -Hub $script:SkD5 3>&1 6>&1 | Out-Null
+    Test-Path -LiteralPath (Join-Path $script:SkD5 'skills\theirs.md')
+}
+Check "and the folder it came from is kept, not deleted" {
+    @(Get-ChildItem -LiteralPath (Join-Path $script:SkD5 '.claude') -Force -Filter '*.replaced-*' `
+        -ErrorAction SilentlyContinue).Count -eq 1
+}
+
+$env:KB_HERMES_BIN = $null
+
 # Put the real user PATH back, whatever the cases above did to it. See $UserPath0 at the top.
 try { [Environment]::SetEnvironmentVariable('Path', $UserPath0, 'User') } catch { }
 
