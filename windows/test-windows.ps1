@@ -1422,6 +1422,8 @@ function New-HermesCwdStub {
         '}',
         'if ($args[0] -eq "-z") {',
         '    if ($mode -eq "parrot") { [string]$args[1]; exit 0 }',
+        '    # A one-shot that reached no model at all, and still exits 0. Measured.',
+        '    if ($mode -eq "http400") { ''HTTP 400: {"detail":"The model is not supported when using Codex with a ChatGPT account."}''; exit 0 }',
         '    if ($mode -eq "ignore") { $d = $env:STUB_ELSEWHERE }',
         '    elseif (Test-Path -LiteralPath $env:STUB_CWDFILE) { $d = (Get-Content -LiteralPath $env:STUB_CWDFILE -Raw).Trim() }',
         '    else { $d = "." }',
@@ -1464,6 +1466,7 @@ $env:KB_HERMES_BIN  = New-HermesCwdStub -Dir (Join-Path $CwdRoot 'bin')
 Set-KbTextFile -Path $env:STUB_LOG -Lines @()
 
 foreach ($fn in 'Get-KitHermesBin', 'Test-KitHermesHere', 'Test-KitHermesCredential',
+                 'ConvertFrom-KbYamlScalar', 'Get-KitHermesList',
                  'Invoke-KitHermesOneShot', 'Test-KitHermesReadsHub', 'Set-KitHermesHub') {
     Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
 }
@@ -1507,6 +1510,25 @@ Check "an agent that ignores terminal.cwd is caught, not congratulated" {
 }
 Check "and it is named as the half-connected shape rather than as a mystery" {
     $script:IgnoreRes.Text -like '*could not read a file*'
+}
+
+# A PROVIDER FAILURE IS NOT A FOLDER FAILURE, and telling a reader their hub is half
+# connected because their model is misconfigured is the workspace lie pointed the other
+# way. Found by running the installer on hardware: the test server's account default was a
+# model its own subscription cannot serve, so every one-shot came back HTTP 400 and the
+# installer blamed terminal.cwd.
+Check "a one-shot that reached no model is unreachable, not a failed read" {
+    $env:STUB_MODE = 'http400'
+    $script:UnreachRes = Invoke-HubCase -Hub (New-TestDir 'hermescwd-nomodel')
+    $r = Test-KitHermesReadsHub -Hub (New-TestDir 'hermescwd-nomodel2')
+    $env:STUB_MODE = ''
+    $r -eq 'unreachable'
+}
+Check "and that is not reported as a broken hub, but as a provider problem" {
+    $script:UnreachRes.Ok -and
+        ($script:UnreachRes.Text -like '*provider problem and not a folder problem*') -and
+        ($script:UnreachRes.Text -like '*HTTP 400*') -and
+        -not ($script:UnreachRes.Text -like '*could not read a file*')
 }
 
 # A parrot passes nothing. The token lives only in the file, never in the prompt, so an
@@ -1587,7 +1609,11 @@ function New-HermesApprovalsStub {
         'if ($args[0] -eq "config" -and $args[1] -eq "get" -and $args[2] -eq "approvals.deny") {',
         '    $r = Get-Rules',
         '    if ($r.Count -eq 0) { "Config key not set: approvals.deny"; exit 1 }',
-        '    $r | ForEach-Object { "- $_" }',
+        '    # QUOTED, the way a real YAML writer hands them back. Every rule starts with',
+        '    # a * , which YAML reads as an alias, so Hermes quotes all of them. The stub',
+        '    # echoed them back bare, which is exactly why it missed the bug where a second',
+        '    # run added all eighteen again with the quote characters baked in.',
+        '    $r | ForEach-Object { "- " + [char]39 + $_.Replace([string][char]39, [string][char]39 + [char]39) + [char]39 }',
         '}',
         'if ($args[0] -eq "config" -and $args[1] -eq "set" -and $args[2] -eq "approvals.deny") {',
         '    # THE VALUE COMES FROM WHAT CMD SAW, NOT FROM $args, and that is not fussiness.',
@@ -1672,10 +1698,20 @@ Check "and no allowlist is written, because Hermes already allows the kit's own 
 Check "the check runs both ways, not just the scary one" {
     $ApRes.Text -like '*checked both ways*'
 }
-Check "a second run adds nothing" {
+# THE BUG THE STUB USED TO HIDE. Hermes hands a rule starting with * back QUOTED, so a
+# read that does not unquote sees eighteen rules it does not recognise and adds them all
+# again, quote characters and all. Measured on hardware: the list reached thirty-six
+# entries, half of them matching no command at all, after a single second run.
+Check "a second run adds nothing, even though Hermes quotes every rule back" {
     Set-KbTextFile -Path $env:STUB_LOG -Lines @()
     Invoke-ApprovalsCase | Out-Null
-    -not ((Get-Content -LiteralPath $env:STUB_LOG -Raw) -like '*[[]set[]] [[]approvals.deny[]]*')
+    (-not ((Get-Content -LiteralPath $env:STUB_LOG -Raw) -like '*[[]set[]] [[]approvals.deny[]]*')) -and
+        (@(Get-KitHermesList -Key 'approvals.deny').Count -eq @(Get-KitHermesDenyRules).Count)
+}
+Check "and a quoted value is read back as the rule itself, not as a new one" {
+    ((ConvertFrom-KbYamlScalar "'*shred *'") -eq '*shred *') -and
+        ((ConvertFrom-KbYamlScalar "'''''*shred *'''''") -eq '*shred *') -and
+        ((ConvertFrom-KbYamlScalar '*shred *') -eq '*shred *')
 }
 # `hermes config set` REPLACES a list, so without read, merge, write this is how a
 # reader loses the rule they added themselves.

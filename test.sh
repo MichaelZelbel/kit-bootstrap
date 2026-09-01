@@ -1061,6 +1061,9 @@ fi
 if [ "$1" = "-z" ]; then
   case "${STUB_MODE:-honour}" in
     parrot) echo "$2"; exit 0 ;;
+    # A one-shot that reached no model at all, and still exits 0. Measured on hardware.
+    http400) echo 'HTTP 400: {"detail":"The model is not supported when using Codex with a ChatGPT account."}'; exit 0 ;;
+    ratelimit) echo 'API call failed after 3 retries: HTTP 429: Rate limit reached for this account.'; exit 0 ;;
     ignore) d="$STUB_ELSEWHERE" ;;
     *)      if [ -s "$STUB_CWDFILE" ]; then d=$(cat "$STUB_CWDFILE"); else d="."; fi ;;
   esac
@@ -1103,6 +1106,24 @@ out="$(kb_point_hermes_at_hub "$_hi" 2>&1)"; _rc=$?
 t "an agent that ignores terminal.cwd is caught, not congratulated" "$_rc" "1"
 t "and it is named as the half-connected shape rather than as a mystery" \
   "$(printf '%s' "$out" | grep -c 'could not read a file')" "1"
+
+# A PROVIDER FAILURE IS NOT A FOLDER FAILURE, and telling a reader their hub is half
+# connected because their model is misconfigured is the workspace lie pointed the other
+# way. Found by running the installer on hardware: the test account default was a model
+# its own subscription cannot serve, so every one-shot came back HTTP 400 and the
+# installer blamed terminal.cwd.
+: > "$STUB_LOG"
+STUB_MODE=http400; export STUB_MODE
+_hu=$(mktemp -d)/hub; mkdir -p "$_hu"
+t "a one-shot that reached no model is unreachable, not a failed read"   "$(kb_hermes_reads_hub "$_hu")" "unreachable"
+out="$(kb_point_hermes_at_hub "$_hu" 2>&1)"; _rc=$?
+t "and that is not reported as a broken hub" "$_rc" "0"
+t "the reader is told it is a provider problem"   "$(printf '%s' "$out" | grep -c 'provider problem and not a folder problem')" "1"
+t "and is shown what Hermes actually said"   "$(printf '%s' "$out" | grep -c 'HTTP 400')" "1"
+t "the half-connected warning is NOT printed for a provider error"   "$(printf '%s' "$out" | grep -c 'could not read a file')" "0"
+STUB_MODE=ratelimit
+t "a rate limit is the same story" "$(kb_hermes_reads_hub "$_hu")" "unreachable"
+unset STUB_MODE
 
 # A parrot passes nothing. The token lives only in the file, never in the prompt, so an
 # agent that echoes the prompt straight back cannot fake a read.

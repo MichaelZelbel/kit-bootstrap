@@ -1820,12 +1820,7 @@ function Set-KitHermesSkillsDir {
 
     # `hermes config get` prints one path per line, each prefixed "- ". Verified
     # against a real Hermes 0.21.0 before any of this was written.
-    $cur = @()
-    try {
-        $cur = @(& $bin config get skills.external_dirs 2>$null |
-                 ForEach-Object { ([string]$_ -replace '^\s*-\s*', '').Trim() } |
-                 Where-Object { $_ -and $_ -ne '[]' })
-    } catch { $cur = @() }
+    $cur = @(Get-KitHermesList -Key 'skills.external_dirs')
 
     if ($cur -contains $Room) {
         Write-KbOk "skills: Hermes already reads $Room"
@@ -1920,6 +1915,41 @@ function Test-KitHermesHere {
     [bool](Get-Command (Get-KitHermesBin) -ErrorAction SilentlyContinue)
 }
 
+function ConvertFrom-KbYamlScalar {
+    <#  Strip the single quotes a YAML writer puts around a value that would otherwise be
+        ambiguous, and unescape the doubled quotes inside.
+
+        WHY THIS IS NOT OPTIONAL. Every deny rule the kit ships starts with `*`, and a `*`
+        at the start of a YAML scalar means an ALIAS, so `hermes config get` hands all
+        eighteen of them back QUOTED. Reading them back without this is how a second
+        install run added the same eighteen rules again AND wrote the quote characters
+        into them: the list grew to thirty-six entries, half of which matched no command
+        at all. Found by running the installer twice on real hardware. A stub that echoes
+        back whatever it was given can never show this, and ours did not.
+
+        The loop exists because a config already corrupted that way carries several
+        layers. #>
+    param([string]$Text)
+    $v = [string]$Text
+    while ($v.Length -gt 1 -and $v.StartsWith("'") -and $v.EndsWith("'")) {
+        $v = $v.Substring(1, $v.Length - 2).Replace("''", "'")
+    }
+    return $v
+}
+
+function Get-KitHermesList {
+    <#  A list-valued Hermes setting, one clean value per line. `config get` prints
+        "- value" per entry, an unset key prints "Config key not set" and exits 1, and an
+        empty list prints []. All three mean "nothing" to a caller merging into it. #>
+    param([Parameter(Mandatory)][string]$Key)
+    if (-not (Test-KitHermesHere)) { return @() }
+    $out = @()
+    try { $out = @(& (Get-KitHermesBin) config get $Key 2>$null) } catch { return @() }
+    return @($out |
+        ForEach-Object { ConvertFrom-KbYamlScalar (([string]$_ -replace '^\s*-\s*', '').Trim()) } |
+        Where-Object { $_ -and $_ -ne '[]' -and $_ -notlike 'Config key not set*' })
+}
+
 function Test-KitHermesCredential {
     <#  Is there a provider Hermes can actually call? Without one the file-read proof
         cannot run, and reporting that as a failed setting would be a lie: on a first
@@ -1988,7 +2018,20 @@ function Test-KitHermesReadsHub {
     } finally {
         try { [System.IO.File]::Delete($file) } catch { }
     }
+    $script:KitHubProofSaid = ([string]$out).Trim()
     if ($out -and $out.Contains($token)) { return 'yes' }
+
+    # NOT AN ANSWER ABOUT THE FOLDER AT ALL. If no model ran, the one-shot says nothing
+    # about terminal.cwd, and blaming the wiring for a provider error is the same lie as
+    # the workspace line, just pointed the other way. Measured: on the test server the
+    # account default was a model its own subscription cannot serve, so every one-shot
+    # came back "HTTP 400 ... not supported when using Codex with a ChatGPT account" and
+    # the installer told the reader their hub was half connected. It was not.
+    foreach ($sign in 'HTTP 4', 'HTTP 5', 'API call failed', 'not supported', 'ate limit',
+                       'no authentication', 'not configured', 'credit', 'quota',
+                       'nauthorized', 'Connection', 'timed out', 'o provider') {
+        if ([string]$out -like "*$sign*") { return 'unreachable' }
+    }
     return 'no'
 }
 
@@ -2036,6 +2079,19 @@ function Set-KitHermesHub {
         'unavailable' {
             Write-KbOk "hub: no provider is connected yet, so I could not prove the folder is readable.
        Sign in, run this again, and it will check."
+            return $true
+        }
+        'unreachable' {
+            # Say what actually happened, and do not report a wiring failure that is not one.
+            $said = ''
+            if ($script:KitHubProofSaid) {
+                $said = (($script:KitHubProofSaid -split "`n")[0])
+                if ($said.Length -gt 160) { $said = $said.Substring(0, 160) }
+            }
+            Write-KbWarn "hub: I set the folder, but could not check it: Hermes could not reach a model
+     just now. That is a provider problem and not a folder problem, so nothing here is
+     broken. It said: $said
+     Sort the model or provider out, run this again, and it will check."
             return $true
         }
         default {
@@ -2108,13 +2164,10 @@ function Set-KitHermesApprovals {
     }
     $bin = Get-KitHermesBin
 
-    # An unset key exits 1 and says so; an empty list prints []. Both mean nothing here.
-    $cur = @()
-    try {
-        $cur = @(& $bin config get approvals.deny 2>$null |
-                 ForEach-Object { ([string]$_ -replace '^\s*-\s*', '').Trim() } |
-                 Where-Object { $_ -and $_ -ne '[]' -and $_ -notlike 'Config key not set*' })
-    } catch { $cur = @() }
+    # Read through Get-KitHermesList, which UNQUOTES. Every rule below starts with `*`, so
+    # Hermes hands them all back YAML-quoted, and a naive read adds all eighteen again on
+    # every run. See ConvertFrom-KbYamlScalar.
+    $cur = @(Get-KitHermesList -Key 'approvals.deny')
 
     $add = @(Get-KitHermesDenyRules | Where-Object { $cur -notcontains $_ })
     if ($add.Count -eq 0) {

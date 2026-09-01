@@ -654,7 +654,7 @@ kb_hermes_skills_dir() {
     ok "skills: Hermes is not on this machine yet, so there is nothing to tell it. Run this again once it is."
     return 0
   }
-  cur="$("$hermes_bin" config get skills.external_dirs 2>/dev/null | sed 's/^[[:space:]]*-[[:space:]]*//')"
+  cur="$(kb_hermes_list skills.external_dirs)"
   if printf '%s\n' "$cur" | grep -qxF "$room"; then
     ok "skills: Hermes already reads $room"
     return 0
@@ -755,6 +755,50 @@ kb_hermes_bin() { printf '%s' "${KB_HERMES_BIN:-hermes}"; }
 # Is there a Hermes on this machine at all?
 kb_hermes_here() { command -v "$(kb_hermes_bin)" >/dev/null 2>&1; }
 
+# kb_yaml_unquote <text>
+# Strip the single quotes a YAML writer puts around a value that would otherwise be
+# ambiguous, and unescape the doubled quotes inside.
+#
+# WHY THIS IS NOT OPTIONAL. Every deny rule the kit ships starts with `*`, and a `*` at
+# the start of a YAML scalar means an ALIAS, so `hermes config get` hands all eighteen of
+# them back QUOTED. Reading them back without this is how a second install run added the
+# same eighteen rules again AND wrote the quote characters into them: the list grew to
+# thirty-six entries, half of which matched no command at all. Found by running the
+# installer twice on real hardware. A stub that echoes back whatever it was given can
+# never show this, and ours did not.
+#
+# The loop exists because a config already corrupted that way carries several layers.
+kb_yaml_unquote() {
+  local v="${1:-}" prev=""
+  while [ "$v" != "$prev" ]; do
+    prev="$v"
+    case "$v" in
+      "'"?*"'") v="${v#'}"; v="${v%'}"; v="$(printf '%s' "$v" | sed "s/''/'/g")" ;;
+    esac
+  done
+  printf '%s' "$v"
+}
+
+# kb_hermes_list <key>
+# A list-valued Hermes setting, one clean value per line. `config get` prints "- value"
+# per entry, an unset key prints "Config key not set" and exits 1, and an empty list
+# prints []. All three mean "nothing" to a caller merging into it.
+kb_hermes_list() {
+  local key="${1:-}" line
+  [ -n "$key" ] || return 0
+  kb_hermes_here || return 0
+  "$(kb_hermes_bin)" config get "$key" 2>/dev/null     | sed 's/^[[:space:]]*-[[:space:]]*//'     | while IFS= read -r line || [ -n "$line" ]; do
+        # `|| [ -n "$line" ]`, because a plain read DROPS a final line with no newline
+        # after it, and that silently lost the last rule on every single run. The
+        # eighteenth rule was therefore never seen as already present, so every re-run
+        # added it again. Caught by a test that counted, not by one that looked.
+        case "$line" in *"Config key not set"*) continue ;; ""|"[]") continue ;; esac
+        kb_yaml_unquote "$line"
+        printf '
+'
+      done
+}
+
 # kb_hermes_has_credential
 # Is there a provider Hermes can actually call? Without one the file-read proof
 # cannot run, and reporting that as a failed setting would be a lie: on a first
@@ -764,6 +808,11 @@ kb_hermes_has_credential() {
   kb_hermes_here || return 1
   "$(kb_hermes_bin)" auth list 2>/dev/null | grep -qE '\([0-9]+ credential'
 }
+
+# kb_hub_proof_file
+# Where kb_hermes_reads_hub leaves what Hermes actually said. Derived from $$, which is
+# the same in a subshell as in its parent, so the caller can read what the subshell wrote.
+kb_hub_proof_file() { printf '%s' "${TMPDIR:-/tmp}/kb-hub-proof.$$"; }
 
 # kb_hermes_reads_hub <hub>
 # THE PROOF. Prints one of yes / no / unavailable, and always succeeds, so a caller
@@ -781,6 +830,7 @@ kb_hermes_has_credential() {
 #   measured: "API call failed after 3 retries: HTTP 429" on stdout, exit status 0.
 kb_hermes_reads_hub() {
   local hub="${1:-}" bin token marker prompt out
+  : > "$(kb_hub_proof_file)" 2>/dev/null || true
   [ -n "$hub" ] && [ -d "$hub" ] || { printf 'unavailable'; return 0; }
   kb_hermes_here || { printf 'unavailable'; return 0; }
   kb_hermes_has_credential || { printf 'unavailable'; return 0; }
@@ -797,10 +847,24 @@ kb_hermes_reads_hub() {
     out="$("$bin" -z "$prompt" 2>&1)"
   fi
   rm -f "$hub/$marker" 2>/dev/null || true
+  # Kept for the caller, so a message about a failure can quote the failure. It goes in a
+  # FILE and not a variable: this function is called inside $( ), which is a subshell, so
+  # anything it assigns dies with it. That cost one confused test.
+  printf '%s' "$out" > "$(kb_hub_proof_file)" 2>/dev/null || true
+
+  case "$out" in *"$token"*) printf 'yes'; return 0 ;; esac
+
+  # NOT AN ANSWER ABOUT THE FOLDER AT ALL. If no model ran, the one-shot says nothing
+  # about terminal.cwd, and blaming the wiring for a provider error is the same lie as
+  # the workspace line, just pointed the other way. Measured: on the test server the
+  # account default was a model its own subscription cannot serve, so every one-shot came
+  # back "HTTP 400 ... not supported when using Codex with a ChatGPT account" and the
+  # installer told the reader their hub was half connected. It was not.
   case "$out" in
-    *"$token"*) printf 'yes' ;;
-    *)          printf 'no'  ;;
+    *"HTTP 4"*|*"HTTP 5"*|*"API call failed"*|*"not supported"*|*"ate limit"*|    *"no authentication"*|*"not configured"*|*"credit"*|*"quota"*|*"nauthorized"*|    *"Connection"*|*"timed out"*|*"No provider"*|*"no provider"*)
+      printf 'unreachable'; return 0 ;;
   esac
+  printf 'no'
   return 0
 }
 
@@ -845,6 +909,13 @@ kb_point_hermes_at_hub() {
     unavailable)
       ok "hub: no provider is connected yet, so I could not prove the folder is readable.
        Sign in, run this again, and it will check."
+      return 0 ;;
+    unreachable)
+      # Say what actually happened, and do not report a wiring failure that is not one.
+      warn "hub: I set the folder, but could not check it: Hermes could not reach a model
+     just now. That is a provider problem and not a folder problem, so nothing here is
+     broken. It said: $(head -n 1 "$(kb_hub_proof_file)" 2>/dev/null | cut -c1-160)
+     Sort the model or provider out, run this again, and it will check."
       return 0 ;;
     *)
       warn "hub: Hermes says it works in $abs but could not read a file that is sitting there.
@@ -946,9 +1017,10 @@ kb_hermes_approvals() {
   }
   bin="$(kb_hermes_bin)"
 
-  # An unset key exits 1 and says so, an empty list prints []. Both mean nothing here.
-  cur="$("$bin" config get approvals.deny 2>/dev/null | sed 's/^[[:space:]]*-[[:space:]]*//')"
-  case "$cur" in *"Config key not set"*) cur="" ;; esac
+  # Read through kb_hermes_list, which unquotes. Every rule below starts with `*`, so
+  # Hermes hands them all back YAML-quoted, and a naive read adds all eighteen again on
+  # every run. See kb_yaml_unquote.
+  cur="$(kb_hermes_list approvals.deny)"
 
   while IFS= read -r line; do
     case "$line" in ""|"[]") continue ;; esac
