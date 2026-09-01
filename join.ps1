@@ -1861,8 +1861,9 @@ function Set-KitHermesSkillsDir {
     }
 
     $json = '[' + ((@($cur) + @($Room) | ForEach-Object { ConvertTo-KbJsonString $_ }) -join ',') + ']'
-    & $bin config set skills.external_dirs $json 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) {
+    # Through Invoke-KitHermesConfigSet, never &: PowerShell 5.1 eats the JSON's
+    # quotes on the way to a native argv, and Hermes then stores a string it ignores.
+    if (Invoke-KitHermesConfigSet -Key 'skills.external_dirs' -Value $json) {
         Write-KbOk "skills: Hermes now reads $Room"
     } else {
         Write-KbWarn "skills: could not tell Hermes to read $Room.
@@ -1991,6 +1992,44 @@ function Test-KitHermesCredential {
     if (-not (Test-KitHermesHere)) { return $false }
     $out = & (Get-KitHermesBin) auth list 2>$null
     return [bool](@($out) -match '\(\d+ credential')
+}
+
+function ConvertTo-KbNativeArg {
+    <#  One argument, quoted for a native process's command line by the rules
+        CommandLineToArgvW parses it back with. PowerShell 5.1's own binder does NOT
+        do this for an embedded quote: measured against a real Hermes 0.20.6, a JSON
+        array passed with & arrived in argv with every quote eaten, Hermes called it
+        invalid YAML/JSON, stored a STRING that "isinstance-gated readers will
+        ignore", and all eighteen deny rules shipped as decoration. Escaped by hand
+        and carried on a hand-built line, the same value arrives byte for byte. #>
+    param([Parameter(Mandatory)][string]$Value)
+    # Backslashes directly before a quote double, the quote itself is escaped, and
+    # trailing backslashes double so the closing quote survives them.
+    $s = $Value -replace '(\\*)"', '$1$1\"'
+    $s = $s -replace '(\\+)$', '$1$1'
+    return '"' + $s + '"'
+}
+
+function Invoke-KitHermesConfigSet {
+    <#  hermes config set <key> <value>, carried on a hand-built argument line
+        through Start-Process, exactly as Invoke-KitHermesOneShot carries the -z
+        prompt and for the same reason: & mangles an embedded quote under 5.1.
+        Returns $true only when hermes exited 0. #>
+    param([Parameter(Mandatory)][string]$Key, [Parameter(Mandatory)][string]$Value)
+    $argLine = 'config set ' + $Key + ' ' + (ConvertTo-KbNativeArg $Value)
+    $o = [System.IO.Path]::GetTempFileName()
+    $e = [System.IO.Path]::GetTempFileName()
+    $code = 1
+    try {
+        $p = Start-Process -FilePath (Get-KitHermesBin) -ArgumentList $argLine `
+                -NoNewWindow -PassThru -RedirectStandardOutput $o -RedirectStandardError $e
+        # Touch the handle BEFORE the process can exit, or ExitCode reads back
+        # $null and a successful set is reported as a failure.
+        $null = $p.Handle
+        if ($p.WaitForExit(60 * 1000)) { $code = $p.ExitCode } else { try { $p.Kill() } catch { } }
+    } catch { }
+    foreach ($f in @($o, $e)) { try { [System.IO.File]::Delete($f) } catch { } }
+    return ($code -eq 0)
 }
 
 function Invoke-KitHermesOneShot {
@@ -2128,10 +2167,19 @@ function Set-KitHermesHub {
             return $true
         }
         default {
+            # The answer is quoted because "half connected" and "the model ignored
+            # the ask" look identical from the outside, and only the reply tells
+            # them apart. A real Windows e2e burned a round trip on exactly this.
+            $said = ''
+            if ($script:KitHubProofSaid) {
+                $said = (($script:KitHubProofSaid -split "`n")[0])
+                if ($said.Length -gt 160) { $said = $said.Substring(0, 160) }
+            }
             Write-KbWarn "hub: Hermes says it works in $abs but could not read a file that is sitting there.
      That is the half-connected shape: it knows the rules in AGENTS.md and cannot open
-     the folder those rules describe. Do not trust a job to find your files until this
-     is sorted. Check with: hermes config get terminal.cwd"
+     the folder those rules describe. It answered: $said
+     Do not trust a job to find your files until this is sorted.
+     Check with: hermes config get terminal.cwd"
             return $false
         }
     }
@@ -2207,8 +2255,10 @@ function Set-KitHermesApprovals {
         Write-KbOk "safety: the rules that keep an assistant from locking you out are already in place"
     } else {
         $json = '[' + (((@($cur) + $add) | ForEach-Object { ConvertTo-KbJsonString $_ }) -join ',') + ']'
-        & $bin config set approvals.deny $json 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) {
+        # Through Invoke-KitHermesConfigSet, never &: PowerShell 5.1 eats the JSON's
+        # quotes on the way to a native argv, and Hermes then stores a string it
+        # ignores - a leash that reads perfectly and stops nothing.
+        if (-not (Invoke-KitHermesConfigSet -Key 'approvals.deny' -Value $json)) {
             Write-KbWarn "safety: could not add the deny rules. Your assistant can still be talked into
      switching off SSH on the server you reach from this PC. Run this by hand:
      hermes config set approvals.deny '$json'"

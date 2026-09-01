@@ -1192,6 +1192,11 @@ out="$(kb_point_hermes_at_hub "$_hi" 2>&1)"; _rc=$?
 t "an agent that ignores terminal.cwd is caught, not congratulated" "$_rc" "1"
 t "and it is named as the half-connected shape rather than as a mystery" \
   "$(printf '%s' "$out" | grep -c 'could not read a file')" "1"
+# The warning quotes the answer, because "half connected" and "the model ignored the
+# ask" look identical from the outside and only the reply itself tells them apart.
+# A real Windows e2e burned a round trip on exactly this.
+t "and the reader is shown what Hermes answered, not left to guess" \
+  "$(printf '%s' "$out" | grep -c 'File not found: .hub-reachable-check')" "1"
 
 # A PROVIDER FAILURE IS NOT A FOLDER FAILURE, and telling a reader their hub is half
 # connected because their model is misconfigured is the workspace lie pointed the other

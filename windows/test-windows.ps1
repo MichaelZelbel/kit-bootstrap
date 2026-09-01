@@ -1251,16 +1251,54 @@ Write-Host "-- one skills room, and the installer proves it wired something"
 # it before the first call that could reach outside.
 
 function New-HermesStub {
-    <#  A fake hermes. It records every call, and answers `config get` with whatever the
-        case wants already configured, so the read-merge-write can be checked without a
-        real assistant anywhere near it. #>
+    <#  A fake hermes that consumes ARGV, the way the real one does.
+
+        The first version was pure cmd echoing %*, which is the RAW command line,
+        quotes intact. The real hermes.exe never sees that line: it sees what
+        CommandLineToArgvW makes of it, and measured against a real Hermes 0.20.6
+        that is a different thing entirely - PowerShell 5.1's binder does NOT
+        escape an embedded quote, so a JSON array passed with & arrived with
+        every quote eaten and Hermes stored a STRING it then ignored. A stub
+        reading the raw line agreed with the broken call for a whole session.
+
+        So this stub is cmd handing %* to powershell -File, whose $args IS the
+        argv view, and it behaves like the real thing: `config set` of a list
+        value must arrive as valid JSON or it is stored as an inert string, and
+        `config set` REPLACES the list. #>
     param([string]$Dir, [string]$Log, [string[]]$Configured = @())
     New-Item -ItemType Directory -Force $Dir | Out-Null
-    $lines = @('@echo off', "echo %* >> `"$Log`"")
-    foreach ($c in $Configured) { $lines += "if /I `"%2`"==`"get`" echo - $c" }
-    $lines += 'exit /b 0'
+    Set-KbTextFile -Path (Join-Path $Dir 'stub.ps1') -Lines @(
+        'if ($env:STUB_SK_LOG) { Add-Content -LiteralPath $env:STUB_SK_LOG -Value (@($args) -join " ") }',
+        '$store = $env:STUB_SK_STORE',
+        'if ($args[0] -eq "config" -and $args[1] -eq "get") {',
+        '    if ($store -and (Test-Path -LiteralPath $store)) {',
+        '        $raw = (Get-Content -LiteralPath $store -Raw).Trim()',
+        '        if ($raw.StartsWith("[")) { (ConvertFrom-Json $raw) | ForEach-Object { "- $_" } }',
+        '        else { $raw }',
+        '    }',
+        '}',
+        'if ($args[0] -eq "config" -and $args[1] -eq "set") {',
+        '    $val = [string]$args[3]',
+        '    try { ConvertFrom-Json $val -ErrorAction Stop | Out-Null }',
+        '    catch { $val = "STRING:" + $val }',
+        '    if ($store) { [System.IO.File]::WriteAllText($store, $val) }',
+        '}',
+        'exit 0'
+    )
     $stub = Join-Path $Dir 'hermes.cmd'
-    Set-KbTextFile -Path $stub -Lines $lines
+    # PowerShell by absolute path, for the reason in New-HermesCwdStub.
+    Set-KbTextFile -Path $stub -Lines @(
+        '@echo off',
+        '"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0stub.ps1" %*'
+    )
+    $env:STUB_SK_LOG   = $Log
+    $env:STUB_SK_STORE = Join-Path $Dir 'external-dirs.json'
+    if ($Configured.Count -gt 0) {
+        [System.IO.File]::WriteAllText($env:STUB_SK_STORE,
+            ('[' + (($Configured | ForEach-Object { ConvertTo-KbJsonString $_ }) -join ',') + ']'))
+    } else {
+        Remove-Item -LiteralPath $env:STUB_SK_STORE -Force -ErrorAction SilentlyContinue
+    }
     Set-KbTextFile -Path $Log -Lines @()
     return $stub
 }
@@ -1340,16 +1378,32 @@ Check "a brand new hub is given the visible room" {
 # folder they added themselves.
 Check "an entry already in external_dirs survives, and the hub's room is added after it" {
     Set-KbTextFile -Path $SkLog -Lines @()
-    $d = New-TestDir 'sk-merge'
-    Add-Recipes (Join-Path $d 'skills') @('a')
-    Connect-KitSkills -Hub $d 3>&1 6>&1 | Out-Null
-    # cmd's %* shows PowerShell's own quote escaping, so the assertion reads the two
-    # escaped PATHS, which no amount of quoting changes.
+    $script:SkMergeDir = New-TestDir 'sk-merge'
+    Add-Recipes (Join-Path $script:SkMergeDir 'skills') @('a')
+    Connect-KitSkills -Hub $script:SkMergeDir 3>&1 6>&1 | Out-Null
+    # The log records argv, where the JSON still carries its doubled backslashes, so
+    # the assertion reads the two escaped PATHS, which no amount of quoting changes.
     $log  = Get-Content -LiteralPath $SkLog -Raw
     $keep = $Existing.Replace('\', '\\')
-    $room = (Get-KitRealPath (Join-Path $d 'skills')).Replace('\', '\\')
+    $room = (Get-KitRealPath (Join-Path $script:SkMergeDir 'skills')).Replace('\', '\\')
     ($log -like "*$keep*") -and ($log -like "*$room*") -and
         ($log.IndexOf($keep) -lt $log.IndexOf($room))
+}
+Check "the room's path survives the trip: stored as JSON, single backslashes" {
+    # The stub stores what argv handed it, exactly as the real hermes.exe does.
+    # Measured on a real Hermes 0.20.6: the & operator ate the JSON's quotes, the
+    # value arrived as [C:\\...] and was stored with the doubled backslashes baked
+    # in, so the read-back never matched and every run added the room again.
+    $raw = (Get-Content -LiteralPath $env:STUB_SK_STORE -Raw).Trim()
+    # Assignment first: @(ConvertFrom-Json ...) around the cmdlet call collects the
+    # array as ONE nested element under 5.1 and -contains then matches nothing.
+    $stored = ConvertFrom-Json $raw
+    $raw.StartsWith('[') -and ($stored -contains (Get-KitRealPath (Join-Path $script:SkMergeDir 'skills')))
+}
+Check "and a second run does not add the room again" {
+    Set-KbTextFile -Path $SkLog -Lines @()
+    Connect-KitSkills -Hub $script:SkMergeDir 3>&1 6>&1 | Out-Null
+    -not ((Get-Content -LiteralPath $SkLog -Raw) -like '*config set*')
 }
 
 # Never write when nothing needs writing.
@@ -1361,7 +1415,11 @@ Check "a room Hermes already reads is not written again" {
                             -Configured @((Get-KitRealPath (Join-Path $d 'skills')))
     Connect-KitSkills -Hub $d 3>&1 6>&1 | Out-Null
     $r = -not ((Get-Content -LiteralPath $log2 -Raw) -like '*config set*')
-    $env:KB_HERMES_BIN = Join-Path $SkRoot 'bin\hermes.cmd'
+    # Both halves of the first stub's state come back, or the cases above this
+    # one leak into the cases below it.
+    $env:KB_HERMES_BIN   = Join-Path $SkRoot 'bin\hermes.cmd'
+    $env:STUB_SK_LOG     = $SkLog
+    $env:STUB_SK_STORE   = Join-Path $SkRoot 'bin\external-dirs.json'
     $r
 }
 Check "a PC with no Hermes is told so, and nothing else breaks" {
@@ -1467,6 +1525,8 @@ Check "and the folder it came from is kept, not deleted" {
 }
 
 $env:KB_HERMES_BIN = $null
+$env:STUB_SK_LOG   = $null
+$env:STUB_SK_STORE = $null
 
 Write-Host ""
 Write-Host "-- where Hermes works, and proving it rather than reading the setting back"
@@ -1595,6 +1655,12 @@ Check "an agent that ignores terminal.cwd is caught, not congratulated" {
 Check "and it is named as the half-connected shape rather than as a mystery" {
     $script:IgnoreRes.Text -like '*could not read a file*'
 }
+Check "and the reader is shown what Hermes answered, not left to guess" {
+    # "Half connected" and "the model ignored the ask" look identical from the
+    # outside; only the reply itself tells them apart. A real Windows e2e burned
+    # a round trip on exactly this.
+    $script:IgnoreRes.Text -like '*File not found: .hub-reachable-check*'
+}
 
 # A PROVIDER FAILURE IS NOT A FOLDER FAILURE, and telling a reader their hub is half
 # connected because their model is misconfigured is the workspace lie pointed the other
@@ -1688,9 +1754,16 @@ function New-HermesApprovalsStub {
         '    if (-not (Test-Path -LiteralPath $env:STUB_DENY)) { return @() }',
         '    $raw = (Get-Content -LiteralPath $env:STUB_DENY -Raw).Trim()',
         '    if (-not $raw -or $raw -eq "[]") { return @() }',
+        '    # A value stored as a string is INERT, exactly as on the real thing:',
+        '    # "most isinstance-gated readers will ignore a string here".',
+        '    if ($raw.StartsWith("STRING:")) { return @() }',
         '    return @($raw.Trim("[","]") -split ''","'' | ForEach-Object { $_.Trim(''"'') } | Where-Object { $_ })',
         '}',
         'if ($args[0] -eq "config" -and $args[1] -eq "get" -and $args[2] -eq "approvals.deny") {',
+        '    if ((Test-Path -LiteralPath $env:STUB_DENY) -and (Get-Content -LiteralPath $env:STUB_DENY -Raw).Trim().StartsWith("STRING:")) {',
+        '        # The real hermes prints the stored string back, no list dashes.',
+        '        (Get-Content -LiteralPath $env:STUB_DENY -Raw).Trim().Substring(7); exit 0',
+        '    }',
         '    $r = Get-Rules',
         '    if ($r.Count -eq 0) { "Config key not set: approvals.deny"; exit 1 }',
         '    # QUOTED, the way a real YAML writer hands them back. Every rule starts with',
@@ -1700,20 +1773,16 @@ function New-HermesApprovalsStub {
         '    $r | ForEach-Object { "- " + [char]39 + $_.Replace([string][char]39, [string][char]39 + [char]39) + [char]39 }',
         '}',
         'if ($args[0] -eq "config" -and $args[1] -eq "set" -and $args[2] -eq "approvals.deny") {',
-        '    # THE VALUE COMES FROM WHAT CMD SAW, NOT FROM $args, and that is not fussiness.',
-        '    # The shim is cmd calling powershell -File, and that round trip EATS the double',
-        '    # quotes: a JSON array arrives here as [*shred *,*userdel root*,...] with every',
-        '    # quote gone. A real hermes.exe never sees that, because PowerShell escapes an',
-        '    # inner quote for a native process and the C runtime puts it back. So the stub',
-        '    # reads cmd own argument line instead, un-escapes it, and the test above can',
-        '    # still prove the JSON left PowerShell with its quotes on.',
-        '    $raw = ""',
-        '    if ($env:STUB_RAW -and (Test-Path -LiteralPath $env:STUB_RAW)) {',
-        '        $raw = (Get-Content -LiteralPath $env:STUB_RAW -Raw)',
-        '    }',
+        '    # $args IS the argv view, which is what the real hermes.exe reads. An earlier',
+        '    # version of this stub read cmd raw argument line instead, believing that',
+        '    # "PowerShell escapes an inner quote for a native process". Measured against a',
+        '    # real Hermes 0.20.6, it does NOT: the & operator ate every quote, hermes',
+        '    # called the value invalid YAML/JSON and stored a STRING, and all eighteen',
+        '    # rules shipped as decoration. The stub now does what the real thing does:',
+        '    # valid JSON becomes the list, anything else is stored inert.',
         '    $val = [string]$args[3]',
-        '    $line = @($raw -split "`r?`n" | Where-Object { $_ -match ''^config set approvals\.deny '' }) | Select-Object -Last 1',
-        '    if ($line) { $val = ($line -replace ''^config set approvals\.deny\s+'', '''').Trim().Replace(''\"'', ''"'') }',
+        '    try { ConvertFrom-Json $val -ErrorAction Stop | Out-Null }',
+        '    catch { $val = "STRING:" + $val }',
         '    [System.IO.File]::WriteAllText($env:STUB_DENY, $val)',
         '}',
         'if ($args[0] -eq "approvals" -and $args[1] -eq "test") {',
@@ -1731,7 +1800,6 @@ function New-HermesApprovalsStub {
     # PowerShell by absolute path, for the reason in New-HermesCwdStub.
     Set-KbTextFile -Path $cmd -Lines @(
         '@echo off',
-        'if defined STUB_RAW >>"%STUB_RAW%" echo %*',
         '"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0stub.ps1" %*'
     )
     return $cmd
@@ -1748,7 +1816,6 @@ function Invoke-ApprovalsCase {
 $ApRoot = New-TestDir 'approvals'
 $env:STUB_LOG  = Join-Path $ApRoot 'calls.log'
 $env:STUB_DENY = Join-Path $ApRoot 'deny.json'
-$env:STUB_RAW  = Join-Path $ApRoot 'raw-args.txt'
 $env:KB_HERMES_BIN = New-HermesApprovalsStub -Dir (Join-Path $ApRoot 'bin')
 Set-KbTextFile -Path $env:STUB_LOG -Lines @()
 
@@ -1762,13 +1829,13 @@ Check "every shipped rule reaches the config" {
     $d = Get-Content -LiteralPath $env:STUB_DENY -Raw
     @(Get-KitHermesDenyRules | Where-Object { -not $d.Contains($_) }).Count -eq 0
 }
-Check "the list leaves PowerShell as real JSON, quotes and all" {
-    # cmd's own view of the argument line, taken before the powershell -File round trip
-    # strips the quotes out of it.
-    # Measured, not assumed: PowerShell 5.1 hands a native process the quotes as they
-    # are. It is the shim's own powershell -File re-parse that strips them, which is why
-    # the stub reads this file rather than its own $args.
-    (Get-Content -LiteralPath $env:STUB_RAW -Raw).Contains('"*shred *"')
+Check "the list ARRIVES at Hermes as real JSON, quotes and all" {
+    # The stub stores what argv handed it, which is what the real hermes.exe reads.
+    # Measured on a real Hermes 0.20.6: PowerShell 5.1's & operator ate every embedded
+    # quote, the value arrived as [*shred *,...], Hermes called it invalid YAML/JSON
+    # and stored a STRING, and all eighteen rules shipped as decoration.
+    $d = Get-Content -LiteralPath $env:STUB_DENY -Raw
+    (-not $d.StartsWith('STRING:')) -and $d.Contains('"*shred *"')
 }
 Check "the Unix rules are what ships, because this PC is what drives the server" {
     (Get-KitHermesDenyRules) -contains '*systemctl stop ssh*'
@@ -1837,7 +1904,7 @@ Check "join.ps1 ends with an explicit exit, so a good run cannot report 3" {
     $tail -eq 'exit 0'
 }
 
-foreach ($v in 'KB_HERMES_BIN', 'STUB_LOG', 'STUB_DENY', 'STUB_RAW', 'STUB_TOOTIGHT') {
+foreach ($v in 'KB_HERMES_BIN', 'STUB_LOG', 'STUB_DENY', 'STUB_TOOTIGHT') {
     Set-Item -Path "env:$v" -Value '' -ErrorAction SilentlyContinue
 }
 

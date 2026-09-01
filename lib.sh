@@ -923,10 +923,13 @@ kb_point_hermes_at_hub() {
      Sort the model or provider out, run this again, and it will check."
       return 0 ;;
     *)
+      # The answer is quoted because "half connected" and "the model ignored the
+      # ask" look identical from the outside, and only the reply tells them apart.
       warn "hub: Hermes says it works in $abs but could not read a file that is sitting there.
      That is the half-connected shape: it knows the rules in AGENTS.md and cannot open
-     the folder those rules describe. Do not trust a job to find your files until this
-     is sorted. Check with: hermes config get terminal.cwd"
+     the folder those rules describe. It answered: $(head -n 1 "$(kb_hub_proof_file)" 2>/dev/null | cut -c1-160)
+     Do not trust a job to find your files until this is sorted.
+     Check with: hermes config get terminal.cwd"
       return 1 ;;
   esac
 }
