@@ -37,7 +37,10 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_age kb_age_keygen kb_have_age kb_hub_key_path kb_notebook_state \
          kb_unseal_hub_key kb_seal_hub_key kb_store_notebook_token kb_write_mcp_config \
          kb_install_notebook_sync kb_persist_notebook_env kb_connect_notebook \
-         kb_seed_expiry_record kb_seed_due_folder; do
+         kb_seed_expiry_record kb_seed_due_folder \
+         kb_json_str kb_count_recipes kb_skills_room kb_point_at_room \
+         kb_hermes_skills_dir kb_wire_skills kb_hermes_bin kb_hermes_here \
+         kb_hermes_has_credential kb_hermes_reads_hub kb_point_hermes_at_hub; do
   declare -F "$f" >/dev/null || printf "%s " "$f"
 done')"
 [ -z "$missing" ] || { echo "  MISSING: $missing"; exit 1; }
@@ -1013,6 +1016,122 @@ fi
 rm -rf "$_skprobe"
 unset KB_HERMES_BIN
 rm -rf "$_sk"
+
+echo
+echo "== where Hermes works, and proving it rather than reading the setting back"
+#
+# WHAT THESE GUARD. The kit shipped `hermes config set workspace "$HUB"`, which is not
+# a recognised key: Hermes warned, the warning went to /dev/null, and the reader was
+# told the workspace was set. Four of the six known ways to point Hermes at a folder
+# are silent no-ops like that one, so v2 sets terminal.cwd and then PROVES the folder
+# is readable by having Hermes read a file in it.
+#
+# The stub below is a faithful little Hermes rather than a yes-man. `-z` reads the
+# marker file RELATIVE to whatever terminal.cwd says, which is exactly the behaviour
+# measured on hardware, so STUB_MODE=ignore reproduces the half-connected failure and
+# the check can be proved to catch it. A stub that always said yes would test nothing.
+_hb=$(mktemp -d); mkdir -p "$_hb/bin"
+cat > "$_hb/bin/hermes" <<'STUB'
+#!/bin/sh
+echo "$*" >> "$STUB_LOG"
+if [ "$1" = "auth" ] && [ "$2" = "list" ]; then
+  [ "${STUB_NO_CREDENTIAL:-0}" = "1" ] || echo "openai-codex (1 credentials):"
+fi
+if [ "$1" = "config" ] && [ "$2" = "get" ] && [ "$3" = "terminal.cwd" ]; then
+  if [ -s "$STUB_CWDFILE" ]; then cat "$STUB_CWDFILE"; else echo "."; fi
+fi
+if [ "$1" = "config" ] && [ "$2" = "set" ] && [ "$3" = "terminal.cwd" ]; then
+  printf '%s' "$4" > "$STUB_CWDFILE"
+fi
+if [ "$1" = "-z" ]; then
+  case "${STUB_MODE:-honour}" in
+    parrot) echo "$2"; exit 0 ;;
+    ignore) d="$STUB_ELSEWHERE" ;;
+    *)      if [ -s "$STUB_CWDFILE" ]; then d=$(cat "$STUB_CWDFILE"); else d="."; fi ;;
+  esac
+  f=$(printf '%s' "$2" | sed -n 's/.*Read the file \([^ ]*\) in.*/\1/p')
+  cat "$d/$f" 2>/dev/null || echo "File not found: $f"
+fi
+exit 0
+STUB
+chmod +x "$_hb/bin/hermes"
+export KB_HERMES_BIN="$_hb/bin/hermes"
+export STUB_LOG="$_hb/calls.log" STUB_CWDFILE="$_hb/terminal-cwd"
+export STUB_ELSEWHERE="$_hb/elsewhere"
+mkdir -p "$STUB_ELSEWHERE"; : > "$STUB_LOG"
+
+_hh=$(mktemp -d)/hub; mkdir -p "$_hh"; _hhr=$(cd "$_hh" && pwd -P)
+kb_point_hermes_at_hub "$_hh" >/dev/null 2>&1; _rc=$?
+
+t "terminal.cwd is set to the hub's absolute path" "$(cat "$STUB_CWDFILE")" "$_hhr"
+t "and the whole thing succeeds when the folder is readable" "$_rc" "0"
+t "workspace is never set, because it is not a key" \
+  "$(grep -c 'config set workspace' "$STUB_LOG")" "0"
+t "the proof asks for the file by a RELATIVE name, or it proves nothing" \
+  "$(grep -c 'Read the file \.hub-reachable-check in' "$STUB_LOG")" "1"
+t "the marker file is not left behind in the reader's hub" \
+  "$(find "$_hhr" -name '.hub-reachable-check' | grep -c .)" "0"
+
+# Twice equals once: a hub already pointed at is not written again.
+: > "$STUB_LOG"
+kb_point_hermes_at_hub "$_hh" >/dev/null 2>&1
+t "a second run does not set terminal.cwd again" \
+  "$(grep -c 'config set terminal.cwd' "$STUB_LOG")" "0"
+
+# THE CASE THAT MATTERS MOST. The setting reads back perfectly and the agent still
+# cannot open the folder. Before this check that shipped as a green tick.
+: > "$STUB_LOG"
+STUB_MODE=ignore
+export STUB_MODE
+_hi=$(mktemp -d)/hub; mkdir -p "$_hi"
+out="$(kb_point_hermes_at_hub "$_hi" 2>&1)"; _rc=$?
+t "an agent that ignores terminal.cwd is caught, not congratulated" "$_rc" "1"
+t "and it is named as the half-connected shape rather than as a mystery" \
+  "$(printf '%s' "$out" | grep -c 'could not read a file')" "1"
+
+# A parrot passes nothing. The token lives only in the file, never in the prompt, so an
+# agent that echoes the prompt straight back cannot fake a read.
+STUB_MODE=parrot
+_hp=$(mktemp -d)/hub; mkdir -p "$_hp"
+t "an agent that only echoes the prompt back does not count as reading the file" \
+  "$(kb_hermes_reads_hub "$_hp")" "no"
+unset STUB_MODE
+
+# A first install, before the reader has signed in anywhere. Crying wolf here is how an
+# installer teaches people to ignore it.
+: > "$STUB_LOG"
+STUB_NO_CREDENTIAL=1
+export STUB_NO_CREDENTIAL
+_hn=$(mktemp -d)/hub; mkdir -p "$_hn"
+out="$(kb_point_hermes_at_hub "$_hn" 2>&1)"; _rc=$?
+t "no provider yet is not a failure" "$_rc" "0"
+t "the setting still lands with no provider" \
+  "$(grep -c 'config set terminal.cwd' "$STUB_LOG")" "1"
+t "and no one-shot is attempted with nothing to call" "$(grep -c -- '-z' "$STUB_LOG")" "0"
+t "a folder cannot be proved readable with no credential" \
+  "$(kb_hermes_reads_hub "$_hn")" "unavailable"
+unset STUB_NO_CREDENTIAL
+
+# The escape hatch, for the test matrix and for a reader on a metered plan.
+: > "$STUB_LOG"
+_hs=$(mktemp -d)/hub; mkdir -p "$_hs"
+KB_SKIP_HUB_PROOF=1 kb_point_hermes_at_hub "$_hs" >/dev/null 2>&1
+t "KB_SKIP_HUB_PROOF spends no request" "$(grep -c -- '-z' "$STUB_LOG")" "0"
+t "but still sets the folder" "$(grep -c 'config set terminal.cwd' "$STUB_LOG")" "1"
+
+t "a folder that is not there is unavailable, not a failed read" \
+  "$(kb_hermes_reads_hub "$_hb/no-such-hub")" "unavailable"
+
+# And with no Hermes at all, which is every machine before the install finishes.
+KB_HERMES_BIN="$_hb/bin/no-such-hermes"
+out="$(kb_point_hermes_at_hub "$_hh" 2>&1)"; _rc=$?
+t "no Hermes on the machine is not a failure" "$_rc" "0"
+t "and it says so plainly instead of going quiet" \
+  "$(printf '%s' "$out" | grep -c 'Hermes is not on this machine yet')" "1"
+KB_HERMES_BIN="$_hb/bin/hermes"
+
+unset KB_HERMES_BIN STUB_LOG STUB_CWDFILE STUB_ELSEWHERE
+rm -rf "$_hb"
 
 echo
 echo "  $pass passed, $fail failed"

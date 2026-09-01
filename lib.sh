@@ -647,7 +647,8 @@ kb_point_at_room() {
 # It also covers the machine where hermes is installed but not on PATH, which is
 # the same gap cron and systemd already have.
 kb_hermes_skills_dir() {
-  local room="${1:-}" cur line json="" hermes_bin="${KB_HERMES_BIN:-hermes}"
+  local room="${1:-}" cur line json="" hermes_bin
+  hermes_bin="$(kb_hermes_bin)"
   [ -n "$room" ] || return 1
   command -v "$hermes_bin" >/dev/null 2>&1 || {
     ok "skills: Hermes is not on this machine yet, so there is nothing to tell it. Run this again once it is."
@@ -712,6 +713,146 @@ kb_wire_skills() {
     ok "skills: your room is ready at $real, and every assistant already knows to read it"
   fi
   return 0
+}
+
+# --- Telling Hermes where the hub is, and PROVING it -------------------------
+#
+# WHY THIS IS THE MOST CAREFUL BLOCK IN THE FILE. Six ways of pointing Hermes at a
+# folder are now known, measured on hardware, and only two of them work. Four are
+# silent no-ops, and the kit shipped one of them.
+#
+#   hermes config set workspace <hub>   not a recognised key. Hermes warns, and the
+#                                       kit sent the warning to /dev/null and told
+#                                       the reader it had worked. SHIPPED.
+#   --in <dir> on the -z one-shot       read only in cmd_chat, which a one-shot
+#                                       never reaches
+#   cd before launching                 ignored; the agent lands in $HOME, and when
+#                                       terminal.cwd is set, cd loses outright
+#   WorkingDirectory= in the unit       pinned to HERMES_HOME upstream on purpose,
+#                                       because a movable path crash-loops at CHDIR
+#   terminal.cwd                        WORKS
+#   --workdir on a cron job             WORKS, per job, overrides terminal.cwd, and
+#                                       is the only thing that injects AGENTS.md
+#
+# So terminal.cwd is not one of several options. It is the only lever for the
+# interactive and one-shot paths, proved by a matched pair in both directions: the
+# agent reports the configured path as its own pwd and reads the file that lives
+# there, while the shell that launched it stands somewhere else entirely.
+#
+# AND IT IS VERIFIED BY A FILE READ, NEVER BY READING THE SETTING BACK. Three
+# mechanisms in this family already read back perfectly and did nothing. The failure
+# this guards against is the worst shape there is: AGENTS.md is found from the launch
+# directory, so the assistant knows the house rules and still cannot open the folder
+# those rules describe. From the outside that looks like it is working.
+
+# kb_hermes_bin
+# Which hermes to talk to. See kb_hermes_skills_dir for why this hook exists rather
+# than a bare `hermes`: an early run of that function found the real one on PATH and
+# wrote a temporary path into the author's own live configuration.
+kb_hermes_bin() { printf '%s' "${KB_HERMES_BIN:-hermes}"; }
+
+# kb_hermes_here
+# Is there a Hermes on this machine at all?
+kb_hermes_here() { command -v "$(kb_hermes_bin)" >/dev/null 2>&1; }
+
+# kb_hermes_has_credential
+# Is there a provider Hermes can actually call? Without one the file-read proof
+# cannot run, and reporting that as a failed setting would be a lie: on a first
+# install the reader has not signed in yet, and an installer that cries wolf on
+# every fresh machine teaches people to ignore it.
+kb_hermes_has_credential() {
+  kb_hermes_here || return 1
+  "$(kb_hermes_bin)" auth list 2>/dev/null | grep -qE '\([0-9]+ credential'
+}
+
+# kb_hermes_reads_hub <hub>
+# THE PROOF. Prints one of yes / no / unavailable, and always succeeds, so a caller
+# branches on the word rather than on an exit status.
+#
+# Three details, and every one of them is load-bearing.
+#
+#   The token is never in the prompt. If it were, a model that could not open the
+#   file could parrot it back and the check would pass on nothing.
+#
+#   The file is named RELATIVELY. An absolute path is read correctly from any working
+#   directory at all, which is the exact thing under test.
+#
+#   The OUTPUT decides, never $?. A one-shot that reached no model still exits 0,
+#   measured: "API call failed after 3 retries: HTTP 429" on stdout, exit status 0.
+kb_hermes_reads_hub() {
+  local hub="${1:-}" bin token marker prompt out
+  [ -n "$hub" ] && [ -d "$hub" ] || { printf 'unavailable'; return 0; }
+  kb_hermes_here || { printf 'unavailable'; return 0; }
+  kb_hermes_has_credential || { printf 'unavailable'; return 0; }
+  bin="$(kb_hermes_bin)"
+  marker=".hub-reachable-check"
+  token="HUBREACH$(date +%Y%m%d%H%M%S)$$"
+  printf '%s\n' "$token" > "$hub/$marker" 2>/dev/null || { printf 'unavailable'; return 0; }
+  prompt="Read the file $marker in your current folder and reply with its contents and nothing else."
+  # A one-shot can hang on a wedged provider, and an installer that never returns is
+  # worse than one that reports it could not check.
+  if command -v timeout >/dev/null 2>&1; then
+    out="$(timeout 180 "$bin" -z "$prompt" 2>&1)"
+  else
+    out="$("$bin" -z "$prompt" 2>&1)"
+  fi
+  rm -f "$hub/$marker" 2>/dev/null || true
+  case "$out" in
+    *"$token"*) printf 'yes' ;;
+    *)          printf 'no'  ;;
+  esac
+  return 0
+}
+
+# kb_point_hermes_at_hub <hub>
+# Set terminal.cwd to the hub's absolute path, then prove the hub is reachable.
+# Never sets `workspace`, which is the line this replaces.
+#
+# KB_SKIP_HUB_PROOF=1 skips the model call, for the test matrix and for a reader on
+# a metered plan who would rather not spend a request on a check.
+kb_point_hermes_at_hub() {
+  local hub="${1:-}" bin abs cur reach
+  [ -n "$hub" ] || { warn "kb_point_hermes_at_hub needs the hub folder"; return 1; }
+  [ -d "$hub" ] || { warn "kb_point_hermes_at_hub: no folder at $hub"; return 1; }
+  abs="$(cd "$hub" && pwd -P)"
+
+  kb_hermes_here || {
+    ok "hub: Hermes is not on this machine yet, so there is nothing to point at $abs. Run this again once it is."
+    return 0
+  }
+  bin="$(kb_hermes_bin)"
+
+  cur="$("$bin" config get terminal.cwd 2>/dev/null | head -n 1 | sed 's/[[:space:]]*$//')"
+  if [ "$cur" = "$abs" ]; then
+    ok "hub: Hermes already works in $abs"
+  elif "$bin" config set terminal.cwd "$abs" >/dev/null 2>&1; then
+    ok "hub: Hermes now works in $abs"
+  else
+    warn "hub: could not tell Hermes to work in $abs.
+     Run this by hand: hermes config set terminal.cwd $abs"
+    return 1
+  fi
+
+  if [ "${KB_SKIP_HUB_PROOF:-0}" = "1" ]; then
+    return 0
+  fi
+
+  reach="$(kb_hermes_reads_hub "$abs")"
+  case "$reach" in
+    yes)
+      ok "hub: and it can read a file in there, checked just now rather than assumed"
+      return 0 ;;
+    unavailable)
+      ok "hub: no provider is connected yet, so I could not prove the folder is readable.
+       Sign in, run this again, and it will check."
+      return 0 ;;
+    *)
+      warn "hub: Hermes says it works in $abs but could not read a file that is sitting there.
+     That is the half-connected shape: it knows the rules in AGENTS.md and cannot open
+     the folder those rules describe. Do not trust a job to find your files until this
+     is sorted. Check with: hermes config get terminal.cwd"
+      return 1 ;;
+  esac
 }
 
 # --- Joining a machine to a hub that already exists ---------------------------

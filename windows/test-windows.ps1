@@ -1247,6 +1247,185 @@ Check "and the folder it came from is kept, not deleted" {
 
 $env:KB_HERMES_BIN = $null
 
+Write-Host ""
+Write-Host "-- where Hermes works, and proving it rather than reading the setting back"
+#
+# WHAT THESE GUARD. The kit shipped `hermes config set workspace "$HUB"`, which is not a
+# recognised key: Hermes warned, the warning went to /dev/null, and the reader was told
+# the workspace was set. Four of the six known ways to point Hermes at a folder are
+# silent no-ops like that one, so v2 sets terminal.cwd and then PROVES the folder is
+# readable by having Hermes read a file in it.
+#
+# The stub below is a faithful little Hermes rather than a yes-man. Its -z reads the
+# marker file RELATIVE to whatever terminal.cwd says, which is exactly the behaviour
+# measured on hardware, so STUB_MODE=ignore reproduces the half-connected failure and
+# the check can be proved to catch it. A stub that always said yes would test nothing.
+
+function New-HermesCwdStub {
+    <#  A .cmd shim onto a PowerShell emulator, because the emulator has to be readable
+        and cmd's own string handling is not. The shim is what gets called, so this is
+        still an external program with a real exit code, which is what the code under
+        test talks to. #>
+    param([string]$Dir)
+    New-Item -ItemType Directory -Force $Dir | Out-Null
+    Set-KbTextFile -Path (Join-Path $Dir 'stub.ps1') -Lines @(
+        '$log = $env:STUB_LOG',
+        '# Each argument in its own brackets, so a prompt that arrived as sixteen',
+        '# arguments instead of one is visible in the log rather than invisible.',
+        'if ($log) { Add-Content -LiteralPath $log -Value ((@($args) | ForEach-Object { "[$_]" }) -join " ") }',
+        '$mode = if ($env:STUB_MODE) { $env:STUB_MODE } else { "honour" }',
+        'if ($args[0] -eq "auth" -and $args[1] -eq "list") {',
+        '    if ($env:STUB_NO_CREDENTIAL -ne "1") { "openai-codex (1 credentials):" }',
+        '}',
+        'if ($args[0] -eq "config" -and $args[1] -eq "get" -and $args[2] -eq "terminal.cwd") {',
+        '    if (Test-Path -LiteralPath $env:STUB_CWDFILE) { (Get-Content -LiteralPath $env:STUB_CWDFILE -Raw).Trim() } else { "." }',
+        '}',
+        'if ($args[0] -eq "config" -and $args[1] -eq "set" -and $args[2] -eq "terminal.cwd") {',
+        '    [System.IO.File]::WriteAllText($env:STUB_CWDFILE, [string]$args[3])',
+        '}',
+        'if ($args[0] -eq "-z") {',
+        '    if ($mode -eq "parrot") { [string]$args[1]; exit 0 }',
+        '    if ($mode -eq "ignore") { $d = $env:STUB_ELSEWHERE }',
+        '    elseif (Test-Path -LiteralPath $env:STUB_CWDFILE) { $d = (Get-Content -LiteralPath $env:STUB_CWDFILE -Raw).Trim() }',
+        '    else { $d = "." }',
+        '    $f = ""',
+        '    if ([string]$args[1] -match "Read the file (\S+) in") { $f = $Matches[1] }',
+        '    $p = Join-Path $d $f',
+        '    if ($f -and (Test-Path -LiteralPath $p)) { Get-Content -LiteralPath $p -Raw } else { "File not found: $f" }',
+        '}',
+        'exit 0'
+    )
+    $cmd = Join-Path $Dir 'hermes.cmd'
+    # PowerShell BY ABSOLUTE PATH, and it has to be. The Install-KitHubTools cases
+    # further up rebuild this process's own PATH, and by the time these cases run
+    # 'powershell' no longer resolves by name: the shim was reached, cmd could not find
+    # its interpreter, and every assertion below turned red for a reason that had
+    # nothing to do with the code under test.
+    Set-KbTextFile -Path $cmd -Lines @(
+        '@echo off',
+        '"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0stub.ps1" %*'
+    )
+    return $cmd
+}
+
+function Invoke-HubCase {
+    <#  Run Set-KitHermesHub and hand back both halves: everything it said, and what it
+        returned. The return value is last on the pipeline, after the prints. #>
+    param([string]$Hub)
+    $all = @(Set-KitHermesHub -Hub $Hub 3>&1 6>&1)
+    $ret = $false
+    if ($all.Count -gt 0) { $ret = $all[$all.Count - 1] }
+    $txt = ((@($all) | ForEach-Object { [string]$_ }) -join [Environment]::NewLine)
+    return [pscustomobject]@{ Text = $txt; Ok = ($ret -eq $true) }
+}
+
+$CwdRoot = New-TestDir 'hermescwd'
+$env:STUB_LOG       = Join-Path $CwdRoot 'calls.log'
+$env:STUB_CWDFILE   = Join-Path $CwdRoot 'terminal-cwd'
+$env:STUB_ELSEWHERE = New-TestDir 'hermescwd-elsewhere'
+$env:KB_HERMES_BIN  = New-HermesCwdStub -Dir (Join-Path $CwdRoot 'bin')
+Set-KbTextFile -Path $env:STUB_LOG -Lines @()
+
+foreach ($fn in 'Get-KitHermesBin', 'Test-KitHermesHere', 'Test-KitHermesCredential',
+                 'Invoke-KitHermesOneShot', 'Test-KitHermesReadsHub', 'Set-KitHermesHub') {
+    Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
+}
+
+$HubOk = New-TestDir 'hermescwd-hub'
+$HubRes = Invoke-HubCase -Hub $HubOk
+
+Check "terminal.cwd is set to the hub's absolute path" {
+    (Get-Content -LiteralPath $env:STUB_CWDFILE -Raw).Trim() -eq (Get-KitRealPath $HubOk)
+}
+Check "and the whole thing succeeds when the folder is readable" { $HubRes.Ok }
+Check "workspace is never set, because it is not a key" {
+    -not ((Get-Content -LiteralPath $env:STUB_LOG -Raw) -like '*[[]workspace[]]*')
+}
+# THE BUG THIS CAUGHT, and it was found by running the thing rather than reading it.
+# Start-Process -ArgumentList joins an array with spaces and quotes nothing, so the
+# prompt reached hermes.exe as sixteen arguments and -z got the word "Read".
+Check "the prompt reaches Hermes as ONE argument, not one per word" {
+    (Get-Content -LiteralPath $env:STUB_LOG -Raw) -like `
+        '*[[]Read the file .hub-reachable-check in your current folder and reply with its contents and nothing else.[]]*'
+}
+Check "the proof asks for the file by a RELATIVE name, or it proves nothing" {
+    -not ((Get-Content -LiteralPath $env:STUB_LOG -Raw) -like '*[[]Read the file ?:\*')
+}
+Check "the marker file is not left behind in the reader's hub" {
+    -not (Test-Path -LiteralPath (Join-Path $HubOk '.hub-reachable-check'))
+}
+Check "a second run does not set terminal.cwd again" {
+    Set-KbTextFile -Path $env:STUB_LOG -Lines @()
+    Invoke-HubCase -Hub $HubOk | Out-Null
+    -not ((Get-Content -LiteralPath $env:STUB_LOG -Raw) -like '*[[]set[]] [[]terminal.cwd[]]*')
+}
+
+# THE CASE THAT MATTERS MOST. The setting reads back perfectly and the agent still
+# cannot open the folder. Before this check that shipped as a green tick.
+Check "an agent that ignores terminal.cwd is caught, not congratulated" {
+    $env:STUB_MODE = 'ignore'
+    $script:IgnoreRes = Invoke-HubCase -Hub (New-TestDir 'hermescwd-ignored')
+    $env:STUB_MODE = ''
+    -not $script:IgnoreRes.Ok
+}
+Check "and it is named as the half-connected shape rather than as a mystery" {
+    $script:IgnoreRes.Text -like '*could not read a file*'
+}
+
+# A parrot passes nothing. The token lives only in the file, never in the prompt, so an
+# agent that echoes the prompt straight back cannot fake a read.
+Check "an agent that only echoes the prompt back does not count as reading the file" {
+    $env:STUB_MODE = 'parrot'
+    $r = Test-KitHermesReadsHub -Hub (New-TestDir 'hermescwd-parrot')
+    $env:STUB_MODE = ''
+    $r -eq 'no'
+}
+
+# A first install, before the reader has signed in anywhere. Crying wolf here is how an
+# installer teaches people to ignore it.
+Check "no provider yet is not a failure, and the setting still lands" {
+    Set-KbTextFile -Path $env:STUB_LOG -Lines @()
+    [System.IO.File]::Delete($env:STUB_CWDFILE)
+    $env:STUB_NO_CREDENTIAL = '1'
+    $r = Invoke-HubCase -Hub (New-TestDir 'hermescwd-nocred')
+    $log = Get-Content -LiteralPath $env:STUB_LOG -Raw
+    $env:STUB_NO_CREDENTIAL = ''
+    $r.Ok -and ($log -like '*[[]set[]] [[]terminal.cwd[]]*') -and -not ($log -like '*[[]-z[]]*')
+}
+Check "a folder cannot be proved readable with no credential" {
+    $env:STUB_NO_CREDENTIAL = '1'
+    $r = Test-KitHermesReadsHub -Hub (New-TestDir 'hermescwd-nocred2')
+    $env:STUB_NO_CREDENTIAL = ''
+    $r -eq 'unavailable'
+}
+
+# The escape hatch, for the test matrix and for a reader on a metered plan.
+Check "KB_SKIP_HUB_PROOF spends no request but still sets the folder" {
+    Set-KbTextFile -Path $env:STUB_LOG -Lines @()
+    [System.IO.File]::Delete($env:STUB_CWDFILE)
+    $env:KB_SKIP_HUB_PROOF = '1'
+    $r = Invoke-HubCase -Hub (New-TestDir 'hermescwd-skip')
+    $log = Get-Content -LiteralPath $env:STUB_LOG -Raw
+    $env:KB_SKIP_HUB_PROOF = ''
+    $r.Ok -and ($log -like '*[[]set[]] [[]terminal.cwd[]]*') -and -not ($log -like '*[[]-z[]]*')
+}
+
+Check "a folder that is not there is unavailable, not a failed read" {
+    (Test-KitHermesReadsHub -Hub (Join-Path $CwdRoot 'no-such-hub')) -eq 'unavailable'
+}
+Check "no Hermes on the PC is not a failure, and it says so plainly" {
+    $keep = $env:KB_HERMES_BIN
+    $env:KB_HERMES_BIN = Join-Path $CwdRoot 'bin\no-such-hermes.cmd'
+    $r = Invoke-HubCase -Hub $HubOk
+    $env:KB_HERMES_BIN = $keep
+    $r.Ok -and ($r.Text -like '*Hermes is not on this PC yet*')
+}
+
+foreach ($v in 'KB_HERMES_BIN', 'STUB_LOG', 'STUB_CWDFILE', 'STUB_ELSEWHERE', 'STUB_MODE',
+                'STUB_NO_CREDENTIAL', 'KB_SKIP_HUB_PROOF') {
+    Set-Item -Path "env:$v" -Value '' -ErrorAction SilentlyContinue
+}
+
 # Put the real user PATH back, whatever the cases above did to it. See $UserPath0 at the top.
 try { [Environment]::SetEnvironmentVariable('Path', $UserPath0, 'User') } catch { }
 

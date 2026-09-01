@@ -112,7 +112,7 @@ fi
 # and the published branch are published by two separate acts, so either can be ahead.
 for fn in kb_install_prereqs kb_new_hub kb_copy_starter_hub kb_link_ai_memory kb_install_hub_cli \
           kb_install_hub_tools kb_install_prompt_harvest kb_sync_report kb_write_prompt_sources \
-          kb_update_hub kb_connect_notebook; do
+          kb_update_hub kb_connect_notebook kb_wire_skills kb_point_hermes_at_hub; do
   if ! command -v "$fn" >/dev/null 2>&1; then
     echo "[stop] the install code on this computer is incomplete ($fn is missing)." >&2
     echo "       Run the newest command from https://github.com/MichaelZelbel/kit-bootstrap" >&2
@@ -198,6 +198,11 @@ kb_install_prompt_harvest "$HUB"  # the daily job that files what you type to an
 kb_connect_notebook "$HUB"
 
 kb_wire_skills "$HUB"   # one real room, links to it, and it counts what it wired
+
+# Where Hermes works. terminal.cwd, never `workspace`, and proved by a file read
+# rather than by reading the setting back. See the long note above the function:
+# four of the six known ways to do this are silent no-ops and the kit shipped one.
+kb_point_hermes_at_hub "$HUB"
 
 # -----------------------------------------------------------------------------
 # 5. What just happened, in words.

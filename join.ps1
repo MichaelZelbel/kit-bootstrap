@@ -1808,6 +1808,169 @@ function Connect-KitSkills {
     return $true
 }
 
+# =============================================================================
+# TELLING HERMES WHERE THE HUB IS, AND PROVING IT
+#
+# The Windows twin of kb_point_hermes_at_hub in lib.sh, and the long note above that
+# function is the one to read. The short version: six ways of pointing Hermes at a
+# folder are known, measured on hardware, and only two of them work. Four are silent
+# no-ops and the kit shipped one of them, `hermes config set workspace <hub>`, which
+# is not a recognised key at all.
+#
+#   hermes config set workspace <hub>   not a key. SHIPPED, with the warning sent to
+#                                       /dev/null and a green tick printed over it
+#   --in <dir> on the -z one-shot       read only in cmd_chat, which -z never reaches
+#   cd before launching                 ignored; the agent lands in the home folder
+#   WorkingDirectory= in the unit       pinned to HERMES_HOME upstream on purpose
+#   terminal.cwd                        WORKS
+#   --workdir on a cron job             WORKS, per job, and beats terminal.cwd
+#
+# AND IT IS VERIFIED BY A FILE READ, NEVER BY READING THE SETTING BACK. Three
+# mechanisms in this family already read back perfectly and did nothing. The failure
+# this guards against is the worst shape there is: AGENTS.md is found from the launch
+# directory, so the assistant knows the house rules and still cannot open the folder
+# those rules describe. From the outside that looks like it is working.
+# =============================================================================
+
+function Get-KitHermesBin {
+    <#  Which hermes to talk to. See Set-KitHermesSkillsDir for why this hook exists
+        rather than a bare 'hermes'. #>
+    if ($env:KB_HERMES_BIN) { return $env:KB_HERMES_BIN }
+    return 'hermes'
+}
+
+function Test-KitHermesHere {
+    [bool](Get-Command (Get-KitHermesBin) -ErrorAction SilentlyContinue)
+}
+
+function Test-KitHermesCredential {
+    <#  Is there a provider Hermes can actually call? Without one the file-read proof
+        cannot run, and reporting that as a failed setting would be a lie: on a first
+        install the reader has not signed in yet, and an installer that cries wolf on
+        every fresh PC teaches people to ignore it. #>
+    if (-not (Test-KitHermesHere)) { return $false }
+    $out = & (Get-KitHermesBin) auth list 2>$null
+    return [bool](@($out) -match '\(\d+ credential')
+}
+
+function Invoke-KitHermesOneShot {
+    <#  One -z prompt, with a ceiling on how long it may take. Windows has no
+        timeout(1), and an installer that never returns is worse than one that says it
+        could not check, so the process is started, waited on, and killed if it
+        outstays. Returns everything it printed, out and err together. #>
+    param([Parameter(Mandatory)][string]$Prompt, [int]$Seconds = 180)
+    # THE PROMPT IS QUOTED BY HAND, AND IT HAS TO BE. Start-Process -ArgumentList takes
+    # an array and then joins it with spaces WITHOUT quoting anything, so a sentence
+    # arrives at hermes.exe as sixteen separate arguments and -z gets the word "Read".
+    # Caught by running it rather than by reading it, which is the only way this kind
+    # of thing ever turns up.
+    $argLine = '-z "' + ($Prompt -replace '"', '\"') + '"'
+    $o = [System.IO.Path]::GetTempFileName()
+    $e = [System.IO.Path]::GetTempFileName()
+    $text = ''
+    try {
+        $p = Start-Process -FilePath (Get-KitHermesBin) -ArgumentList $argLine `
+                -NoNewWindow -PassThru -RedirectStandardOutput $o -RedirectStandardError $e
+        if (-not $p.WaitForExit($Seconds * 1000)) {
+            try { $p.Kill() } catch { }
+        }
+    } catch { }
+    foreach ($f in @($o, $e)) {
+        try { $text += (Get-Content -LiteralPath $f -Raw -ErrorAction SilentlyContinue) } catch { }
+        try { [System.IO.File]::Delete($f) } catch { }
+    }
+    return [string]$text
+}
+
+function Test-KitHermesReadsHub {
+    <#  THE PROOF. Returns 'yes', 'no' or 'unavailable', so a caller branches on the
+        word rather than on an exit status.
+
+        Three details, and every one of them is load-bearing.
+
+        The token is never in the prompt. If it were, a model that could not open the
+        file could parrot it back and the check would pass on nothing.
+
+        The file is named RELATIVELY. An absolute path is read correctly from any
+        working directory at all, which is the exact thing under test.
+
+        The OUTPUT decides, never the exit code. A one-shot that reached no model
+        still exits 0, measured: "API call failed after 3 retries: HTTP 429" on
+        stdout, exit status 0. #>
+    param([Parameter(Mandatory)][string]$Hub)
+    if (-not (Test-Path -LiteralPath $Hub -PathType Container)) { return 'unavailable' }
+    if (-not (Test-KitHermesHere)) { return 'unavailable' }
+    if (-not (Test-KitHermesCredential)) { return 'unavailable' }
+
+    $marker = '.hub-reachable-check'
+    $token  = 'HUBREACH' + (Get-Date -Format yyyyMMddHHmmss) + $PID
+    $file   = Join-Path $Hub $marker
+    try { Set-KbTextFile -Path $file -Lines @($token) } catch { return 'unavailable' }
+    try {
+        $out = Invoke-KitHermesOneShot -Prompt "Read the file $marker in your current folder and reply with its contents and nothing else."
+    } finally {
+        try { [System.IO.File]::Delete($file) } catch { }
+    }
+    if ($out -and $out.Contains($token)) { return 'yes' }
+    return 'no'
+}
+
+function Set-KitHermesHub {
+    <#  Set terminal.cwd to the hub's absolute path, then prove the hub is reachable.
+        Never sets `workspace`, which is the line this replaces.
+
+        KB_SKIP_HUB_PROOF=1 skips the model call, for the test matrix and for a reader
+        on a metered plan who would rather not spend a request on a check. #>
+    param([Parameter(Mandatory)][string]$Hub)
+
+    if (-not (Test-Path -LiteralPath $Hub -PathType Container)) {
+        Write-KbWarn "hub: no folder at $Hub"
+        return $false
+    }
+    $abs = Get-KitRealPath $Hub
+
+    if (-not (Test-KitHermesHere)) {
+        Write-KbOk "hub: Hermes is not on this PC yet, so there is nothing to point at $abs. Run this again once it is."
+        return $true
+    }
+    $bin = Get-KitHermesBin
+
+    $cur = ''
+    try { $cur = ([string](@(& $bin config get terminal.cwd 2>$null) | Select-Object -First 1)).Trim() } catch { }
+    if ($cur -eq $abs) {
+        Write-KbOk "hub: Hermes already works in $abs"
+    } else {
+        & $bin config set terminal.cwd $abs 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-KbWarn "hub: could not tell Hermes to work in $abs.
+     Run this by hand: hermes config set terminal.cwd $abs"
+            return $false
+        }
+        Write-KbOk "hub: Hermes now works in $abs"
+    }
+
+    if ($env:KB_SKIP_HUB_PROOF -eq '1') { return $true }
+
+    switch (Test-KitHermesReadsHub -Hub $abs) {
+        'yes' {
+            Write-KbOk "hub: and it can read a file in there, checked just now rather than assumed"
+            return $true
+        }
+        'unavailable' {
+            Write-KbOk "hub: no provider is connected yet, so I could not prove the folder is readable.
+       Sign in, run this again, and it will check."
+            return $true
+        }
+        default {
+            Write-KbWarn "hub: Hermes says it works in $abs but could not read a file that is sitting there.
+     That is the half-connected shape: it knows the rules in AGENTS.md and cannot open
+     the folder those rules describe. Do not trust a job to find your files until this
+     is sorted. Check with: hermes config get terminal.cwd"
+            return $false
+        }
+    }
+}
+
 if ($AsLibrary) { return }
 
 # ---------------------------------------------------------------- run standalone
@@ -1856,6 +2019,11 @@ Connect-KitNotebook -Hub $Hub
 # on a hub built by the book meant pointing every non-Claude assistant at the empty
 # folder the top-up had just made.
 Connect-KitSkills -Hub $Hub | Out-Null
+
+# Where Hermes works. terminal.cwd, never `workspace`, and proved by a file read
+# rather than by reading the setting back. See the long note above the function: four
+# of the six known ways to do this are silent no-ops and the kit shipped one.
+Set-KitHermesHub -Hub $Hub | Out-Null
 
 # The completion text is built from what actually happened on THIS PC, never
 # from the promise. The old text here claimed "nothing is stored inside one AI
