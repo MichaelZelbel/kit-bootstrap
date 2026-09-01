@@ -1013,6 +1013,227 @@ kb_hermes_approvals_selfcheck() {
   return 0
 }
 
+# --- The always-on half: the gateway, the clock, and signing in ---------------
+#
+# WHO CALLS THESE. Nothing in this file does, yet, and that is deliberate rather
+# than an oversight. These are the primitives the book's SERVER installer needs, and
+# that installer lives in the companion kit, which still pins v1 of this library. It
+# starts calling them when the pin moves. Building them here first is the only order
+# that works: a kit that called a v2 function while fetching v1/lib.sh would break on
+# the spot.
+#
+# AND THE ONE FACT THAT SHAPES ALL THREE. Hermes' clock is not magic. The builtin
+# ticker runs inside the gateway process, so a scheduled job with no live gateway does
+# not fire. Measured, not read: with the service stopped, zero fires across three
+# missed slots. What is more, nothing is ever caught up afterwards. A missed slot is
+# simply gone. So the always-on promise begins on the server and nowhere else, and
+# every one of these functions says so rather than implying otherwise.
+
+# kb_gateway_state
+# running / stopped / absent / unavailable. Read from `hermes gateway status` OUTPUT,
+# never from `systemctl is-active`, and that distinction was paid for: a CLEAN
+# `hermes gateway stop` leaves the unit in `failed`, so systemd cannot tell an
+# operator stopping the service from the service crashing. Anything built on
+# is-active alone would call a deliberate stop an outage and a crash healthy,
+# depending on which way it guessed.
+kb_gateway_state() {
+  local out
+  kb_hermes_here || { printf 'unavailable'; return 0; }
+  out="$("$(kb_hermes_bin)" gateway status 2>&1)"
+  case "$out" in
+    *"gateway service is running"*) printf 'running' ;;
+    *"not installed"*|*"No gateway"*) printf 'absent'  ;;
+    *)                                printf 'stopped' ;;
+  esac
+  return 0
+}
+
+# kb_install_gateway <user>
+# Hand the unit file to Hermes' own generator instead of hand-writing one. Measured
+# in Run 2: the generated unit carries HERMES_HOME, PATH, VIRTUAL_ENV and
+# HERMES_SUPERVISED_CHILD, which the kit's hand-written one omitted, it writes
+# WantedBy=multi-user.target so there is no lingering requirement, and it came back
+# fourteen seconds after a reboot with nobody touching it.
+#
+# Root only, because --system writes into /etc/systemd/system.
+#
+# AND THE RESULT IS VERIFIED BY ASKING WHETHER IT IS RUNNING, not by the exit status
+# of the install command. Those are different questions and only the second one
+# matters to the reader.
+kb_install_gateway() {
+  local user="${1:-}" state
+  [ -n "$user" ] || { warn "kb_install_gateway needs the account the service runs as"; return 1; }
+  kb_hermes_here || {
+    ok "clock: Hermes is not on this machine yet, so there is no gateway to install."
+    return 0
+  }
+  kb_is_root || {
+    warn "clock: the gateway service has to be installed as root, and this is running as $(whoami).
+     Nothing was changed."
+    return 1
+  }
+
+  "$(kb_hermes_bin)" gateway install --system --run-as-user "$user" --start-on-login --force \
+    >/dev/null 2>&1 || true   # the status below is the real answer, not this exit code
+
+  state="$(kb_gateway_state)"
+  if [ "$state" = "running" ]; then
+    ok "clock: the gateway is installed as a system service, running now, and it comes back after a reboot"
+    return 0
+  fi
+  warn "clock: the gateway did not come up ($state). Until it does, nothing you schedule
+     will fire, and a missed slot is never caught up. Look at it with:
+     hermes gateway status"
+  return 1
+}
+
+# kb_cron_has_job <name>
+# yes / no. `hermes cron list` has no machine-readable mode, so this reads the human
+# one, which prints "Name:      <name>" per job. Without it a second install run makes
+# a second copy of every job, which is the shape of bug a reader only finds weeks
+# later when their morning brief arrives twice.
+kb_cron_has_job() {
+  local name="${1:-}"
+  [ -n "$name" ] || { printf 'no'; return 0; }
+  kb_hermes_here || { printf 'no'; return 0; }
+  if "$(kb_hermes_bin)" cron list --all 2>/dev/null \
+     | grep -qE "^[[:space:]]*Name:[[:space:]]+$(printf '%s' "$name" | sed 's/[][\.*^$/]/\\&/g')[[:space:]]*$"; then
+    printf 'yes'
+  else
+    printf 'no'
+  fi
+  return 0
+}
+
+# kb_cron_job <hub> <name> <schedule> <prompt> [deliver]
+#
+# --workdir "$HUB" ON EVERY JOB, ALWAYS. This is the sixth mechanism in the
+# hub-delivery family and the only one that injects AGENTS.md into a job. Its own help
+# text says so outright: "Omit to preserve old behaviour (no project context files)."
+# A job without it runs with no house rules at all, in whatever folder terminal.cwd
+# happens to name, and no chapter has ever mentioned that.
+#
+# IT DOES NOT RUN THE JOB TO PROVE THE SCHEDULE WORKS, and that restraint is the
+# point. `hermes cron run` fires a job by hand with source=direct and works perfectly
+# with no gateway at all, so an installer that ran it and then said "your schedule is
+# working" would be reporting on something it never tested. What it checks instead is
+# the thing that actually decides: whether the gateway is up.
+kb_cron_job() {
+  local hub="${1:-}" name="${2:-}" schedule="${3:-}" prompt="${4:-}" deliver="${5:-}" abs state args
+  [ -n "$hub" ] && [ -n "$name" ] && [ -n "$schedule" ] && [ -n "$prompt" ] \
+    || { warn "kb_cron_job needs a hub, a name, a schedule and a prompt"; return 1; }
+  [ -d "$hub" ] || { warn "kb_cron_job: no folder at $hub"; return 1; }
+  abs="$(cd "$hub" && pwd -P)"
+
+  kb_hermes_here || {
+    ok "clock: Hermes is not on this machine yet, so there is nothing to schedule. Run this again once it is."
+    return 0
+  }
+
+  if [ "$(kb_cron_has_job "$name")" = "yes" ]; then
+    ok "clock: the job \"$name\" is already there, so nothing was added"
+  else
+    set -- "$schedule" "$prompt" --name "$name" --workdir "$abs"
+    [ -n "$deliver" ] && set -- "$@" --deliver "$deliver"
+    if "$(kb_hermes_bin)" cron create "$@" >/dev/null 2>&1 \
+       && [ "$(kb_cron_has_job "$name")" = "yes" ]; then
+      ok "clock: scheduled \"$name\" ($schedule), running in $abs so it reads your AGENTS.md"
+    else
+      warn "clock: could not schedule \"$name\". Nothing else was changed."
+      return 1
+    fi
+  fi
+
+  # THE HONEST PART. A job on a machine with no live gateway is a job that never runs,
+  # and the reader has no way to know that from anything else on screen.
+  state="$(kb_gateway_state)"
+  if [ "$state" != "running" ]; then
+    warn "clock: this job will NOT fire, because the gateway is $state and the clock lives
+     inside it. A missed slot is never caught up either. On a server: install the
+     gateway. On a laptop: expect to run things yourself until it is on a machine
+     that stays awake."
+    return 1
+  fi
+
+  # A boundary worth saying out loud rather than quietly widening. Shipped defaults are
+  # cron_mode: deny, single_query_mode: deny, unattended_mode: deny. An unattended job
+  # that needs a dangerous command is REFUSED, not queued for you to approve later.
+  log "clock: unattended jobs are refused a dangerous command rather than queued for approval.
+   That is the shipped default and this installer leaves it alone."
+  return 0
+}
+
+# kb_hermes_signin [provider]
+# The sign-in, headless.
+#
+# `hermes login` is DEPRECATED and must never be taught. `hermes auth add <provider>
+# --type oauth --no-browser` is the one that works, and on a server it needs `script`
+# in front of it: without a tty on stdout Hermes buffers, so the reader sits looking
+# at nothing while the code they are waiting for is already expiring.
+#
+# The window is FIFTEEN MINUTES, measured. An expired attempt is safe to simply repeat,
+# and saying so is not padding: a reader who walks off to fetch their phone comes back
+# to a traceback and reasonably assumes they broke something.
+kb_hermes_signin() {
+  local provider="${1:-openai-codex}" cmd cmd_show
+  kb_hermes_here || {
+    warn "sign-in: Hermes is not on this machine yet, so there is nothing to sign in to."
+    return 1
+  }
+  if kb_hermes_has_provider "$provider"; then
+    ok "sign-in: $provider is already connected on this machine"
+    return 0
+  fi
+
+  cat <<EOF
+
+   You are about to connect $provider. A code and a web address will appear.
+   Open the address on ANY device, type the code, and come back here.
+
+   The code lasts fifteen minutes. If yours runs out, nothing is broken and
+   nothing is half-done: run this again and you get a fresh one.
+
+EOF
+
+  # Two spellings of one command: one to RUN, argument by argument, and one to SHOW
+  # and to hand to `script`, which takes a string. A hermes living under a path with a
+  # space in it breaks the second one unless it is quoted, and Windows readers who
+  # later run this under WSL are exactly the people with such a path.
+  cmd_show="$(kb_hermes_bin) auth add $provider --type oauth --no-browser"
+  cmd="'$(kb_hermes_bin)' auth add '$provider' --type oauth --no-browser"
+  if [ -t 1 ]; then
+    kb_run_interactive "$(kb_hermes_bin)" auth add "$provider" --type oauth --no-browser
+  elif command -v script >/dev/null 2>&1; then
+    # A pseudo-terminal, so Hermes prints the code as it produces it rather than
+    # holding it in a buffer until the window has already closed.
+    script -qefc "$cmd" /dev/null
+  else
+    warn "sign-in: there is no terminal here and no \`script\` to make one, so the code
+     would never reach you. Run this by hand instead:
+     $cmd_show"
+    return 1
+  fi
+
+  if kb_hermes_has_provider "$provider"; then
+    ok "sign-in: $provider is connected"
+    return 0
+  fi
+  warn "sign-in: $provider is still not connected. If the code ran out, run this again:
+     $cmd_show"
+  return 1
+}
+
+# kb_hermes_has_provider <provider>
+# Is THIS provider connected? kb_hermes_has_credential answers "any at all", which is
+# the right question before spending a request and the wrong one before a sign-in.
+kb_hermes_has_provider() {
+  local provider="${1:-}"
+  [ -n "$provider" ] || return 1
+  kb_hermes_here || return 1
+  "$(kb_hermes_bin)" auth list 2>/dev/null \
+    | grep -qE "^$(printf '%s' "$provider" | sed 's/[][\.*^$/]/\\&/g') \([0-9]+ credential"
+}
+
 # --- Joining a machine to a hub that already exists ---------------------------
 #
 # Every installer here answers "make me a hub from nothing". None of them

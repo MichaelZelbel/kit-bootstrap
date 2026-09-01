@@ -41,7 +41,9 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_json_str kb_count_recipes kb_skills_room kb_point_at_room \
          kb_hermes_skills_dir kb_wire_skills kb_hermes_bin kb_hermes_here \
          kb_hermes_has_credential kb_hermes_reads_hub kb_point_hermes_at_hub \
-         kb_hermes_deny_rules kb_hermes_approvals kb_hermes_approvals_selfcheck; do
+         kb_hermes_deny_rules kb_hermes_approvals kb_hermes_approvals_selfcheck \
+         kb_gateway_state kb_install_gateway kb_cron_has_job kb_cron_job \
+         kb_hermes_signin kb_hermes_has_provider; do
   declare -F "$f" >/dev/null || printf "%s " "$f"
 done')"
 [ -z "$missing" ] || { echo "  MISSING: $missing"; exit 1; }
@@ -1228,6 +1230,178 @@ t "and it says there is nothing to give rules to" \
 
 unset KB_HERMES_BIN STUB_LOG STUB_DENY
 rm -rf "$_ap"
+
+echo
+echo "== the always-on half: the gateway, the clock, and signing in"
+#
+# The one fact these all turn on, measured in Run 2 rather than read: the clock lives
+# inside the gateway process, so a job with no live gateway does not fire, and nothing
+# is ever caught up afterwards. Every case below exists to stop the kit implying
+# otherwise.
+_gw=$(mktemp -d); mkdir -p "$_gw/bin"
+cat > "$_gw/bin/hermes" <<'STUB'
+#!/bin/sh
+echo "$*" >> "$STUB_LOG"
+if [ "$1" = "gateway" ] && [ "$2" = "status" ]; then
+  case "${STUB_GW:-running}" in
+    running) echo "Active: active (running)"; echo "* System gateway service is running" ;;
+    absent)  echo "Gateway service is not installed" ;;
+    *)       echo "Active: failed (Result: exit-code)" ;;
+  esac
+fi
+if [ "$1" = "gateway" ] && [ "$2" = "install" ]; then
+  [ "${STUB_GW_INSTALL_FAILS:-0}" = "1" ] || STUB_GW=running
+  echo "$STUB_GW" > "$STUB_GWFILE"
+fi
+if [ "$1" = "cron" ] && [ "$2" = "list" ]; then
+  [ -s "$STUB_JOBS" ] && sed 's/^/    Name:      /' "$STUB_JOBS"
+fi
+if [ "$1" = "cron" ] && [ "$2" = "create" ]; then
+  n=""; while [ $# -gt 0 ]; do [ "$1" = "--name" ] && n="$2"; shift; done
+  [ -n "$n" ] && echo "$n" >> "$STUB_JOBS"
+fi
+if [ "$1" = "auth" ] && [ "$2" = "list" ]; then
+  [ -s "$STUB_AUTH" ] && cat "$STUB_AUTH"
+fi
+if [ "$1" = "auth" ] && [ "$2" = "add" ]; then
+  [ "${STUB_SIGNIN_FAILS:-0}" = "1" ] || echo "$3 (1 credentials):" >> "$STUB_AUTH"
+fi
+exit 0
+STUB
+chmod +x "$_gw/bin/hermes"
+export KB_HERMES_BIN="$_gw/bin/hermes"
+export STUB_LOG="$_gw/calls.log" STUB_JOBS="$_gw/jobs.txt" STUB_AUTH="$_gw/auth.txt"
+export STUB_GWFILE="$_gw/gw.txt"
+: > "$STUB_LOG"; : > "$STUB_JOBS"; : > "$STUB_AUTH"
+
+t "a gateway that is up reads as running"   "$(STUB_GW=running kb_gateway_state)" "running"
+t "a gateway that was stopped reads as stopped, not as running" \
+  "$(STUB_GW=failed kb_gateway_state)" "stopped"
+t "and one that was never installed says so"  "$(STUB_GW=absent kb_gateway_state)"  "absent"
+KB_HERMES_BIN="$_gw/bin/no-such-hermes"
+t "no Hermes at all is unavailable, not stopped" "$(kb_gateway_state)" "unavailable"
+KB_HERMES_BIN="$_gw/bin/hermes"
+
+# A CLEAN STOP LEAVES THE UNIT `failed`, measured. So `stopped` has to come from a
+# reading that cannot tell those apart, and the kit must never call `failed` a crash.
+t "a failed unit is reported as stopped, because a clean stop looks exactly like one" \
+  "$(STUB_GW=failed kb_gateway_state)" "stopped"
+
+# The gateway install. What matters is whether it is RUNNING afterwards, never the
+# exit status of the install command.
+#
+# --system writes into /etc/systemd/system, so the function refuses to run as anybody
+# but root. This suite is not root and must never be, so kb_is_root is stood in for
+# just these cases and put back straight afterwards. The refusal itself is checked
+# separately below, with the real one.
+eval "_real_kb_is_root() $(declare -f kb_is_root | sed "1d")"
+kb_is_root() { return 0; }
+: > "$STUB_LOG"
+out="$(STUB_GW=running kb_install_gateway someuser 2>&1)"; _rc=$?
+t "the generator is asked for a system service, run as the named account" \
+  "$(grep -c 'gateway install --system --run-as-user someuser --start-on-login --force' "$STUB_LOG")" "1"
+t "and it is checked by asking whether it is running" \
+  "$(grep -c 'gateway status' "$STUB_LOG")" "1"
+t "an install that ends up running succeeds" "$_rc" "0"
+out="$(STUB_GW=failed kb_install_gateway someuser 2>&1)"; _rc=$?
+t "an install that ends up not running is a failure, whatever the command returned" "$_rc" "1"
+t "and the reader is told nothing will fire until it is up" \
+  "$(printf '%s' "$out" | grep -c 'will fire')" "1"
+
+# And the refusal, with the real kb_is_root back in place. A reader who runs the
+# server steps as themselves gets told so, rather than a permission error from
+# somewhere inside systemd.
+kb_is_root() { _real_kb_is_root; }
+if ! kb_is_root; then
+  : > "$STUB_LOG"
+  out="$(kb_install_gateway someuser 2>&1)"; _rc=$?
+  t "installing the service as a normal user is refused, not attempted" "$_rc" "1"
+  t "and nothing was run" "$(grep -c 'gateway install' "$STUB_LOG")" "0"
+  t "with the reason named" "$(printf '%s' "$out" | grep -c 'has to be installed as root')" "1"
+else
+  echo "  skip  the not-root case needs a session that is not root"
+fi
+
+# The clock.
+_ch=$(mktemp -d)/hub; mkdir -p "_ch" 2>/dev/null; mkdir -p "$_ch"
+: > "$STUB_LOG"; : > "$STUB_JOBS"
+out="$(STUB_GW=running kb_cron_job "$_ch" morning-brief "0 7 * * *" "write my brief" telegram 2>&1)"; _rc=$?
+t "a job the kit creates always carries --workdir, or it has no house rules at all" \
+  "$(grep -c -- "--workdir $(cd "$_ch" && pwd -P)" "$STUB_LOG")" "1"
+t "the schedule and the name go in too" \
+  "$(grep -c -- '--name morning-brief' "$STUB_LOG")" "1"
+t "and the delivery target when one is given" \
+  "$(grep -c -- '--deliver telegram' "$STUB_LOG")" "1"
+t "scheduling a job on a live gateway succeeds" "$_rc" "0"
+
+# `hermes cron run` fires a job by hand with no gateway at all, so an installer that
+# used it to prove the schedule works would be reporting on something it never tested.
+t "the installer never fires the job to prove the schedule works" \
+  "$(grep -c 'cron run' "$STUB_LOG")" "0"
+
+# Twice equals once, or a reader gets their morning brief twice.
+: > "$STUB_LOG"
+STUB_GW=running kb_cron_job "$_ch" morning-brief "0 7 * * *" "write my brief" telegram >/dev/null 2>&1
+t "a second run does not make a second job" "$(grep -c 'cron create' "$STUB_LOG")" "0"
+t "and there is still exactly one" "$(grep -c . "$STUB_JOBS")" "1"
+
+# THE HONEST PART, and the reason this function is not just a wrapper.
+: > "$STUB_JOBS"
+out="$(STUB_GW=failed kb_cron_job "$_ch" nightly "0 2 * * *" "tidy up" 2>&1)"; _rc=$?
+t "a job on a machine with no live gateway is reported, not celebrated" "$_rc" "1"
+t "the reader is told it will not fire" \
+  "$(printf '%s' "$out" | grep -c 'will NOT fire')" "1"
+t "and that a missed slot is gone rather than queued" \
+  "$(printf '%s' "$out" | grep -c 'never caught up')" "1"
+t "the deny-by-default boundary is stated rather than quietly widened" \
+  "$(STUB_GW=running kb_cron_job "$_ch" j2 "0 3 * * *" "x" 2>&1 | grep -c 'refused a dangerous command')" "1"
+
+# Signing in.
+#
+# Hermes buffers the device code when stdout is not a tty, so the real function puts
+# `script` in front of it to make one. Git Bash ships no script(1), so without a
+# stand-in every case below would fall through to the "no terminal here" branch and
+# test nothing. This one just runs what it is handed, which is all the real one does
+# that matters here.
+printf '#!/bin/sh
+sh -c "$2"
+' > "$_gw/bin/script"
+chmod +x "$_gw/bin/script"
+_oldpath="$PATH"; PATH="$_gw/bin:$PATH"; export PATH
+: > "$STUB_AUTH"
+t "a provider nobody has connected is not connected" \
+  "$(kb_hermes_has_provider openai-codex && echo yes || echo no)" "no"
+printf 'openai-codex (1 credentials):\n' > "$STUB_AUTH"
+t "and one that is, is"  "$(kb_hermes_has_provider openai-codex && echo yes || echo no)" "yes"
+t "a different provider is not confused for it" \
+  "$(kb_hermes_has_provider openrouter && echo yes || echo no)" "no"
+: > "$STUB_LOG"
+out="$(kb_hermes_signin openai-codex 2>&1)"; _rc=$?
+t "an account already connected is left alone" "$(grep -c 'auth add' "$STUB_LOG")" "0"
+t "and saying so is not a failure" "$_rc" "0"
+
+: > "$STUB_AUTH"; : > "$STUB_LOG"
+out="$(kb_hermes_signin openai-codex 2>&1)"; _rc=$?
+t "the sign-in uses auth add with the device code flow" \
+  "$(grep -c 'auth add openai-codex --type oauth --no-browser' "$STUB_LOG")" "1"
+t "and never the deprecated login command" "$(grep -cx 'login' "$STUB_LOG")" "0"
+t "the fifteen minute window is said out loud" \
+  "$(printf '%s' "$out" | grep -c 'fifteen minutes')" "1"
+t "and that running out is safe to just repeat" \
+  "$(printf '%s' "$out" | grep -c 'nothing is broken')" "1"
+t "a sign-in that worked reports success" "$_rc" "0"
+
+: > "$STUB_AUTH"
+STUB_SIGNIN_FAILS=1; export STUB_SIGNIN_FAILS
+out="$(kb_hermes_signin openai-codex 2>&1)"; _rc=$?
+t "a sign-in that did not take is reported" "$_rc" "1"
+t "with the exact command to run again" \
+  "$(printf '%s' "$out" | grep -c 'auth add openai-codex --type oauth --no-browser')" "1"
+unset STUB_SIGNIN_FAILS
+
+PATH="$_oldpath"; export PATH
+unset KB_HERMES_BIN STUB_LOG STUB_JOBS STUB_AUTH STUB_GWFILE STUB_GW
+rm -rf "$_gw"
 
 echo
 echo "  $pass passed, $fail failed"
