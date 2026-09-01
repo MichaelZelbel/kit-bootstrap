@@ -43,7 +43,7 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_hermes_has_credential kb_hermes_reads_hub kb_point_hermes_at_hub \
          kb_hermes_deny_rules kb_hermes_approvals kb_hermes_approvals_selfcheck \
          kb_gateway_state kb_install_gateway kb_cron_has_job kb_cron_job \
-         kb_hermes_signin kb_hermes_has_provider; do
+         kb_hermes_signin kb_hermes_has_provider kb_room_twin; do
   declare -F "$f" >/dev/null || printf "%s " "$f"
 done')"
 [ -z "$missing" ] || { echo "  MISSING: $missing"; exit 1; }
@@ -644,9 +644,21 @@ t "unsealing is a no-op when this computer already has a key" \
   "$(kb_unseal_hub_key "$_n/hub" >/dev/null 2>&1; echo $?)" "0"
 rm -f "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-key.age"
 
-# The file that tells the assistant where the notebook is.
-kb_write_mcp_config "$_n/hub" >/dev/null 2>&1
-t "the assistant is given an .mcp.json" "$([ -f "$_n/hub/.mcp.json" ] && echo yes || echo no)" "yes"
+# The file that tells CLAUDE CODE where the notebook is. Not "the assistant": Hermes
+# never reads a folder .mcp.json, checked in its source, so a kit that says otherwise is
+# telling a reader their hub carries configuration it does not carry.
+_mcpout="$(kb_write_mcp_config "$_n/hub" 2>&1)"
+t "Claude Code is given an .mcp.json" "$([ -f "$_n/hub/.mcp.json" ] && echo yes || echo no)" "yes"
+t "the file says plainly that Hermes does not read it" \
+  "$(grep -c "Hermes does not read it" "$_n/hub/.mcp.json")" "1"
+t "and it names the commands that DO tell Hermes" \
+  "$(grep -c "hermes mcp add" "$_n/hub/.mcp.json")" "1"
+t "nothing in it claims to configure \"your assistant\" in general" \
+  "$(grep -c "tells your assistant" "$_n/hub/.mcp.json")" "0"
+t "the installer says which tool it wrote the file for" \
+  "$(printf '%s' "$_mcpout" | grep -c "for Claude Code")" "1"
+t "and repeats that Hermes needs telling separately" \
+  "$(printf '%s' "$_mcpout" | grep -c "Hermes does not read that file")" "1"
 t "the connection NAMES the credential rather than carrying one" \
   "$(grep -c 'Bearer \${MENERIO_API_KEY}' "$_n/hub/.mcp.json")" "1"
 # python3, then python. Git Bash on Windows ships the launcher as `python` only, and this
@@ -1402,6 +1414,102 @@ unset STUB_SIGNIN_FAILS
 PATH="$_oldpath"; export PATH
 unset KB_HERMES_BIN STUB_LOG STUB_JOBS STUB_AUTH STUB_GWFILE STUB_GW
 rm -rf "$_gw"
+
+echo
+echo "== one room, one name"
+#
+# THE BUG THESE EXIST FOR. Measured on a real existing hub during Run 2: the top-up
+# found no profile/, so it copied the starter's in beside a context/ that already held
+# the same four filenames. The next run then warned "you have both, delete the empty
+# one" at a reader whose folders both had four files in them. The installer built the
+# duplicate and then complained about it, and the complaint was not true either.
+
+_rm=$(mktemp -d)
+mkdir -p "$_rm/h1/context"
+t "a hub with context/ is told profile/ is the same room"  "$(kb_room_twin "$_rm/h1" profile)" "context"
+t "and the question answers in the other direction too"    "$(kb_room_twin "$_rm/h1" context)" ""
+mkdir -p "$_rm/h2/observations"
+t "memory/ and observations/ are the same pair"            "$(kb_room_twin "$_rm/h2" memory)" "observations"
+t "a room with no older name has no twin"                  "$(kb_room_twin "$_rm/h1" rules)"   ""
+t "and neither does a hub that has neither spelling"       "$(kb_room_twin "$_rm/h2" profile)" ""
+
+# The rename, which is what SHOULD happen to a hub that only has the old name.
+_r1=$(mktemp -d); mkdir -p "$_r1/context"; : > "$_r1/context/about-me.md"
+kb_migrate_folder_names "$_r1" >/dev/null 2>&1
+t "context/ becomes profile/ rather than gaining a sibling" \
+  "$([ -d "$_r1/profile" ] && [ ! -d "$_r1/context" ] && echo yes)" "yes"
+t "and the reader's file came with it" \
+  "$([ -f "$_r1/profile/about-me.md" ] && echo yes)" "yes"
+
+# THE LINE THAT MADE THE DUPLICATE. It used to be an unconditional mkdir.
+_r2=$(mktemp -d); mkdir -p "$_r2/context" "$_r2/profile"; : > "$_r2/context/a.md"; : > "$_r2/profile/b.md"
+out="$(kb_migrate_folder_names "$_r2" 2>&1)"
+t "a hub that really has both keeps both, untouched" \
+  "$([ -f "$_r2/context/a.md" ] && [ -f "$_r2/profile/b.md" ] && echo yes)" "yes"
+t "and it is never told to delete the empty one, because neither is empty" \
+  "$(printf '%s' "$out" | grep -c 'delete the empty one')" "0"
+t "it is told what is actually in each" \
+  "$(printf '%s' "$out" | grep -c '1 inside')" "1"
+t "and which one the assistant actually reads" \
+  "$(printf '%s' "$out" | grep -c 'your assistant reads profile/')" "1"
+
+# rules/ has never had another name, so it is always made.
+_r3=$(mktemp -d); mkdir -p "$_r3/context"
+kb_migrate_folder_names "$_r3" >/dev/null 2>&1
+t "rules/ is made whatever else is going on" "$([ -d "$_r3/rules" ] && echo yes)" "yes"
+
+# The top-up. A local starter repo, so this stays off the network like everything else
+# in this file.
+_st=$(mktemp -d)/starter; mkdir -p "$_st/starter-hub/profile" "$_st/starter-hub/observations"
+: > "$_st/starter-hub/profile/about-me.md"
+: > "$_st/starter-hub/observations/MEMORY.md"
+: > "$_st/starter-hub/AGENTS.md"
+git -C "$_st" init -q 2>/dev/null
+git -C "$_st" add -A >/dev/null 2>&1
+git -C "$_st" -c user.email=t@t -c user.name=t commit -q -m starter >/dev/null 2>&1
+
+_r4=$(mktemp -d); mkdir -p "$_r4/context"; : > "$_r4/context/about-me.md"
+kb_copy_starter_hub "$_r4" "$_st" starter-hub >/dev/null 2>&1
+t "the top-up does NOT drop profile/ beside an existing context/" \
+  "$([ -d "$_r4/profile" ] && echo made || echo no)" "no"
+t "the reader's own room is untouched" \
+  "$([ -f "$_r4/context/about-me.md" ] && echo yes)" "yes"
+t "and everything that is genuinely new still arrives" \
+  "$([ -f "$_r4/AGENTS.md" ] && echo yes)" "yes"
+t "including the other room, which this hub does not have under either name" \
+  "$([ -d "$_r4/observations" ] && echo yes)" "yes"
+
+# And a hub with neither spelling gets the room, or the guard has gone too far.
+_r5=$(mktemp -d)
+kb_copy_starter_hub "$_r5" "$_st" starter-hub >/dev/null 2>&1
+t "a hub with neither name still gets profile/" "$([ -d "$_r5/profile" ] && echo yes)" "yes"
+
+rm -rf "$_rm"
+
+echo
+echo "== a kit ships products, not its own test suite"
+#
+# Measured on a real install during Run 2: test-notebook-sync.sh and
+# test-prompt-archive.sh were copied onto the reader's PATH beside hub-due and
+# hub-check-keys.
+_tk=$(mktemp -d)/kit; mkdir -p "$_tk/tools"
+for _f in due.js check-keys.js hub-notebook-sync test-notebook-sync.sh test-prompt-archive.sh README.md; do
+  printf '#!/bin/sh\necho %s\n' "$_f" > "$_tk/tools/$_f"
+done
+git -C "$_tk" init -q 2>/dev/null
+git -C "$_tk" add -A >/dev/null 2>&1
+git -C "$_tk" -c user.email=t@t -c user.name=t commit -q -m tools >/dev/null 2>&1
+
+_th=$(mktemp -d); _thome=$(mktemp -d)
+HOME="$_thome" kb_install_hub_tools "$_th" "$_tk" >/dev/null 2>&1
+t "the products a reader types are installed" \
+  "$([ -f "$_thome/.local/bin/due.js" ] && [ -f "$_thome/.local/bin/hub-notebook-sync" ] && echo yes)" "yes"
+t "and the kit's own tests are NOT" \
+  "$(find "$_thome/.local/bin" -name 'test-*' 2>/dev/null | grep -c .)" "0"
+t "the README does not become a command either" \
+  "$([ -f "$_thome/.local/bin/README.md" ] && echo shipped || echo no)" "no"
+t "the launcher for a real command is still made" \
+  "$([ -f "$_thome/.local/bin/hub-due" ] && echo yes)" "yes"
 
 echo
 echo "  $pass passed, $fail failed"

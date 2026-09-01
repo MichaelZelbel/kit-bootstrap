@@ -77,7 +77,7 @@ foreach ($fn in 'Find-KitHub', 'Test-KitHub', 'Update-KitHub', 'Join-KitMemory',
                  'Save-KitNotebookToken', 'Write-KitMcpConfig', 'Install-KitNotebookSync',
                  'Set-KitNotebookEnv', 'Connect-KitNotebook', 'Test-KitInteractive',
                  'Set-KitPromptSources', 'Write-KitSyncReport', 'Get-KitHome',
-                 'Write-KitExpiryRecord', 'Write-KitDueFolder') {
+                 'Write-KitExpiryRecord', 'Write-KitDueFolder', 'Get-KitRoomTwin') {
     Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
 }
 
@@ -593,13 +593,27 @@ Check "unsealing is a no-op when this PC already has a key" {
     }
 }
 
-Check "the assistant is given an .mcp.json, and it is valid JSON" {
+Check "Claude Code is given an .mcp.json, and it is valid JSON" {
     Invoke-NotebookCase {
         param($h)
         $hub = New-NotebookHub 'nb6'
         Write-KitMcpConfig -Hub $hub | Out-Null
         $f = Join-Path $hub '.mcp.json'
         (Test-Path $f) -and ((Get-Content $f -Raw | ConvertFrom-Json).mcpServers.menerio.url -eq 'https://mcp.menerio.com')
+    }
+}
+# Not "the assistant": Hermes never reads a folder .mcp.json, checked in its source. A
+# kit that says otherwise is telling a reader their hub carries configuration it does
+# not carry, which is the exact shape of the workspace line this batch already removed.
+Check "the file says plainly that Hermes does not read it, and names what does tell Hermes" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'nb6b'
+        $out = (Write-KitMcpConfig -Hub $hub 3>&1 6>&1 | Out-String)
+        $j = Get-Content (Join-Path $hub '.mcp.json') -Raw
+        $j.Contains('Hermes does not read it') -and $j.Contains('hermes mcp add') -and
+            -not $j.Contains('tells your assistant') -and
+            $out.Contains('for Claude Code') -and $out.Contains('Hermes does not read that file')
     }
 }
 Check "the connection NAMES the credential rather than carrying one" {
@@ -957,6 +971,129 @@ Check "the words are the same as the reader kit's own copy, line for line" {
             if ($mine[$i] -cne $theirs[$i]) { Write-Host "        line $($i+1) differs"; return $false }
         }
         return $true
+    }
+}
+
+# AND THE SAME CHECK FOR THE KEY EXPIRY PAGE, which did not have one. There were THREE
+# copies of that file and two had drifted: the bash twin and this one both predated the @
+# convention that hub-check-keys implements, so a reader with an established hub was handed
+# a page that did not document what their own tool was doing. Only the new-hub path, which
+# copies from the kit, was current. The bash suite caught its copy; nothing watched this one.
+Check "the expiry page matches the reader kit's own copy, line for line" {
+    Invoke-NotebookCase {
+        param($h)
+        $kit = Join-Path $PSScriptRoot '..\..\teach-it-once-kit\starter-hub\secrets\expires.txt'
+        if (-not (Test-Path $kit)) { Write-Host "        (the reader kit is not on this PC to compare with)"; return $true }
+        $hub = New-NotebookHub 'exp1'
+        Write-KitExpiryRecord -Hub $hub | Out-Null
+        $mine   = @(Get-Content (Join-Path $hub 'secrets\expires.txt'))
+        $theirs = @(Get-Content $kit)
+        if ($mine.Count -ne $theirs.Count) { Write-Host "        line counts differ: $($mine.Count) vs $($theirs.Count)"; return $false }
+        for ($i = 0; $i -lt $mine.Count; $i++) {
+            if ($mine[$i] -cne $theirs[$i]) { Write-Host "        line $($i+1) differs"; return $false }
+        }
+        return $true
+    }
+}
+
+Write-Host ""
+Write-Host "-- one room, one name"
+#
+# THE BUG THESE EXIST FOR. Measured on a real existing hub during Run 2: the top-up found
+# no profile\, so it copied the starter's in beside a context\ that already held the same
+# four filenames. The next run then warned "you have both, delete the empty one" at a
+# reader whose folders both had four files in them. The installer built the duplicate and
+# then complained about it, and the complaint was not true either.
+
+Check "a hub with context\ is told profile\ is the same room" {
+    $d = New-TestDir 'twin1'
+    New-Item -ItemType Directory -Force (Join-Path $d 'context') | Out-Null
+    (Get-KitRoomTwin -Hub $d -Name 'profile') -eq 'context'
+}
+Check "memory\ and observations\ are the same pair, asked either way round" {
+    $d = New-TestDir 'twin2'
+    New-Item -ItemType Directory -Force (Join-Path $d 'observations') | Out-Null
+    ((Get-KitRoomTwin -Hub $d -Name 'memory') -eq 'observations') -and
+        ((Get-KitRoomTwin -Hub $d -Name 'rules') -eq '')
+}
+Check "context\ becomes profile\ rather than gaining a sibling" {
+    $d = New-TestDir 'rooms1'
+    New-Item -ItemType Directory -Force (Join-Path $d 'context') | Out-Null
+    Set-Content (Join-Path $d 'context\about-me.md') 'mine'
+    Update-KitFolderNames -Hub $d 3>&1 6>&1 | Out-Null
+    (Test-Path (Join-Path $d 'profile\about-me.md')) -and -not (Test-Path (Join-Path $d 'context'))
+}
+# THE LINE THAT MADE THE DUPLICATE. It used to be an unconditional New-Item.
+Check "a hub that really has both keeps both, and is told what is in each" {
+    $d = New-TestDir 'rooms2'
+    New-Item -ItemType Directory -Force (Join-Path $d 'context') | Out-Null
+    New-Item -ItemType Directory -Force (Join-Path $d 'profile') | Out-Null
+    Set-Content (Join-Path $d 'context\a.md') 'a'
+    Set-Content (Join-Path $d 'profile\b.md') 'b'
+    $out = (Update-KitFolderNames -Hub $d 3>&1 6>&1 | Out-String)
+    (Test-Path (Join-Path $d 'context\a.md')) -and (Test-Path (Join-Path $d 'profile\b.md')) -and
+        -not $out.Contains('delete the empty one') -and $out.Contains('1 inside') -and
+        $out.Contains('your assistant reads profile')
+}
+Check "rules\ is made whatever else is going on" {
+    $d = New-TestDir 'rooms3'
+    New-Item -ItemType Directory -Force (Join-Path $d 'context') | Out-Null
+    Update-KitFolderNames -Hub $d 3>&1 6>&1 | Out-Null
+    (Test-Path (Join-Path $d 'rules')) -and -not (Test-Path (Join-Path $d 'context'))
+}
+Check "the top-up does NOT drop profile\ beside an existing context\" {
+    $starter = New-TestDir 'rooms-starter'
+    foreach ($r in 'profile', 'observations') {
+        New-Item -ItemType Directory -Force (Join-Path $starter "starter-hub\$r") | Out-Null
+    }
+    Set-Content (Join-Path $starter 'starter-hub\profile\about-me.md') 'starter'
+    Set-Content (Join-Path $starter 'starter-hub\observations\MEMORY.md') 'starter'
+    Set-Content (Join-Path $starter 'starter-hub\AGENTS.md') 'starter'
+    git -C $starter init -q 2>&1 | Out-Null
+    git -C $starter add -A 2>&1 | Out-Null
+    git -C $starter -c user.email='t@t' -c user.name='t' commit -q -m s 2>&1 | Out-Null
+
+    $d = New-TestDir 'rooms4'
+    New-Item -ItemType Directory -Force (Join-Path $d 'context') | Out-Null
+    Set-Content (Join-Path $d 'context\about-me.md') 'mine'
+    Copy-KitStarterHub -Path $d -StarterRepo $starter 3>&1 6>&1 | Out-Null
+    $script:RoomsStarter = $starter
+    -not (Test-Path (Join-Path $d 'profile')) -and
+        ((Get-Content (Join-Path $d 'context\about-me.md') -Raw).Trim() -eq 'mine') -and
+        (Test-Path (Join-Path $d 'AGENTS.md')) -and (Test-Path (Join-Path $d 'observations'))
+}
+Check "but a hub with neither name still gets profile\, or the guard went too far" {
+    $d = New-TestDir 'rooms5'
+    Copy-KitStarterHub -Path $d -StarterRepo $script:RoomsStarter 3>&1 6>&1 | Out-Null
+    Test-Path (Join-Path $d 'profile')
+}
+
+Write-Host ""
+Write-Host "-- a kit ships products, not its own test suite"
+#
+# Measured on a real install during Run 2: test-notebook-sync.sh and test-prompt-archive.sh
+# were copied onto the reader's PATH beside hub-due and hub-check-keys.
+Check "the products are installed and the kit's own tests are not" {
+    Invoke-NotebookCase {
+        param($h)
+        $kit = New-TestDir 'tools-kit'
+        New-Item -ItemType Directory -Force (Join-Path $kit 'tools') | Out-Null
+        foreach ($f in 'due.js', 'check-keys.js', 'hub-notebook-sync', 'test-notebook-sync.sh',
+                        'test-prompt-archive.sh', 'README.md') {
+            Set-Content (Join-Path $kit "tools\$f") "// $f"
+        }
+        git -C $kit init -q 2>&1 | Out-Null
+        git -C $kit add -A 2>&1 | Out-Null
+        git -C $kit -c user.email='t@t' -c user.name='t' commit -q -m tools 2>&1 | Out-Null
+        Install-KitHubTools -Hub (New-NotebookHub 'tools-hub') -ToolsRepo $kit 3>&1 4>&1 6>&1 | Out-Null
+        $bin = Join-Path $h '.local\bin'
+        $shipped = @(Get-ChildItem $bin -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'test-*' })
+        if ($shipped) { Write-Host "        shipped to the reader: $($shipped.Name -join ', ')" }
+        (Test-Path (Join-Path $bin 'due.js')) -and
+            (Test-Path (Join-Path $bin 'hub-notebook-sync')) -and
+            (Test-Path (Join-Path $bin 'hub-due.cmd')) -and
+            -not (Test-Path (Join-Path $bin 'README.md')) -and
+            $shipped.Count -eq 0
     }
 }
 

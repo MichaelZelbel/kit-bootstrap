@@ -1258,6 +1258,32 @@ kb_ai_memory_path() {
   printf '%s' "$HOME/.claude/projects/$mangled/memory"
 }
 
+# --- One room, one name ------------------------------------------------------
+#
+# context/ and profile/ are the same room, and so are memory/ and observations/. The
+# names changed on 2026-08-16 to say WHEN each is read rather than who typed it.
+#
+# WHAT WENT WRONG WITHOUT THIS, measured on a real existing hub during Run 2: the
+# top-up found no profile/, so it copied the starter one in beside a context/ that
+# already held the same four filenames. The next run then warned "you have both, delete
+# the empty one" when neither was empty. The installer made the duplicate and then
+# complained about it, and its complaint was not true either.
+KB_ROOM_ALIASES="context:profile memory:observations"
+
+# kb_room_twin <hub> <name>
+# If this hub already keeps that room under its OTHER name, print that other name.
+# Answers in both directions, so it is safe to ask about either spelling.
+kb_room_twin() {
+  local hub="${1:-}" name="${2:-}" pair a b
+  [ -n "$hub" ] && [ -n "$name" ] || return 0
+  for pair in $KB_ROOM_ALIASES; do
+    a="${pair%%:*}"; b="${pair##*:}"
+    if [ "$name" = "$b" ] && [ -d "$hub/$a" ]; then printf '%s' "$a"; return 0; fi
+    if [ "$name" = "$a" ] && [ -d "$hub/$b" ]; then printf '%s' "$b"; return 0; fi
+  done
+  return 0
+}
+
 # kb_migrate_folder_names <hub-dir>
 #
 # Rename an older hub's folders to the names that say when each one is read.
@@ -1278,7 +1304,14 @@ kb_migrate_folder_names() {
     old="$hub/${pair%%:*}"; new="$hub/${pair##*:}"
     [ -d "$old" ] || continue
     if [ -d "$new" ]; then
-      warn "folders: you have both ${pair%%:*}/ and ${pair##*:}/. Leaving both alone; move what you want by hand, then delete the empty one."
+      # COUNT, do not guess. The old wording said "delete the empty one" and was
+      # printed at a reader whose folders both had four files in them.
+      n_old="$(ls -A "$old" 2>/dev/null | grep -c .)"
+      n_new="$(ls -A "$new" 2>/dev/null | grep -c .)"
+      warn "folders: you have both ${pair%%:*}/ ($n_old inside) and ${pair##*:}/ ($n_new inside).
+     They are one room under two names, and your assistant reads ${pair##*:}/. Nothing was
+     moved and nothing was lost. Move what you want to keep into ${pair##*:}/, then delete
+     ${pair%%:*}/."
       continue
     fi
     # git mv when the folder is tracked, so the rename stays one move in the history
@@ -1290,7 +1323,13 @@ kb_migrate_folder_names() {
     fi
     ok "folders: ${pair%%:*}/ is now ${pair##*:}/, which says when your assistant reads it"
   done
-  mkdir -p "$hub/profile" "$hub/rules" "$hub/observations"
+  # rules/ has never had another name, so it is always safe to make. The other two
+  # are made ONLY when this hub is not already keeping them under their old name.
+  # Creating them regardless is precisely how the duplicate room got built.
+  mkdir -p "$hub/rules"
+  for pair in $KB_ROOM_ALIASES; do
+    [ -d "$hub/${pair%%:*}" ] || mkdir -p "$hub/${pair##*:}"
+  done
   # Their MEMORY.md came across from the old folder and still describes the old design. It is
   # THEIR file and may have their own lines in it, so it is never overwritten; they are told
   # instead. Silently replacing it is how somebody loses a note they wrote months ago.
@@ -1716,6 +1755,15 @@ kb_install_hub_tools() {
     [ -f "$f" ] || continue
     base="$(basename "$f")"
     case "$base" in *.md) continue ;; esac
+    # A KIT SHIPS PRODUCTS, NOT ITS OWN TEST SUITE. Measured on a real install during
+    # Run 2: test-notebook-sync.sh and test-prompt-archive.sh were copied onto the
+    # reader PATH beside hub-due and hub-check-keys, so a reader could type a command
+    # that runs the kit tests against their own hub without ever being told what it
+    # was. Nothing announces the skip, because a reader has no idea these files exist
+    # and telling them would only raise a question the book never answers.
+    case "$base" in
+      test-*|*-test|*-test.*|*_test|*_test.*|*.test.*) continue ;;
+    esac
     # REMOVE FIRST, ALWAYS. kb_install_hub_cli one function up puts SYMLINKS in this same
     # folder, pointing back into the hub. `cp` over a symlink writes through it, so a copy
     # here silently overwrote a file inside the hub itself the first time this ran live, and
@@ -1976,6 +2024,11 @@ kb_copy_starter_hub() {
   for f in "$tmp/$sub"/* "$tmp/$sub"/.[!.]*; do
     [ -e "$f" ] || continue
     base="$(basename "$f")"
+    # Never add a room this hub already keeps under its other name. Without this the
+    # top-up drops profile/ next to a perfectly good context/. See kb_room_twin.
+    if [ ! -e "$path/$base" ] && [ -n "$(kb_room_twin "$path" "$base")" ]; then
+      continue
+    fi
     if [ -e "$path/$base" ]; then
       if [ "$base" = ".gitignore" ] && [ -f "$f" ] && [ -f "$path/$base" ]; then
         while IFS= read -r line || [ -n "$line" ]; do
@@ -2246,6 +2299,13 @@ kb_seed_expiry_record() {
   f="$hub/secrets/expires.txt"
   [ -f "$f" ] && return 0
   mkdir -p "$hub/secrets" 2>/dev/null || return 0
+  # THE TEXT BELOW IS THE READER KIT'S COPY, BYTE FOR BYTE, and a test compares them.
+  # It drifted once and the drift was live: a reader with a NEW hub got this file from
+  # the kit's starter-hub/ and a reader with an EXISTING hub got it from here, and the
+  # two had not been the same since the @ convention was added. So the one every reader
+  # with an established hub ended up with was the one nobody had edited, and it did not
+  # document the convention hub-check-keys implements. Two copies of one file is two
+  # places to fix a typo. If you change one, change both, and the test will say so.
   cat > "$f" <<'EXPIRYEOF'
 # When your keys run out.
 #
@@ -2263,13 +2323,26 @@ kb_seed_expiry_record() {
 #
 # The date is written year first: 2027-03-14 is the 14th of March, 2027. Write `never`
 # instead of a date for a key you have checked and that does not expire. Write `-` instead
-# of a page when there is nowhere to go and get one.
+# of a page when there is nowhere to go and get one, and put the steps in the words after
+# the # so the reminder still tells you what to do.
 #
 # The words after the # are for you. Say what the key opens, in your own words, because in
 # a year you will not remember what its name meant.
 #
+# A KEY THAT LIVES ON ONE COMPUTER. Nearly every key belongs in the locked store next door,
+# because putting it there once puts it on every computer you own. A few must not: a login
+# that belongs to one machine stops being that machine's login the moment two machines share
+# it. Those keys are not in the store, so write down where they DO live, with an @, and read
+# it as the word "at":
+#
+#     SOME_LOGIN@/the/file/it/lives/in  2027-03-14  -  # what it opens, and how you renew it
+#
+# It is counted down exactly like every other line. The only difference is that `hub-check-keys`
+# knows not to go looking for it in your store, and so does not tell you it is missing.
+#
 # NEVER PUT A KEY ITSELF IN HERE. This file is plain text and travels with your folder.
-# Names, dates and links only. The keys themselves are locked, next door.
+# Names, dates, file paths and links only. The keys themselves are locked, next door, or in
+# the one file the @ names.
 #
 # WHAT READS IT: your morning brief, which starts mentioning a key two months before it
 # dies (once a week), then every morning for the last fortnight, and every morning after
@@ -2440,9 +2513,19 @@ DUEEOF
 }
 
 # kb_write_mcp_config <hub>
-# The file that tells your assistant where your notebook is. It NAMES the credential
-# rather than carrying it, so this file is safe to keep in the folder and to push: the
-# value is read from the environment when the assistant starts.
+# The file that tells CLAUDE CODE where your notebook is, and nothing else.
+#
+# IT USED TO SAY "your assistant", which was an over-claim the moment the book stopped
+# being a Claude Code book. Hermes never reads a folder .mcp.json: checked in the
+# Hermes source, there is not one reference to it. So a hub does NOT carry its own MCP
+# configuration, and this installer must not imply that it does. Hermes keeps its own,
+# and the commands are `hermes mcp add`, `hermes mcp catalog` and
+# `hermes mcp install <name>`, all three confirmed against the binary before being
+# printed here.
+#
+# The file stays, because Chapter 5 keeps Claude Code in VS Code as the developer path
+# and this is how that path finds the notebook. It NAMES the credential rather than
+# carrying it, so it is safe to keep in the folder and to push.
 # Never overwrites one you already have.
 kb_write_mcp_config() {
   local hub="${1:-}" f
@@ -2452,12 +2535,17 @@ kb_write_mcp_config() {
   cat > "$f" <<'JSONEOF'
 {
   "_comment": [
-    "This tells your assistant where your notebook is.",
-    "It NAMES the credential rather than carrying it: ${MENERIO_API_KEY} is read from",
-    "this computer's environment when the assistant starts, so this file holds no secret",
-    "and is safe to keep in the folder. The value itself lives locked in secrets/, and",
-    "travels with the folder to every computer you own.",
-    "Delete this file if you do not use a notebook. Nothing else in the book needs it."
+    "THIS FILE IS READ BY CLAUDE CODE, AND BY NOTHING ELSE IN THIS BOOK.",
+    "Hermes does not read it. Checked in the Hermes source: there is not one reference",
+    "to a folder .mcp.json anywhere in it. Hermes keeps its own connections, and you",
+    "add one with `hermes mcp add`, or pick from `hermes mcp catalog` and install it",
+    "with `hermes mcp install <name>`.",
+    "What it does do, for Claude Code: it says where your notebook is, and it NAMES the",
+    "credential rather than carrying it. ${MENERIO_API_KEY} is read from this computer's",
+    "environment when Claude Code starts, so this file holds no secret and is safe to",
+    "keep in the folder. The value itself lives locked in secrets/, and travels with the",
+    "folder to every computer you own.",
+    "Delete this file if you do not use Claude Code. Nothing else in the book needs it."
   ],
   "mcpServers": {
     "menerio": {
@@ -2471,7 +2559,9 @@ kb_write_mcp_config() {
   }
 }
 JSONEOF
-  ok "notebook: wrote $f, which names your credential instead of carrying it"
+  ok "notebook: wrote $f for Claude Code, and it names your credential instead of carrying it."
+  log "notebook: Hermes does not read that file. To give Hermes the same notebook:
+   hermes mcp add    (or: hermes mcp catalog, then hermes mcp install <name>)"
 }
 
 # kb_install_notebook_sync <hub>

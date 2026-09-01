@@ -85,7 +85,14 @@ function Update-KitFolderNames {
         $new = Join-Path $Hub $pair[1]
         if (-not (Test-Path $old)) { continue }
         if (Test-Path $new) {
-            Write-KbWarn "folders: you have both $($pair[0])\ and $($pair[1])\. Leaving both alone; move what you want by hand, then delete the empty one."
+            # COUNT, do not guess. The old wording said "delete the empty one" and was
+            # printed at a reader whose folders both held four files.
+            $nOld = @(Get-ChildItem -LiteralPath $old -Force -ErrorAction SilentlyContinue).Count
+            $nNew = @(Get-ChildItem -LiteralPath $new -Force -ErrorAction SilentlyContinue).Count
+            Write-KbWarn "folders: you have both $($pair[0])\ ($nOld inside) and $($pair[1])\ ($nNew inside).
+     They are one room under two names, and your assistant reads $($pair[1])\. Nothing was
+     moved and nothing was lost. Move what you want to keep into $($pair[1])\, then delete
+     $($pair[0])\."
             continue
         }
         $moved = $false
@@ -99,9 +106,31 @@ function Update-KitFolderNames {
         if (-not $moved) { Move-Item $old $new }
         Write-KbOk "folders: $($pair[0])\ is now $($pair[1])\, which says when your assistant reads it"
     }
-    foreach ($d in @('profile','rules','observations')) {
-        New-Item -ItemType Directory -Force (Join-Path $Hub $d) | Out-Null
+    # rules\ has never had another name, so it is always safe to make. The other two are
+    # made ONLY when this hub is not already keeping them under their old name. Creating
+    # them regardless is precisely how the duplicate room got built.
+    New-Item -ItemType Directory -Force (Join-Path $Hub 'rules') | Out-Null
+    foreach ($pair in @(@('context','profile'), @('memory','observations'))) {
+        if (-not (Test-Path (Join-Path $Hub $pair[0]))) {
+            New-Item -ItemType Directory -Force (Join-Path $Hub $pair[1]) | Out-Null
+        }
     }
+}
+
+function Get-KitRoomTwin {
+    <#  If this hub already keeps that room under its OTHER name, return that other name.
+
+        context\ and profile\ are the same room, and so are memory\ and observations\.
+        Measured on a real existing hub during Run 2: the top-up found no profile\, so it
+        copied the starter's in beside a context\ that already held the same four
+        filenames, and the next run then complained about a duplicate it had made itself.
+        Answers in both directions, so it is safe to ask about either spelling. #>
+    param([Parameter(Mandatory)][string]$Hub, [Parameter(Mandatory)][string]$Name)
+    foreach ($pair in @(@('context','profile'), @('memory','observations'))) {
+        if ($Name -eq $pair[1] -and (Test-Path (Join-Path $Hub $pair[0]))) { return $pair[0] }
+        if ($Name -eq $pair[0] -and (Test-Path (Join-Path $Hub $pair[1]))) { return $pair[1] }
+    }
+    return ''
 }
 
 function Initialize-KitMemoryIndex {
@@ -549,7 +578,14 @@ function Install-KitHubTools {
         New-Item -ItemType Directory -Force $bin | Out-Null
         New-Item -ItemType Directory -Force (Join-Path $HOME '.hub') | Out-Null
         $n = 0
-        Get-ChildItem $src -File | Where-Object { $_.Extension -ne '.md' } | ForEach-Object {
+        # A KIT SHIPS PRODUCTS, NOT ITS OWN TEST SUITE. Measured on a real install:
+        # test-notebook-sync.sh and test-prompt-archive.sh were copied onto the reader's
+        # PATH beside hub-due and hub-check-keys, so a reader could type a command that
+        # runs the kit's tests against their own hub without ever being told what it was.
+        Get-ChildItem $src -File |
+            Where-Object { $_.Extension -ne '.md' } |
+            Where-Object { $_.Name -notlike 'test-*' -and $_.Name -notlike '*-test*' -and $_.Name -notlike '*_test*' } |
+            ForEach-Object {
             # REMOVE FIRST, ALWAYS. Install-KitHubCli puts links in this same folder that
             # point back into the hub, and copying over a link writes THROUGH it, into the
             # hub. That happened on the first live run and the only sign was a changed file
@@ -870,7 +906,11 @@ function Copy-KitStarterHub {
         # already have (comments and blanks skipped, so a re-run adds nothing twice).
         Get-ChildItem $src -Force | ForEach-Object {
             $dest = Join-Path $Path $_.Name
-            if (-not (Test-Path $dest)) {
+            # Never add a room this hub already keeps under its other name, or the top-up
+            # drops profile\ next to a perfectly good context\. See Get-KitRoomTwin.
+            if (-not (Test-Path $dest) -and (Get-KitRoomTwin -Hub $Path -Name $_.Name)) {
+                # nothing to do: the room is already here under its older name
+            } elseif (-not (Test-Path $dest)) {
                 Copy-Item $_.FullName $dest -Recurse -Force
             } elseif ($_.Name -eq '.gitignore' -and -not $_.PSIsContainer) {
                 $have = @(Get-Content $dest -ErrorAction SilentlyContinue)
@@ -1205,34 +1245,53 @@ function Write-KitExpiryRecord {
     $f = Join-Path $Hub 'secrets\expires.txt'
     if (Test-Path $f) { return }
     New-Item -ItemType Directory -Force (Join-Path $Hub 'secrets') | Out-Null
+    # THE TEXT BELOW IS THE READER KIT'S COPY, BYTE FOR BYTE, and a test compares them.
+    # There were THREE copies of this file and two of them had drifted: the bash twin and
+    # this one both predated the @ convention that hub-check-keys implements, so a reader
+    # with an established hub was handed a page that did not document the thing their own
+    # tool was doing. Only the new-hub path, which copies from the kit, was current. If
+    # you change one, change all three, and the tests will say so.
     $lines = @(
-        '# When your keys run out.'
-        '#'
-        '# Some keys last forever. Some die after a year, and on that morning nothing tells you:'
-        '# whatever used the key simply stops working, and the error blames the wrong thing. This'
-        '# file is how your hub knows the date before you do.'
-        '#'
-        '# One key per line. Three things, separated by spaces:'
-        '#'
-        '#     NAME_OF_THE_KEY     the date it dies     the page you get a new one from'
-        '#'
-        '# Like this:'
-        '#'
-        '#     SOME_SERVICE_TOKEN  2027-03-14  https://example.com/account/tokens  # what it opens'
-        '#'
-        '# The date is written year first: 2027-03-14 is the 14th of March, 2027. Write `never`'
-        '# instead of a date for a key you have checked and that does not expire. Write `-` instead'
-        '# of a page when there is nowhere to go and get one.'
-        '#'
-        '# The words after the # are for you. Say what the key opens, in your own words, because in'
-        '# a year you will not remember what its name meant.'
-        '#'
-        '# NEVER PUT A KEY ITSELF IN HERE. This file is plain text and travels with your folder.'
-        '# Names, dates and links only. The keys themselves are locked, next door.'
-        '#'
-        '# WHAT READS IT: your morning brief, which starts mentioning a key two months before it'
-        '# dies (once a week), then every morning for the last fortnight, and every morning after'
-        '# it has died. Changing the date here is the off switch. And hub-check-keys, any time'
+        '# When your keys run out.',
+        '#',
+        '# Some keys last forever. Some die after a year, and on that morning nothing tells you:',
+        '# whatever used the key simply stops working, and the error blames the wrong thing. This',
+        '# file is how your hub knows the date before you do.',
+        '#',
+        '# One key per line. Three things, separated by spaces:',
+        '#',
+        '#     NAME_OF_THE_KEY     the date it dies     the page you get a new one from',
+        '#',
+        '# Like this:',
+        '#',
+        '#     SOME_SERVICE_TOKEN  2027-03-14  https://example.com/account/tokens  # what it opens',
+        '#',
+        '# The date is written year first: 2027-03-14 is the 14th of March, 2027. Write `never`',
+        '# instead of a date for a key you have checked and that does not expire. Write `-` instead',
+        '# of a page when there is nowhere to go and get one, and put the steps in the words after',
+        '# the # so the reminder still tells you what to do.',
+        '#',
+        '# The words after the # are for you. Say what the key opens, in your own words, because in',
+        '# a year you will not remember what its name meant.',
+        '#',
+        '# A KEY THAT LIVES ON ONE COMPUTER. Nearly every key belongs in the locked store next door,',
+        '# because putting it there once puts it on every computer you own. A few must not: a login',
+        '# that belongs to one machine stops being that machine''s login the moment two machines share',
+        '# it. Those keys are not in the store, so write down where they DO live, with an @, and read',
+        '# it as the word "at":',
+        '#',
+        '#     SOME_LOGIN@/the/file/it/lives/in  2027-03-14  -  # what it opens, and how you renew it',
+        '#',
+        '# It is counted down exactly like every other line. The only difference is that `hub-check-keys`',
+        '# knows not to go looking for it in your store, and so does not tell you it is missing.',
+        '#',
+        '# NEVER PUT A KEY ITSELF IN HERE. This file is plain text and travels with your folder.',
+        '# Names, dates, file paths and links only. The keys themselves are locked, next door, or in',
+        '# the one file the @ names.',
+        '#',
+        '# WHAT READS IT: your morning brief, which starts mentioning a key two months before it',
+        '# dies (once a week), then every morning for the last fortnight, and every morning after',
+        '# it has died. Changing the date here is the off switch. And `hub-check-keys`, any time',
         '# you want to ask.'
     )
     Set-KbTextFile -Path $f -Lines $lines
@@ -1399,21 +1458,37 @@ function Write-KitDueFolder {
 }
 
 function Write-KitMcpConfig {
-    <#  The file that tells your assistant where your notebook is. It NAMES the
-        credential rather than carrying it, so the file holds no secret and is safe
-        to keep in the folder. Never overwrites one you already have. #>
+    <#  The file that tells CLAUDE CODE where your notebook is, and nothing else.
+
+        It used to say "your assistant", which was an over-claim the moment the book
+        stopped being a Claude Code book. Hermes never reads a folder .mcp.json:
+        checked in the Hermes source, there is not one reference to it. So a hub does
+        NOT carry its own MCP configuration and this installer must not imply that it
+        does. Hermes keeps its own, and the commands are `hermes mcp add`,
+        `hermes mcp catalog` and `hermes mcp install <name>`, all three confirmed
+        against the binary before being printed.
+
+        The file stays, because Chapter 5 keeps Claude Code in VS Code as the
+        developer path and this is how that path finds the notebook. It NAMES the
+        credential rather than carrying it, so it holds no secret and is safe to keep
+        in the folder. Never overwrites one you already have. #>
     param([Parameter(Mandatory)][string]$Hub)
     $f = Join-Path $Hub '.mcp.json'
     if (Test-Path $f) { Write-KbOk "notebook: .mcp.json is already there, left as you have it"; return }
     $lines = @(
         '{',
         '  "_comment": [',
-        '    "This tells your assistant where your notebook is.",',
-        '    "It NAMES the credential rather than carrying it: ${MENERIO_API_KEY} is read from",',
-        '    "this computer''s environment when the assistant starts, so this file holds no secret",',
-        '    "and is safe to keep in the folder. The value itself lives locked in secrets/, and",',
-        '    "travels with the folder to every computer you own.",',
-        '    "Delete this file if you do not use a notebook. Nothing else in the book needs it."',
+        '    "THIS FILE IS READ BY CLAUDE CODE, AND BY NOTHING ELSE IN THIS BOOK.",',
+        '    "Hermes does not read it. Checked in the Hermes source: there is not one reference",',
+        '    "to a folder .mcp.json anywhere in it. Hermes keeps its own connections, and you",',
+        '    "add one with `hermes mcp add`, or pick from `hermes mcp catalog` and install it",',
+        '    "with `hermes mcp install <name>`.",',
+        '    "What it does do, for Claude Code: it says where your notebook is, and it NAMES the",',
+        '    "credential rather than carrying it. ${MENERIO_API_KEY} is read from this computer''s",',
+        '    "environment when Claude Code starts, so this file holds no secret and is safe to",',
+        '    "keep in the folder. The value itself lives locked in secrets/, and travels with the",',
+        '    "folder to every computer you own.",',
+        '    "Delete this file if you do not use Claude Code. Nothing else in the book needs it."',
         '  ],',
         '  "mcpServers": {',
         '    "menerio": {',
@@ -1428,7 +1503,9 @@ function Write-KitMcpConfig {
         '}'
     )
     Set-KbTextFile -Path $f -Lines $lines
-    Write-KbOk "notebook: wrote $f, which names your credential instead of carrying it"
+    Write-KbOk "notebook: wrote $f for Claude Code, and it names your credential instead of carrying it."
+    Write-Host "   notebook: Hermes does not read that file. To give Hermes the same notebook:"
+    Write-Host "     hermes mcp add    (or: hermes mcp catalog, then hermes mcp install <name>)"
 }
 
 function Install-KitNotebookSync {
