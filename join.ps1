@@ -1971,6 +1971,121 @@ function Set-KitHermesHub {
     }
 }
 
+# =============================================================================
+# THE LEASH, TRANSLATED RATHER THAN RENAMED
+#
+# The Windows twin of kb_hermes_approvals in lib.sh, and the long note above that
+# function carries the measurements. The short version:
+#
+# The Claude file this replaces grants a blanket allow plus a long deny list, because
+# Claude Code has no floor of its own. Hermes has one, so a one-for-one copy would be
+# a rename. Measured on stock Hermes 0.21.0 with `hermes approvals test`, which returns
+# a verdict without executing anything: every command the kit itself runs is ALREADY
+# allowed with nothing configured, so no allowlist is written here at all. What Hermes
+# does not refuse on its own is a short list, and that is what goes in.
+#
+# The pattern shape matters more than the list. An approvals.deny entry is a glob over
+# the WHOLE normalised command: "iptables" denies nothing, not even `iptables -F`, and
+# even "iptables *" plus "sudo iptables *" is walked around by `/sbin/iptables -F`.
+# Every phrase in the shipped list is wrapped in wildcards for that reason, and chosen
+# to be one no ordinary hub command contains.
+#
+# WHY A WINDOWS PC GETS THE UNIX RULES. Because this is where the reader drives their
+# server from. Hermes Desktop holds a connection list, and the whole point of Chapter 27
+# is that the machine in front of you reaches the machine that never sleeps. A Hermes on
+# this PC with an SSH connection open can run `systemctl stop ssh` on the reader's own
+# server as easily as it can run `dir`, and would lock them out of it.
+#
+# WHAT IS STILL OWED, and it is not pretended otherwise: a Windows-native dangerous
+# command set has NOT been measured. format, diskpart, bcdedit, vssadmin delete shadows,
+# wevtutil cl and netsh advfirewall reset are the obvious candidates, and not one of
+# them has been through `approvals test` on a stock Windows Hermes. Guessing a list
+# would be exactly the thing this file spends its comments arguing against.
+# =============================================================================
+
+function Get-KitHermesDenyRules {
+    <#  The shipped list. Kept as data so the self-check reads the same thing the
+        writer wrote, rather than a second copy that drifts. #>
+    @(
+        '*shred *', '*userdel root*', '*usermod -L root*', '*passwd root*',
+        '*iptables -F*', '*iptables -X*', '*ip6tables -F*', '*ip6tables -X*',
+        '*ufw --force reset*',
+        '*systemctl stop ssh*', '*systemctl disable ssh*',
+        '*systemctl stop sshd*', '*systemctl disable sshd*', '*systemctl mask *',
+        '*chmod 000 /etc*', '*chmod 777 /etc*',
+        '*history -c*', '*rm -rf /var/log*'
+    )
+}
+
+function Set-KitHermesApprovals {
+    <#  Add the kit's deny rules to approvals.deny, keeping anything already there.
+        `hermes config set` REPLACES a list, so this is read, merge, write.
+
+        It never writes approvals.mode. The shipped default is 'smart', and an
+        installer that turns the leash off to make its own life easier has sold the
+        reader something the book spends a chapter arguing against. #>
+
+    if (-not (Test-KitHermesHere)) {
+        Write-KbOk "safety: Hermes is not on this PC yet, so there are no rules to give it. Run this again once it is."
+        return $true
+    }
+    $bin = Get-KitHermesBin
+
+    # An unset key exits 1 and says so; an empty list prints []. Both mean nothing here.
+    $cur = @()
+    try {
+        $cur = @(& $bin config get approvals.deny 2>$null |
+                 ForEach-Object { ([string]$_ -replace '^\s*-\s*', '').Trim() } |
+                 Where-Object { $_ -and $_ -ne '[]' -and $_ -notlike 'Config key not set*' })
+    } catch { $cur = @() }
+
+    $add = @(Get-KitHermesDenyRules | Where-Object { $cur -notcontains $_ })
+    if ($add.Count -eq 0) {
+        Write-KbOk "safety: the rules that keep an assistant from locking you out are already in place"
+    } else {
+        $json = '[' + (((@($cur) + $add) | ForEach-Object { ConvertTo-KbJsonString $_ }) -join ',') + ']'
+        & $bin config set approvals.deny $json 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-KbWarn "safety: could not add the deny rules. Your assistant can still be talked into
+     switching off SSH on the server you reach from this PC. Run this by hand:
+     hermes config set approvals.deny '$json'"
+            return $false
+        }
+        Write-KbOk "safety: added $($add.Count) rule(s) Hermes does not refuse on its own, and kept the ones you had"
+    }
+
+    return (Test-KitHermesApprovals)
+}
+
+function Test-KitHermesApprovals {
+    <#  Prove the rules bite, and prove they did not break ordinary work. `approvals
+        test` never executes the command and never persists anything, and its exit
+        codes are 0 allow, 2 ask, 3 deny, so this is deterministic with no model in it.
+
+        Both directions, because either alone is a half-truth: a list that denied
+        everything would sail through a deny-only check and make the hub unusable. #>
+    if (-not (Test-KitHermesHere)) { return $true }
+    $bin = Get-KitHermesBin
+    $bad = $false
+
+    & $bin approvals test -- git status 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-KbWarn "safety: the rules went too far. Hermes would now stop to ask before ``git status``,
+     which the hub uses constantly. Check: hermes config get approvals.deny"
+        $bad = $true
+    }
+    & $bin approvals test -- ufw --force reset 2>&1 | Out-Null
+    $rc = $LASTEXITCODE
+    if ($rc -ne 3) {
+        Write-KbWarn "safety: the rules are not biting. Hermes still answered $rc for a command that
+     resets a firewall, where 3 means refused. Do not treat this setup as fenced."
+        $bad = $true
+    }
+    if ($bad) { return $false }
+    Write-KbOk "safety: checked both ways, the dangerous command is refused and ordinary work is not"
+    return $true
+}
+
 if ($AsLibrary) { return }
 
 # ---------------------------------------------------------------- run standalone
@@ -2025,6 +2140,11 @@ Connect-KitSkills -Hub $Hub | Out-Null
 # of the six known ways to do this are silent no-ops and the kit shipped one.
 Set-KitHermesHub -Hub $Hub | Out-Null
 
+# The leash. A translation of the Claude permissions file, not a rename: Hermes
+# already allows every command the kit runs, so this writes no allowlist at all and
+# only closes the gaps its own floor leaves open. Measured, both ways.
+Set-KitHermesApprovals | Out-Null
+
 # The completion text is built from what actually happened on THIS PC, never
 # from the promise. The old text here claimed "nothing is stored inside one AI
 # tool any more" on every machine, including ones where only Claude Code (or
@@ -2041,3 +2161,9 @@ so keep doing what you already do with the folder. To change which AI tools are
 read on this PC later: run this again with -Sources, or edit
 HUB_PROMPT_SOURCES in $HOME\.hub\device.env
 "@
+
+# EXPLICIT, and it has to be. This script ends with wiring that calls Hermes, and
+# `hermes approvals test` answers 3 when the leash is working, so without this line a
+# completely successful join exits 3: PowerShell hands back whatever the last native
+# command left in $LASTEXITCODE.
+exit 0

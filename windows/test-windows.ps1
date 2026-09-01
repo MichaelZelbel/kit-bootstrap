@@ -1426,6 +1426,164 @@ foreach ($v in 'KB_HERMES_BIN', 'STUB_LOG', 'STUB_CWDFILE', 'STUB_ELSEWHERE', 'S
     Set-Item -Path "env:$v" -Value '' -ErrorAction SilentlyContinue
 }
 
+
+Write-Host ""
+Write-Host "-- the leash, translated rather than renamed"
+#
+# The shape of these rules was measured on stock Hermes 0.21.0 before any of it was
+# written, because an approvals.deny entry is a glob over the WHOLE normalised command
+# and the obvious spelling stops nothing: "iptables" does not even deny `iptables -F`.
+# The stub below does the same glob matching with -like, so a rule that would be inert
+# on the real thing is inert here too.
+
+function New-HermesApprovalsStub {
+    param([string]$Dir)
+    New-Item -ItemType Directory -Force $Dir | Out-Null
+    Set-KbTextFile -Path (Join-Path $Dir 'stub.ps1') -Lines @(
+        'if ($env:STUB_LOG) { Add-Content -LiteralPath $env:STUB_LOG -Value ((@($args) | ForEach-Object { "[$_]" }) -join " ") }',
+        'function Get-Rules {',
+        '    if (-not (Test-Path -LiteralPath $env:STUB_DENY)) { return @() }',
+        '    $raw = (Get-Content -LiteralPath $env:STUB_DENY -Raw).Trim()',
+        '    if (-not $raw -or $raw -eq "[]") { return @() }',
+        '    return @($raw.Trim("[","]") -split ''","'' | ForEach-Object { $_.Trim(''"'') } | Where-Object { $_ })',
+        '}',
+        'if ($args[0] -eq "config" -and $args[1] -eq "get" -and $args[2] -eq "approvals.deny") {',
+        '    $r = Get-Rules',
+        '    if ($r.Count -eq 0) { "Config key not set: approvals.deny"; exit 1 }',
+        '    $r | ForEach-Object { "- $_" }',
+        '}',
+        'if ($args[0] -eq "config" -and $args[1] -eq "set" -and $args[2] -eq "approvals.deny") {',
+        '    # THE VALUE COMES FROM WHAT CMD SAW, NOT FROM $args, and that is not fussiness.',
+        '    # The shim is cmd calling powershell -File, and that round trip EATS the double',
+        '    # quotes: a JSON array arrives here as [*shred *,*userdel root*,...] with every',
+        '    # quote gone. A real hermes.exe never sees that, because PowerShell escapes an',
+        '    # inner quote for a native process and the C runtime puts it back. So the stub',
+        '    # reads cmd own argument line instead, un-escapes it, and the test above can',
+        '    # still prove the JSON left PowerShell with its quotes on.',
+        '    $raw = ""',
+        '    if ($env:STUB_RAW -and (Test-Path -LiteralPath $env:STUB_RAW)) {',
+        '        $raw = (Get-Content -LiteralPath $env:STUB_RAW -Raw)',
+        '    }',
+        '    $val = [string]$args[3]',
+        '    $line = @($raw -split "`r?`n" | Where-Object { $_ -match ''^config set approvals\.deny '' }) | Select-Object -Last 1',
+        '    if ($line) { $val = ($line -replace ''^config set approvals\.deny\s+'', '''').Trim().Replace(''\"'', ''"'') }',
+        '    [System.IO.File]::WriteAllText($env:STUB_DENY, $val)',
+        '}',
+        'if ($args[0] -eq "approvals" -and $args[1] -eq "test") {',
+        '    $rest = @($args[2..($args.Count-1)])',
+        '    if ($rest.Count -gt 0 -and $rest[0] -eq "--") { $rest = @($rest[1..($rest.Count-1)]) }',
+        '    $cmd = $rest -join " "',
+        '    if ($env:STUB_TOOTIGHT -eq "1" -and $cmd -eq "git status") { exit 2 }',
+        '    if ($env:STUB_TOOTIGHT -eq "2") { exit 0 }',
+        '    foreach ($p in (Get-Rules)) { if ($cmd -like $p) { exit 3 } }',
+        '    exit 0',
+        '}',
+        'exit 0'
+    )
+    $cmd = Join-Path $Dir 'hermes.cmd'
+    # PowerShell by absolute path, for the reason in New-HermesCwdStub.
+    Set-KbTextFile -Path $cmd -Lines @(
+        '@echo off',
+        'if defined STUB_RAW >>"%STUB_RAW%" echo %*',
+        '"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0stub.ps1" %*'
+    )
+    return $cmd
+}
+
+function Invoke-ApprovalsCase {
+    $all = @(Set-KitHermesApprovals 3>&1 6>&1)
+    $ret = $false
+    if ($all.Count -gt 0) { $ret = $all[$all.Count - 1] }
+    $txt = ((@($all) | ForEach-Object { [string]$_ }) -join [Environment]::NewLine)
+    return [pscustomobject]@{ Text = $txt; Ok = ($ret -eq $true) }
+}
+
+$ApRoot = New-TestDir 'approvals'
+$env:STUB_LOG  = Join-Path $ApRoot 'calls.log'
+$env:STUB_DENY = Join-Path $ApRoot 'deny.json'
+$env:STUB_RAW  = Join-Path $ApRoot 'raw-args.txt'
+$env:KB_HERMES_BIN = New-HermesApprovalsStub -Dir (Join-Path $ApRoot 'bin')
+Set-KbTextFile -Path $env:STUB_LOG -Lines @()
+
+foreach ($fn in 'Get-KitHermesDenyRules', 'Set-KitHermesApprovals', 'Test-KitHermesApprovals') {
+    Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
+}
+
+$ApRes = Invoke-ApprovalsCase
+Check "the leash goes on, and says so" { $ApRes.Ok }
+Check "every shipped rule reaches the config" {
+    $d = Get-Content -LiteralPath $env:STUB_DENY -Raw
+    @(Get-KitHermesDenyRules | Where-Object { -not $d.Contains($_) }).Count -eq 0
+}
+Check "the list leaves PowerShell as real JSON, quotes and all" {
+    # cmd's own view of the argument line, taken before the powershell -File round trip
+    # strips the quotes out of it.
+    # Measured, not assumed: PowerShell 5.1 hands a native process the quotes as they
+    # are. It is the shim's own powershell -File re-parse that strips them, which is why
+    # the stub reads this file rather than its own $args.
+    (Get-Content -LiteralPath $env:STUB_RAW -Raw).Contains('"*shred *"')
+}
+Check "the Unix rules are what ships, because this PC is what drives the server" {
+    (Get-KitHermesDenyRules) -contains '*systemctl stop ssh*'
+}
+Check "approvals.mode is never written, because the shipped default is the right one" {
+    -not ((Get-Content -LiteralPath $env:STUB_LOG -Raw) -like '*approvals.mode*')
+}
+Check "and no allowlist is written, because Hermes already allows the kit's own work" {
+    -not ((Get-Content -LiteralPath $env:STUB_LOG -Raw) -like '*command_allowlist*')
+}
+Check "the check runs both ways, not just the scary one" {
+    $ApRes.Text -like '*checked both ways*'
+}
+Check "a second run adds nothing" {
+    Set-KbTextFile -Path $env:STUB_LOG -Lines @()
+    Invoke-ApprovalsCase | Out-Null
+    -not ((Get-Content -LiteralPath $env:STUB_LOG -Raw) -like '*[[]set[]] [[]approvals.deny[]]*')
+}
+# `hermes config set` REPLACES a list, so without read, merge, write this is how a
+# reader loses the rule they added themselves.
+Check "a rule the reader added themselves survives, with the shipped ones beside it" {
+    [System.IO.File]::WriteAllText($env:STUB_DENY, '["*my own rule*"]')
+    Invoke-ApprovalsCase | Out-Null
+    $d = Get-Content -LiteralPath $env:STUB_DENY -Raw
+    $d.Contains('*my own rule*') -and $d.Contains('*ufw --force reset*')
+}
+
+# THE TWO WAYS THE SELF-CHECK EARNS ITS PLACE.
+Check "rules that do not bite are reported, not celebrated" {
+    [System.IO.File]::WriteAllText($env:STUB_DENY, '')
+    $env:STUB_TOOTIGHT = '2'
+    $script:ApLoose = Invoke-ApprovalsCase
+    $env:STUB_TOOTIGHT = ''
+    (-not $script:ApLoose.Ok) -and ($script:ApLoose.Text -like '*not biting*')
+}
+Check "rules that went too far are caught as well" {
+    [System.IO.File]::WriteAllText($env:STUB_DENY, '')
+    $env:STUB_TOOTIGHT = '1'
+    $r = Invoke-ApprovalsCase
+    $env:STUB_TOOTIGHT = ''
+    (-not $r.Ok) -and ($r.Text -like '*went too far*')
+}
+Check "no Hermes is not a failure here either" {
+    $keep = $env:KB_HERMES_BIN
+    $env:KB_HERMES_BIN = Join-Path $ApRoot 'bin\no-such-hermes.cmd'
+    $r = Invoke-ApprovalsCase
+    $env:KB_HERMES_BIN = $keep
+    $r.Ok -and ($r.Text -like '*no rules to give it*')
+}
+
+# A healthy `hermes approvals test` answers 3, so the last thing join.ps1 does leaves 3
+# in $LASTEXITCODE. Without an explicit exit, PowerShell hands that back and a completely
+# successful join reports failure to whatever ran it.
+Check "join.ps1 ends with an explicit exit, so a good run cannot report 3" {
+    $tail = (Get-Content (Join-Path $PSScriptRoot '..\join.ps1') -Tail 1).Trim()
+    $tail -eq 'exit 0'
+}
+
+foreach ($v in 'KB_HERMES_BIN', 'STUB_LOG', 'STUB_DENY', 'STUB_RAW', 'STUB_TOOTIGHT') {
+    Set-Item -Path "env:$v" -Value '' -ErrorAction SilentlyContinue
+}
+
 # Put the real user PATH back, whatever the cases above did to it. See $UserPath0 at the top.
 try { [Environment]::SetEnvironmentVariable('Path', $UserPath0, 'User') } catch { }
 

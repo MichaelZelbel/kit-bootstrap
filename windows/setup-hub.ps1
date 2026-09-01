@@ -118,7 +118,7 @@ if (-not $Join) {
 # copy inside the .exe when it is not there. The canary moves forward with the
 # code: it is the NEWEST function this file calls, or the check passes on a copy
 # that is missing everything added since.
-if (-not (Get-Command Set-KitHermesHub -ErrorAction SilentlyContinue)) {
+if (-not (Get-Command Set-KitHermesApprovals -ErrorAction SilentlyContinue)) {
     if ($Join -ne $Bundled -and (Test-Path $Bundled)) {
         Write-Warning "the published install code is older than this installer, so I am using the copy that came with it."
         . $Bundled -AsLibrary
@@ -129,7 +129,7 @@ foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-
                  'Install-KitPromptHarvest', 'Update-KitPath',
                  'Find-KitAiTools', 'Set-KitPromptSources', 'Write-KitSyncReport',
                  'Connect-KitNotebook', 'Write-KitMcpConfig', 'Install-KitNotebookSync',
-                 'Connect-KitSkills', 'Set-KitHermesHub') {
+                 'Connect-KitSkills', 'Set-KitHermesHub', 'Set-KitHermesApprovals') {
     if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
         Stop-Setup "the install code on this PC is incomplete ($fn is missing). Download the newest installer from https://github.com/MichaelZelbel/kit-bootstrap/releases/latest and run that."
     }
@@ -223,6 +223,11 @@ Connect-KitSkills -Hub $Hub | Out-Null
 # rather than by reading the setting back. See the long note above the function: four
 # of the six known ways to do this are silent no-ops and the kit shipped one.
 Set-KitHermesHub -Hub $Hub | Out-Null
+
+# The leash. A translation of the Claude permissions file, not a rename: Hermes
+# already allows every command the kit runs, so this writes no allowlist at all and
+# only closes the gaps its own floor leaves open. Measured, both ways.
+Set-KitHermesApprovals | Out-Null
 
 # Remember where it is, so the next run of the installer finds it instantly and so
 # other tools on this PC can stop guessing.

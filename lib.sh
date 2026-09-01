@@ -855,6 +855,164 @@ kb_point_hermes_at_hub() {
   esac
 }
 
+# --- The leash, translated rather than renamed --------------------------------
+#
+# WHAT THIS REPLACES, AND WHY IT IS NOT THE SAME FILE IN A NEW HAT.
+# kb_grant_working_permissions writes ~/.claude/settings.json: a blanket allow
+# (Read(**), Edit(**), Bash(*)) plus a long deny list of catastrophes. That shape
+# exists because Claude Code has no floor of its own, so the kit had to supply both
+# halves. Hermes DOES have a floor, so a one-for-one copy would be a rename.
+#
+# So the two halves were measured on stock Hermes 0.21.0, mode `smart`, on a clean
+# account, with `hermes approvals test`, which returns a verdict without executing
+# anything: 0 allow, 2 ask, 3 deny.
+#
+# THE ALLOW HALF IS ALREADY DONE, so this function writes no allowlist at all.
+# Measured, every one of these came back 0 with nothing configured: git status, add,
+# commit and push; cat; ls; hub map; hub-check-keys; hub-compile-rules; node on a kit
+# tool; hermes send; rm on a file; mv; tee; chmod on a hub file. The kit's own work
+# never prompts, so an allowlist would grant what is already granted. Writing one
+# because the Claude file had one is exactly the rename the specification forbids.
+#
+# THE DENY HALF IS REAL, AND SMALLER THAN THE CLAUDE FILE. Hermes' hardline already
+# refuses rm -rf / and /* and ~, shutdown, reboot, every mkfs, and dd onto a device.
+# Those need no rule. What it does NOT refuse, measured with nothing configured:
+#
+#   allowed outright (0): shred, chmod 000 /etc/shadow, passwd root, userdel root,
+#                         usermod -L root, iptables -F, ufw --force reset, history -c
+#   only asked (2):       chmod 777 /etc, systemctl stop/disable/mask ssh
+#
+# An ask is not a refusal for a person at a keyboard, and the ssh ones lock you out of
+# your own server. Those are what this list covers, and nothing else.
+#
+# AND THE PATTERN SHAPE MATTERS MORE THAN THE LIST. An approvals.deny entry is a glob
+# matched against the WHOLE normalised command, which has two consequences that were
+# measured rather than assumed and that make the difference between a safety feature
+# and decoration:
+#
+#   "iptables" alone denies NOTHING, not even `iptables -F`, because it is not the
+#   whole command.
+#   "iptables *" denies `iptables -F` and `sudo iptables -F`... only if you also add
+#   "sudo iptables" and "sudo iptables *". And `/sbin/iptables -F` and
+#   `env iptables -F` still walk straight through all four.
+#
+# "*iptables -F*" catches all six spellings. The cost of a leading and trailing
+# wildcard is that the phrase is denied wherever it appears in a command line, so
+# every phrase here is chosen to be one no ordinary hub command contains. Checked:
+# `grep -r history <hub>` is NOT caught by "*history -c*".
+#
+# Verified end to end on the test VPS before shipping: 18 dangerous spellings all
+# denied, and 16 commands the kit itself runs all still silent.
+
+# kb_hermes_deny_rules
+# The shipped list, one per line. Kept as data so the self-check below can read the
+# same thing the writer wrote, rather than a second copy that drifts.
+kb_hermes_deny_rules() {
+  cat <<'RULES'
+*shred *
+*userdel root*
+*usermod -L root*
+*passwd root*
+*iptables -F*
+*iptables -X*
+*ip6tables -F*
+*ip6tables -X*
+*ufw --force reset*
+*systemctl stop ssh*
+*systemctl disable ssh*
+*systemctl stop sshd*
+*systemctl disable sshd*
+*systemctl mask *
+*chmod 000 /etc*
+*chmod 777 /etc*
+*history -c*
+*rm -rf /var/log*
+RULES
+}
+
+# kb_hermes_approvals
+# Add the kit's deny rules to approvals.deny, keeping anything already there.
+# `hermes config set` REPLACES a list, so this is read, merge, write, the same
+# discipline kb_hermes_skills_dir needs for the same reason.
+#
+# It never writes approvals.mode. The shipped default is `smart`, and an installer
+# that turns the leash off to make its own life easier has sold the reader something
+# the book spends a chapter arguing against.
+kb_hermes_approvals() {
+  local bin cur line json="" added=0 rule
+  kb_hermes_here || {
+    ok "safety: Hermes is not on this machine yet, so there are no rules to give it. Run this again once it is."
+    return 0
+  }
+  bin="$(kb_hermes_bin)"
+
+  # An unset key exits 1 and says so, an empty list prints []. Both mean nothing here.
+  cur="$("$bin" config get approvals.deny 2>/dev/null | sed 's/^[[:space:]]*-[[:space:]]*//')"
+  case "$cur" in *"Config key not set"*) cur="" ;; esac
+
+  while IFS= read -r line; do
+    case "$line" in ""|"[]") continue ;; esac
+    json="$json$(kb_json_str "$line"),"
+  done <<EOF
+$cur
+EOF
+
+  while IFS= read -r rule; do
+    [ -n "$rule" ] || continue
+    printf '%s\n' "$cur" | grep -qxF "$rule" && continue
+    json="$json$(kb_json_str "$rule"),"
+    added=$((added+1))
+  done <<EOF
+$(kb_hermes_deny_rules)
+EOF
+
+  if [ "$added" -eq 0 ]; then
+    ok "safety: the rules that keep an assistant from locking you out are already in place"
+  else
+    json="[$(printf '%s' "$json" | sed 's/,$//')]"
+    if "$bin" config set approvals.deny "$json" >/dev/null 2>&1; then
+      ok "safety: added $added rule(s) Hermes does not refuse on its own, and kept the ones you had"
+    else
+      warn "safety: could not add the deny rules. Your assistant can still be talked into
+     switching off your own SSH. Run this by hand:
+     hermes config set approvals.deny '$json'"
+      return 1
+    fi
+  fi
+
+  kb_hermes_approvals_selfcheck
+}
+
+# kb_hermes_approvals_selfcheck
+# Prove the rules bite, and prove they did not break ordinary work. `approvals test`
+# never executes the command and never persists anything, and its exit codes are
+# 0 allow, 2 ask, 3 deny, so this is a deterministic check with no model in it.
+#
+# Both directions, because either one alone is a half-truth: a list that denies
+# everything would pass a deny-only check and make the hub unusable.
+kb_hermes_approvals_selfcheck() {
+  local bin rc bad=0
+  kb_hermes_here || return 0
+  bin="$(kb_hermes_bin)"
+  # A command the kit's own work depends on. This must stay silent.
+  "$bin" approvals test -- git status >/dev/null 2>&1; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    warn "safety: the rules went too far. Hermes would now stop to ask before \`git status\`,
+     which the hub uses constantly. Check: hermes config get approvals.deny"
+    bad=1
+  fi
+  # One of the rules just written. This must be refused.
+  "$bin" approvals test -- ufw --force reset >/dev/null 2>&1; rc=$?
+  if [ "$rc" -ne 3 ]; then
+    warn "safety: the rules are not biting. Hermes still answered $rc for a command that
+     resets your firewall, where 3 means refused. Do not treat this machine as fenced."
+    bad=1
+  fi
+  [ "$bad" -eq 0 ] || return 1
+  ok "safety: checked both ways, the dangerous command is refused and ordinary work is not"
+  return 0
+}
+
 # --- Joining a machine to a hub that already exists ---------------------------
 #
 # Every installer here answers "make me a hub from nothing". None of them

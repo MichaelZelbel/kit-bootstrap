@@ -40,7 +40,8 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_seed_expiry_record kb_seed_due_folder \
          kb_json_str kb_count_recipes kb_skills_room kb_point_at_room \
          kb_hermes_skills_dir kb_wire_skills kb_hermes_bin kb_hermes_here \
-         kb_hermes_has_credential kb_hermes_reads_hub kb_point_hermes_at_hub; do
+         kb_hermes_has_credential kb_hermes_reads_hub kb_point_hermes_at_hub \
+         kb_hermes_deny_rules kb_hermes_approvals kb_hermes_approvals_selfcheck; do
   declare -F "$f" >/dev/null || printf "%s " "$f"
 done')"
 [ -z "$missing" ] || { echo "  MISSING: $missing"; exit 1; }
@@ -1132,6 +1133,101 @@ KB_HERMES_BIN="$_hb/bin/hermes"
 
 unset KB_HERMES_BIN STUB_LOG STUB_CWDFILE STUB_ELSEWHERE
 rm -rf "$_hb"
+
+echo
+echo "== the leash, translated rather than renamed"
+#
+# The shape of these rules was measured on stock Hermes 0.21.0 before any of it was
+# written, because an approvals.deny entry is a glob over the WHOLE normalised command
+# and the obvious spelling stops nothing: "iptables" does not even deny `iptables -F`.
+# The stub below does the same glob matching with `case`, so a rule that would be inert
+# on the real thing is inert here too.
+_ap=$(mktemp -d); mkdir -p "$_ap/bin"
+cat > "$_ap/bin/hermes" <<'STUB'
+#!/bin/sh
+echo "$*" >> "$STUB_LOG"
+rules() {
+  [ -s "$STUB_DENY" ] || return 0
+  sed 's/^\[//; s/\]$//; s/","/\
+/g; s/"//g' "$STUB_DENY"
+}
+if [ "$1" = "config" ] && [ "$2" = "get" ] && [ "$3" = "approvals.deny" ]; then
+  if [ -s "$STUB_DENY" ]; then rules | sed 's/^/- /'; else
+    echo "Config key not set: approvals.deny"; exit 1; fi
+fi
+if [ "$1" = "config" ] && [ "$2" = "set" ] && [ "$3" = "approvals.deny" ]; then
+  printf '%s' "$4" > "$STUB_DENY"
+fi
+if [ "$1" = "auth" ] && [ "$2" = "list" ]; then echo "openai-codex (1 credentials):"; fi
+if [ "$1" = "approvals" ] && [ "$2" = "test" ]; then
+  shift 2; [ "$1" = "--" ] && shift
+  cmd="$*"
+  [ "${STUB_TOOTIGHT:-0}" = "1" ] && [ "$cmd" = "git status" ] && exit 2
+  [ "${STUB_TOOTIGHT:-0}" = "2" ] && exit 0
+  rules | while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    case "$cmd" in $p) exit 9 ;; esac
+  done
+  [ $? -eq 9 ] && exit 3
+  exit 0
+fi
+exit 0
+STUB
+chmod +x "$_ap/bin/hermes"
+export KB_HERMES_BIN="$_ap/bin/hermes"
+export STUB_LOG="$_ap/calls.log" STUB_DENY="$_ap/deny.json"
+: > "$STUB_LOG"
+
+out="$(kb_hermes_approvals 2>&1)"; _rc=$?
+t "the leash goes on, and says so" "$_rc" "0"
+t "every shipped rule reaches the config" \
+  "$(kb_hermes_deny_rules | while IFS= read -r r; do grep -qF -- "$r" "$STUB_DENY" || echo miss; done | grep -c .)" "0"
+t "approvals.mode is never written, because the shipped default is the right one" \
+  "$(grep -c 'approvals.mode' "$STUB_LOG")" "0"
+t "and no allowlist is written, because Hermes already allows the kit's own work" \
+  "$(grep -c 'command_allowlist' "$STUB_LOG")" "0"
+t "the check runs both ways, not just the scary one" \
+  "$(printf '%s' "$out" | grep -c 'checked both ways')" "1"
+
+# Twice equals once.
+: > "$STUB_LOG"
+kb_hermes_approvals >/dev/null 2>&1
+t "a second run adds nothing" "$(grep -c 'config set approvals.deny' "$STUB_LOG")" "0"
+
+# A rule somebody added themselves is not thrown away. `hermes config set` REPLACES a
+# list, so without read, merge, write this is how a reader loses their own rule.
+printf '%s' '["*my own rule*"]' > "$STUB_DENY"
+: > "$STUB_LOG"
+kb_hermes_approvals >/dev/null 2>&1
+t "a rule the reader added themselves survives" \
+  "$(grep -c 'my own rule' "$STUB_DENY")" "1"
+t "and the shipped rules are there beside it" \
+  "$(grep -c 'ufw --force reset' "$STUB_DENY")" "1"
+
+# THE TWO WAYS THE SELF-CHECK EARNS ITS PLACE.
+: > "$STUB_DENY"
+STUB_TOOTIGHT=2; export STUB_TOOTIGHT   # nothing is ever refused
+out="$(kb_hermes_approvals 2>&1)"; _rc=$?
+t "rules that do not bite are reported, not celebrated" "$_rc" "1"
+t "and the message says what it means" \
+  "$(printf '%s' "$out" | grep -c 'not biting')" "1"
+: > "$STUB_DENY"
+STUB_TOOTIGHT=1                          # even git status would stop to ask
+out="$(kb_hermes_approvals 2>&1)"; _rc=$?
+t "rules that went too far are caught as well" "$_rc" "1"
+t "and that message says what it means too" \
+  "$(printf '%s' "$out" | grep -c 'went too far')" "1"
+unset STUB_TOOTIGHT
+
+# A machine with no Hermes on it yet, which is every machine partway through an install.
+KB_HERMES_BIN="$_ap/bin/no-such-hermes"
+out="$(kb_hermes_approvals 2>&1)"; _rc=$?
+t "no Hermes is not a failure here either" "$_rc" "0"
+t "and it says there is nothing to give rules to" \
+  "$(printf '%s' "$out" | grep -c 'no rules to give it')" "1"
+
+unset KB_HERMES_BIN STUB_LOG STUB_DENY
+rm -rf "$_ap"
 
 echo
 echo "  $pass passed, $fail failed"
