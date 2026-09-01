@@ -561,13 +561,23 @@ function Install-KitHubTools {
         }
         if ($n -eq 0) { return }
 
-        # The launcher. A .cmd rather than a shortcut, because a scheduled task and a
-        # terminal both understand one, and %~dp0 is how it finds its other half: the
-        # collector sits in the same folder and is never looked for anywhere else.
-        $js = Join-Path $bin 'prompt-harvest.js'
-        if (Test-Path $js) {
-            @('@echo off', "node `"%~dp0prompt-harvest.js`" %*") |
-                Set-Content -Path (Join-Path $bin 'hub-prompt-harvest.cmd') -Encoding ascii
+        # The launchers. A .cmd rather than a shortcut, because a scheduled task and a terminal
+        # both understand one, and %~dp0 is how it finds its other half: the program sits in the
+        # same folder and is never looked for anywhere else.
+        #
+        # ONE TABLE, BOTH PLATFORMS, and the bash twin in lib.sh carries the same list. Before
+        # 2026-08-29 only the prompt collector got a launcher here, so on Windows hub-check-keys
+        # and hub-compile-rules were extension-less shell scripts nothing could run, while the
+        # book printed both as commands a reader types.
+        foreach ($pair in @(
+            @{ src = 'prompt-harvest.js'; cmd = 'hub-prompt-harvest' },
+            @{ src = 'compile-rules.js';  cmd = 'hub-compile-rules'  },
+            @{ src = 'check-keys.js';     cmd = 'hub-check-keys'     },
+            @{ src = 'due.js';            cmd = 'hub-due'            }
+        )) {
+            if (-not (Test-Path (Join-Path $bin $pair.src))) { continue }
+            @('@echo off', "node `"%~dp0$($pair.src)`" %*") |
+                Set-Content -Path (Join-Path $bin ($pair.cmd + '.cmd')) -Encoding ascii
         }
 
         # The rules compiler, which a reader types by hand rather than the schedule
@@ -964,6 +974,8 @@ Download ZIP, and copy the starter-hub folder from inside it into $Path
         Set-KbTextFile -Path $agents -Lines $starter
         Write-KbOk "wrote a starter $agents for you to make your own"
     }
+    Write-KitExpiryRecord -Hub $Path
+    Write-KitDueFolder -Hub $Path
     Write-KbOk "your hub is now at $Path"
 }
 
@@ -1172,6 +1184,220 @@ function Save-KitNotebookToken {
     return $false
 }
 
+function Write-KitExpiryRecord {
+    <#  The file that remembers WHEN each of your keys dies. The Windows twin of
+        kb_seed_expiry_record in lib.sh.
+
+        WHY IT EXISTS. A key is not just a thing you own, it is a thing with a lifespan,
+        and the day it dies nothing announces it. The service simply starts saying no,
+        and the message it gives back blames whatever asked rather than the date. Most
+        keys never expire; the ones that do usually last a year, which is exactly long
+        enough to have forgotten.
+
+        WHY A FILE AND NOT A CALENDAR ENTRY. A calendar entry belongs to one account on
+        one service. This travels in the folder with the key it is about, every computer
+        reads it, the morning brief can read it, and hub-check-keys can read it. It also
+        survives changing calendars, which people do.
+
+        Never overwrites one that is already there, and holds no key: names, dates and
+        links only. #>
+    param([Parameter(Mandatory)][string]$Hub)
+    $f = Join-Path $Hub 'secrets\expires.txt'
+    if (Test-Path $f) { return }
+    New-Item -ItemType Directory -Force (Join-Path $Hub 'secrets') | Out-Null
+    $lines = @(
+        '# When your keys run out.'
+        '#'
+        '# Some keys last forever. Some die after a year, and on that morning nothing tells you:'
+        '# whatever used the key simply stops working, and the error blames the wrong thing. This'
+        '# file is how your hub knows the date before you do.'
+        '#'
+        '# One key per line. Three things, separated by spaces:'
+        '#'
+        '#     NAME_OF_THE_KEY     the date it dies     the page you get a new one from'
+        '#'
+        '# Like this:'
+        '#'
+        '#     SOME_SERVICE_TOKEN  2027-03-14  https://example.com/account/tokens  # what it opens'
+        '#'
+        '# The date is written year first: 2027-03-14 is the 14th of March, 2027. Write `never`'
+        '# instead of a date for a key you have checked and that does not expire. Write `-` instead'
+        '# of a page when there is nowhere to go and get one.'
+        '#'
+        '# The words after the # are for you. Say what the key opens, in your own words, because in'
+        '# a year you will not remember what its name meant.'
+        '#'
+        '# NEVER PUT A KEY ITSELF IN HERE. This file is plain text and travels with your folder.'
+        '# Names, dates and links only. The keys themselves are locked, next door.'
+        '#'
+        '# WHAT READS IT: your morning brief, which starts mentioning a key two months before it'
+        '# dies (once a week), then every morning for the last fortnight, and every morning after'
+        '# it has died. Changing the date here is the off switch. And hub-check-keys, any time'
+        '# you want to ask.'
+    )
+    Set-KbTextFile -Path $f -Lines $lines
+    Write-KbOk "keys: made secrets\expires.txt, where you write down when a key runs out"
+}
+
+function Write-KitDueFolder {
+    <#  The room that holds everything in this person's life with a last day. The Windows twin of
+        kb_seed_due_folder in lib.sh.
+
+        WHY IT EXISTS. A calendar reminder fires on a date and knows nothing else, so it goes off
+        about something already done, and once that has happened a few times a person stops
+        reading reminders. The one that mattered then goes past too. This room is the other shape:
+        two dates per thing, and how loud the hub gets follows how much of the window between
+        them is left.
+
+        WHY IT IS SEEDED HERE AS WELL AS SHIPPED IN starter-hub/. Copy-KitStarterHub tops up a hub
+        that already exists, which covers almost everybody, but it needs the network and the
+        starter repository. This costs nothing and covers the reader whose top-up could not run.
+        Same reason Write-KitExpiryRecord exists.
+
+        THE TEXT BELOW IS A COPY OF teach-it-once-kit/starter-hub/due/README.md, byte for byte,
+        and test.sh compares them. Two copies of one file is two places to fix a typo, and the one
+        nobody edits is the one every reader ends up with. Change the kit's copy, then copy it here
+        and into the kb_seed_due_folder twin in lib.sh.
+
+        Never overwrites a README that is already there, and never touches an obligation file. #>
+    param([Parameter(Mandatory)][string]$Hub)
+    $f = Join-Path $Hub 'due\README.md'
+    if (Test-Path $f) { return }
+    New-Item -ItemType Directory -Force (Join-Path $Hub 'due') | Out-Null
+    $lines = @(
+        '# due - the things with a last day'
+        ''
+        '**This room starts empty, and an empty one costs you nothing.** It fills the first time you tell'
+        'your hub about something with a deadline (Chapter 33). If you never do, you have an empty folder'
+        'and you have lost nothing.'
+        ''
+        '## Why this is not a reminder'
+        ''
+        'A calendar reminder fires on a date and knows nothing else. It cannot tell whether you already did'
+        'the thing, so it goes off afterwards, and after that happens a few times you stop reading'
+        'reminders. Then one of them stops on its last occurrence whether or not the job got done, and that'
+        'is the one that mattered.'
+        ''
+        'Everything in here is built to fix both halves of that.'
+        ''
+        '## The window'
+        ''
+        'Every file in here holds **the first day you can do the thing, and the last day you still can.**'
+        'Not a due date. A window.'
+        ''
+        'How loud your hub gets follows how much of the window is left, as a fraction:'
+        ''
+        '| Left of the window | Your hub |'
+        '|---|---|'
+        '| more than half | says it once when the window opens, then at most monthly |'
+        '| half to a quarter | a line in your brief about every fortnight |'
+        '| a quarter to a tenth | its own line, near the top, about weekly |'
+        '| under a tenth, and always the last day | every morning |'
+        ''
+        '**One rule, whether the window is a week or a year.** That is the whole reason you can have a'
+        'hundred of these. There is nothing to tune per item, and if a thing feels like it needs its own'
+        'setting, the window is wrong rather than the rule.'
+        ''
+        '## What a file looks like'
+        ''
+        'One file per thing, named however you like:'
+        ''
+        '```'
+        'due/car-service.md'
+        ''
+        'TITLE:          Car service before the warranty runs out'
+        'DONE-WHEN:      The car has been serviced at a garage the warranty accepts.'
+        'COST-IF-MISSED: The warranty ends. A gearbox after that is mine to pay for.'
+        'SELF-CHECK:     none'
+        'SELF-CHECK-ARG:'
+        'REPEATS:        yearly'
+        'LINK:           https://example.com/book-a-service'
+        'SOURCE:         me, 2026-08-29'
+        ''
+        '## Windows'
+        'STRIP: 2026-09-01 2027-02-28 open'
+        ''
+        '## Log'
+        '- 2026-08-29 created, window 2026-09-01 to 2027-02-28'
+        '```'
+        ''
+        'Plain text. Read it, edit it, delete it. The program writes the same shape you would.'
+        ''
+        '**A repeating thing is ONE file that grows a new window each time**, never one file per occurrence.'
+        'That is what keeps a hundred of these at a hundred files instead of thousands.'
+        ''
+        '## The four questions, asked once'
+        ''
+        'When you add one, answer four things and never be asked again:'
+        ''
+        '1. What is true when this is finished?'
+        '2. From when to when can you do it?'
+        '3. What does it cost you if it slips?'
+        '4. **How could your hub tell you did it, without asking you?**'
+        ''
+        'The fourth is the one that matters and the one everybody skips. Some things can answer it. A key is'
+        'replaced when the date in `secrets/expires.txt` moves. A backup happened if the file is newer than'
+        'the window. Those close themselves and never nag you again after you act, which is exactly the'
+        'failure that kills every reminder app.'
+        ''
+        'Most things cannot answer it, and **that is a fine answer**. Nobody can tell your hub that you'
+        'submitted a timesheet into somebody else''s website. Those say so and wait for you to say the word.'
+        'Ask the question anyway, every time, because knowing which kind a thing is changes what you build'
+        'around it.'
+        ''
+        '## No date, not eligible'
+        ''
+        '`hub-due add` refuses anything without both dates, in those words. That refusal is the only thing'
+        'standing between this folder and a to-do app you stop maintaining.'
+        ''
+        '## Three states, and only three'
+        ''
+        '**open, done, dropped.** Done can happen by itself when there is a self check. **Dropped only ever'
+        'comes from you**, and it deletes the file and everything it remembers, which is why the command'
+        'makes you type `--yes`.'
+        ''
+        'Something whose window closed without being done **stays open**. Nothing tidies it away, because'
+        'for a deadline "nobody got to it" is the failure, not a quiet success.'
+        ''
+        '## Your keys are already in here'
+        ''
+        'If you have `secrets/expires.txt` from Chapter 27, `hub-due` reads it and treats each key as one of'
+        'these. You never write a date in two places, and there is one thing nagging you rather than two'
+        'that disagree. Moving the date in that file is still the off switch, and it is now also the proof:'
+        'moving it forward is what replacing a key looks like from outside, so the reminder closes itself.'
+        ''
+        '## You do not need a calendar'
+        ''
+        'Not for any of this. If you do have one, your assistant can add **one entry per thing**, and one is'
+        'the whole rule. It goes on the day your hub starts being loud, not on the day the thing dies, and'
+        'the death date goes in the title so the single entry says both. Never two entries about one date:'
+        'the day they disagree with each other you stop believing either.'
+        ''
+        'It comes out again when you finish, as long as the day has not passed yet. That is the part that'
+        'makes one entry safe, because otherwise an entry you already acted on sits there being wrong. A day'
+        'that has already gone by is left alone: it is a record of what happened.'
+        ''
+        'You can also go the other way and add one from your phone, by writing an event that says'
+        '`hub: from 1 Feb`. **The calendar never decides when you get nagged and never knows whether you'
+        'acted.**'
+        ''
+        '## The commands'
+        ''
+        '```'
+        'hub-due                     everything, loudest first'
+        'hub-due today               at most three, which is what your morning brief reads'
+        'hub-due add <name> ...      make one'
+        'hub-due done <name>         you did it'
+        'hub-due drop <name> --yes   delete it'
+        'hub-due check               run the self checks, close what is provably done'
+        '```'
+        ''
+        'The card is `procedures/what-runs-out-and-when.md` in the kit. Chapter 33.'
+    )
+    Set-KbTextFile -Path $f -Lines $lines
+    Write-KbOk "deadlines: made due\README.md, the room for everything with a last day"
+}
+
 function Write-KitMcpConfig {
     <#  The file that tells your assistant where your notebook is. It NAMES the
         credential rather than carrying it, so the file holds no secret and is safe
@@ -1340,6 +1566,8 @@ function Connect-KitNotebook {
         }
     }
     Write-KitMcpConfig -Hub $Hub
+    Write-KitExpiryRecord -Hub $Hub
+    Write-KitDueFolder -Hub $Hub
     Install-KitNotebookSync -Hub $Hub
     Set-KitNotebookEnv -Hub $Hub
 }

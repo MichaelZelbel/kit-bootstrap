@@ -36,7 +36,8 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_enabled_sources kb_write_prompt_sources kb_sync_report \
          kb_age kb_age_keygen kb_have_age kb_hub_key_path kb_notebook_state \
          kb_unseal_hub_key kb_seal_hub_key kb_store_notebook_token kb_write_mcp_config \
-         kb_install_notebook_sync kb_persist_notebook_env kb_connect_notebook; do
+         kb_install_notebook_sync kb_persist_notebook_env kb_connect_notebook \
+         kb_seed_expiry_record kb_seed_due_folder; do
   declare -F "$f" >/dev/null || printf "%s " "$f"
 done')"
 [ -z "$missing" ] || { echo "  MISSING: $missing"; exit 1; }
@@ -642,8 +643,17 @@ kb_write_mcp_config "$_n/hub" >/dev/null 2>&1
 t "the assistant is given an .mcp.json" "$([ -f "$_n/hub/.mcp.json" ] && echo yes || echo no)" "yes"
 t "the connection NAMES the credential rather than carrying one" \
   "$(grep -c 'Bearer \${MENERIO_API_KEY}' "$_n/hub/.mcp.json")" "1"
-t "and it is valid JSON, which is the only way an assistant will read it" \
-  "$(python3 -c 'import json,sys;json.load(open(sys.argv[1]));print("ok")' "$_n/hub/.mcp.json" 2>/dev/null)" "ok"
+# python3, then python. Git Bash on Windows ships the launcher as `python` only, and this
+# suite is run there because that is where the .exe installer is built. A test that fails for
+# want of an interpreter reads exactly like a broken installer, and it hid nothing useful.
+_py=""
+for _c in python3 python; do "$_c" -c '' >/dev/null 2>&1 && { _py="$_c"; break; }; done
+if [ -n "$_py" ]; then
+  t "and it is valid JSON, which is the only way an assistant will read it" \
+    "$("$_py" -c 'import json,sys;json.load(open(sys.argv[1]));print("ok")' "$_n/hub/.mcp.json" 2>/dev/null)" "ok"
+else
+  echo "  skip  valid JSON: no python on this machine to read it with"
+fi
 printf 'mine\n' > "$_n/hub/.mcp.json"
 kb_write_mcp_config "$_n/hub" >/dev/null 2>&1
 t "a reader's own .mcp.json is never overwritten" "$(cat "$_n/hub/.mcp.json")" "mine"
@@ -750,6 +760,142 @@ else
 fi
 HOME="$_home0"; export HOME
 rm -rf "$_n"
+
+# ---------------------------------------------------------------------------
+# WHEN A KEY RUNS OUT: the record beside the keys.
+#
+# A key is a thing with a lifespan, and the day it dies nothing announces it.
+# This file is the only place a date is written down, so the morning brief and
+# hub-check-keys can both read it. It must never hold a key, must never
+# overwrite what the reader wrote in it, and must arrive on BOTH roads: a hub
+# made fresh by the installer, and a hub that gains keys later.
+# ---------------------------------------------------------------------------
+echo
+echo "== when a key runs out (secrets/expires.txt)"
+_x="$(mktemp -d)"
+mkdir -p "$_x/hub"
+
+kb_seed_expiry_record "$_x/hub" >/dev/null 2>&1
+t "a hub with no record gets one" \
+  "$([ -f "$_x/hub/secrets/expires.txt" ] && echo yes || echo no)" "yes"
+t "and it explains its own three columns, so nobody has to be told twice" \
+  "$(grep -c 'the page you get a new one from' "$_x/hub/secrets/expires.txt")" "1"
+t "and it warns against the one thing that would ruin it" \
+  "$(grep -c 'NEVER PUT A KEY ITSELF IN HERE' "$_x/hub/secrets/expires.txt")" "1"
+t "it holds no key of its own: every line in it is a comment" \
+  "$(grep -vc '^[[:space:]]*\(#.*\)\?$' "$_x/hub/secrets/expires.txt")" "0"
+
+printf 'MY_KEY  2027-01-01  https://example.com  # mine\n' >> "$_x/hub/secrets/expires.txt"
+kb_seed_expiry_record "$_x/hub" >/dev/null 2>&1
+t "running the installer again never touches what the reader wrote in it" \
+  "$(grep -c '^MY_KEY' "$_x/hub/secrets/expires.txt")" "1"
+t "and it is silent the second time, because there was nothing to do" \
+  "$(kb_seed_expiry_record "$_x/hub" 2>&1)" ""
+
+# The other road: a hub that had no record and then gains keys. Before this, the
+# record only ever reached a hub made after the day it was written, so every
+# reader who already had one carried keys with no dates and nothing said so.
+rm -rf "$_x/hub2"; mkdir -p "$_x/hub2"
+kb_new_hub "$_x/hub2" >/dev/null 2>&1 || true
+t "a brand new hub carries the record from day one, not after an upgrade" \
+  "$([ -f "$_x/hub2/secrets/expires.txt" ] && echo yes || echo no)" "yes"
+
+# The two roads must lay down the SAME file. The reader kit ships its own copy
+# inside starter-hub/, so a fresh hub gets it by copy and an older one gets it
+# from the function above. Two copies of one file is two places to fix a typo,
+# and the one nobody edits is the one every reader ends up with.
+_starter="$(cd "$(dirname "$0")/../teach-it-once-kit" 2>/dev/null && pwd)"
+if [ -n "$_starter" ] && [ -f "$_starter/starter-hub/secrets/expires.txt" ]; then
+  t "the copy in the reader kit's starter folder is the same file, to the byte" \
+    "$(cmp -s "$_starter/starter-hub/secrets/expires.txt" "$_x/hub2/secrets/expires.txt" 2>/dev/null && echo same || echo different)" "same"
+else
+  echo "  skip  the starter folder's copy is not on this computer to compare with"
+fi
+rm -rf "$_x"
+
+
+# ---------------------------------------------------------------------------
+# WHAT RUNS OUT, AND WHEN (due/). A calendar reminder fires on a date and knows nothing
+# else, so it goes off about something already done and a person stops reading reminders.
+# This room is the other shape, and the installer has to deliver it to BOTH kinds of hub:
+# a brand new one and one somebody has had for months.
+# ---------------------------------------------------------------------------
+echo
+echo "== the things with a last day (due/)"
+_x="$(mktemp -d)"
+mkdir -p "$_x/hub"
+
+kb_seed_due_folder "$_x/hub" >/dev/null 2>&1
+t "a hub with no due room gets one" \
+  "$([ -f "$_x/hub/due/README.md" ] && echo yes || echo no)" "yes"
+t "and it teaches the window rather than a due date" \
+  "$(grep -c 'the first day you can do the thing, and the last day you' "$_x/hub/due/README.md")" "1"
+t "and it says a reader needs no calendar for any of it" \
+  "$(grep -c 'You do not need a calendar' "$_x/hub/due/README.md")" "1"
+t "and it carries the refusal that keeps this from becoming a to-do list" \
+  "$(grep -c 'No date, not eligible' "$_x/hub/due/README.md")" "1"
+t "and it says the fourth question is the one that matters" \
+  "$(grep -c 'How could your hub tell you did it, without asking you' "$_x/hub/due/README.md")" "1"
+
+printf 'mine\n' > "$_x/hub/due/car-service.md"
+kb_seed_due_folder "$_x/hub" >/dev/null 2>&1
+t "running the installer again never touches a deadline the reader wrote" \
+  "$(cat "$_x/hub/due/car-service.md")" "mine"
+t "and it is silent the second time, because there was nothing to do" \
+  "$(kb_seed_due_folder "$_x/hub" 2>&1)" ""
+
+# The other road: a hub made from nothing today. Before the expiry record learned this
+# lesson, a new room only ever reached hubs made after the day it was written.
+rm -rf "$_x/hub3"; mkdir -p "$_x/hub3"
+kb_new_hub "$_x/hub3" >/dev/null 2>&1 || true
+t "a brand new hub carries the due room from day one, not after an upgrade" \
+  "$([ -f "$_x/hub3/due/README.md" ] && echo yes || echo no)" "yes"
+
+# The two roads must lay down the SAME file, for the same reason the expiry record must.
+_starter="$(cd "$(dirname "$0")/../teach-it-once-kit" 2>/dev/null && pwd)"
+if [ -n "$_starter" ] && [ -f "$_starter/starter-hub/due/README.md" ]; then
+  t "the copy in the reader kit's starter folder is the same file, to the byte" \
+    "$(cmp -s "$_starter/starter-hub/due/README.md" "$_x/hub3/due/README.md" 2>/dev/null && echo same || echo different)" "same"
+  t "and the card the book sends the reader to is in the kit" \
+    "$([ -f "$_starter/procedures/what-runs-out-and-when.md" ] && echo yes || echo no)" "yes"
+  t "and the card says in its own words that no Google account is needed" \
+    "$(grep -c 'You do not need a Google account' "$_starter/procedures/what-runs-out-and-when.md")" "1"
+  t "and the program the card tells the reader to type is in the kit" \
+    "$([ -f "$_starter/tools/due.js" ] && echo yes || echo no)" "yes"
+else
+  echo "  skip  the reader kit is not on this computer to compare with"
+fi
+rm -rf "$_x"
+
+# ---------------------------------------------------------------------------
+# THE LAUNCHERS. Every command the book tells a reader to TYPE needs one. Before
+# 2026-08-29 only the prompt collector got one on either platform, so hub-check-keys and
+# hub-compile-rules were shell scripts with no launcher, and the book printed both.
+# ---------------------------------------------------------------------------
+echo
+echo "== a launcher for every command the book prints"
+_l="$(mktemp -d)"
+mkdir -p "$_l/kit/tools" "$_l/hub"
+for f in prompt-harvest.js compile-rules.js check-keys.js due.js; do printf '// %s\n' "$f" > "$_l/kit/tools/$f"; done
+git -C "$_l/kit" init -q 2>/dev/null
+git -C "$_l/kit" add -A >/dev/null 2>&1
+git -C "$_l/kit" -c user.email=t@t -c user.name=t commit -q -m tools >/dev/null 2>&1
+HOME="$_l/home" kb_install_hub_tools "$_l/hub" "$_l/kit" >/dev/null 2>&1
+for cmd in hub-prompt-harvest hub-compile-rules hub-check-keys hub-due; do
+  t "$cmd got a launcher" "$([ -f "$_l/home/.local/bin/$cmd" ] && echo yes || echo no)" "yes"
+done
+t "and a launcher runs the program next to it, not a path baked in at install time" \
+  "$(grep -c 'dirname "\$0"' "$_l/home/.local/bin/hub-due")" "1"
+# A kit that ships none of them must get none of them, silently: every other product
+# using this library ships no tools folder at all.
+rm -f "$_l/kit/tools/due.js"
+git -C "$_l/kit" add -A >/dev/null 2>&1
+git -C "$_l/kit" -c user.email=t@t -c user.name=t commit -q -m drop >/dev/null 2>&1
+rm -rf "$_l/home"
+HOME="$_l/home" kb_install_hub_tools "$_l/hub" "$_l/kit" >/dev/null 2>&1
+t "a kit that ships no due.js gets no hub-due, and says nothing about it" \
+  "$([ -f "$_l/home/.local/bin/hub-due" ] && echo yes || echo no)" "no"
+rm -rf "$_l"
 
 rm -rf "$_f"
 
