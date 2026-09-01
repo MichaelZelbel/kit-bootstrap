@@ -1535,6 +1535,18 @@ t "the reader is told it will not fire" \
   "$(printf '%s' "$out" | grep -c 'will NOT fire')" "1"
 t "and that a missed slot is gone rather than queued" \
   "$(printf '%s' "$out" | grep -c 'never caught up')" "1"
+# The Chapter 29 run found the wording wrong for the common server case: the
+# installer had JUST installed the gateway, it was stopped, and the reader was told
+# to install it. A stopped gateway is started; only a missing one is installed.
+t "a gateway that is stopped is told to START it" \
+  "$(printf '%s' "$out" | grep -c 'start the gateway')" "1"
+t "and not to install one that is already there" \
+  "$(printf '%s' "$out" | grep -c 'install the gateway')" "0"
+: > "$STUB_JOBS"
+out="$(STUB_GW=absent kb_cron_job "$_ch" nightly "0 2 * * *" "tidy up" 2>&1)"; _rc=$?
+t "a gateway that was never installed is told to install it" \
+  "$(printf '%s' "$out" | grep -c 'install the gateway')" "1"
+t "and a job on a machine with no gateway at all is still a failure" "$_rc" "1"
 t "the deny-by-default boundary is stated rather than quietly widened" \
   "$(STUB_GW=running kb_cron_job "$_ch" j2 "0 3 * * *" "x" 2>&1 | grep -c 'refused a dangerous command')" "1"
 

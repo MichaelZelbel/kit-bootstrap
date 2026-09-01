@@ -1143,6 +1143,13 @@ kb_hermes_approvals_selfcheck() {
 # operator stopping the service from the service crashing. Anything built on
 # is-active alone would call a deliberate stop an outage and a crash healthy,
 # depending on which way it guessed.
+#
+# ONE TRAP, seen on the Chapter 29 rig: a box that carries BOTH a user unit and a
+# system unit. Newer Hermes warns "Both user and system gateway services are
+# installed", and its default `gateway status` reports the USER unit, so this reads
+# `stopped` while the system gateway is running fine. Not a reader shape (the kit
+# installs one system unit and nothing else), but a machine that was also set up by
+# hand can get there. Remove the unit you do not use before trusting this answer.
 kb_gateway_state() {
   local out
   kb_hermes_here || { printf 'unavailable'; return 0; }
@@ -1226,7 +1233,7 @@ kb_cron_has_job() {
 # working" would be reporting on something it never tested. What it checks instead is
 # the thing that actually decides: whether the gateway is up.
 kb_cron_job() {
-  local hub="${1:-}" name="${2:-}" schedule="${3:-}" prompt="${4:-}" deliver="${5:-}" abs state args
+  local hub="${1:-}" name="${2:-}" schedule="${3:-}" prompt="${4:-}" deliver="${5:-}" abs state args fix
   [ -n "$hub" ] && [ -n "$name" ] && [ -n "$schedule" ] && [ -n "$prompt" ] \
     || { warn "kb_cron_job needs a hub, a name, a schedule and a prompt"; return 1; }
   [ -d "$hub" ] || { warn "kb_cron_job: no folder at $hub"; return 1; }
@@ -1255,10 +1262,16 @@ kb_cron_job() {
   # and the reader has no way to know that from anything else on screen.
   state="$(kb_gateway_state)"
   if [ "$state" != "running" ]; then
+    # A stopped gateway is STARTED; only a missing one is installed. The Chapter 29
+    # run had just installed it, found it stopped, and told the reader to install it.
+    case "$state" in
+      stopped) fix="start the gateway, and check it with: hermes gateway status" ;;
+      *)       fix="install the gateway" ;;
+    esac
     warn "clock: this job will NOT fire, because the gateway is $state and the clock lives
-     inside it. A missed slot is never caught up either. On a server: install the
-     gateway. On a laptop: expect to run things yourself until it is on a machine
-     that stays awake."
+     inside it. A missed slot is never caught up either. On a server: $fix.
+     On a laptop: expect to run things yourself until it is on a machine that
+     stays awake."
     return 1
   fi
 
