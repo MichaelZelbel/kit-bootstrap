@@ -1955,6 +1955,26 @@ kb_install_hub_cli() {
   ok "commands: $n hub tools are now on your PATH from $bindir (open a new terminal for it to take)"
 }
 
+# kb_record_hub_dir <hub>
+# Where the hub is, in ~/.hub/device.env. Recorded the first time, and RE-RECORDED when
+# the line names another folder: the daily jobs read this line to find the hub, so a stale
+# one after a move is a hub that quietly files nothing
+# (a-renamed-folder-silences-every-tool-that-hardcoded-it).
+kb_record_hub_dir() {
+  local hub="${1:-}" f="$HOME/.hub/device.env" recorded="" tmp
+  [ -n "$hub" ] || return 0
+  mkdir -p "$HOME/.hub"
+  [ -f "$f" ] && recorded="$(sed -n 's/^[[:space:]]*HUB_DIR=//p' "$f" | tail -1)"
+  if [ -z "$recorded" ]; then
+    printf 'HUB_DIR=%s\n' "$hub" >> "$f"
+  elif [ "$(kb_physical_path "$recorded")" != "$(kb_physical_path "$hub")" ]; then
+    tmp="$f.tmp.$$"
+    sed "s|^[[:space:]]*HUB_DIR=.*|HUB_DIR=$hub|" "$f" > "$tmp" && mv "$tmp" "$f"
+    ok "device.env: HUB_DIR pointed at $recorded, not at this hub. Re-pointed it."
+  fi
+  return 0
+}
+
 # kb_install_hub_tools <hub-dir> <tools-repo> [<tools-path>]
 # Put the kit's own small programs on this computer.
 #
@@ -2044,9 +2064,7 @@ kb_install_hub_tools() {
 
   # Where the hub is, recorded once, so a job started by the schedule with almost no
   # environment never has to guess. The programs read this file already.
-  if [ ! -f "$HOME/.hub/device.env" ] || ! grep -q '^[[:space:]]*HUB_DIR=' "$HOME/.hub/device.env" 2>/dev/null; then
-    printf 'HUB_DIR=%s\n' "$hub" >> "$HOME/.hub/device.env"
-  fi
+  kb_record_hub_dir "$hub"
   # And where the tools came from, so the next run can refresh them unprompted.
   if ! grep -q '^[[:space:]]*HUB_TOOLS_REPO=' "$HOME/.hub/device.env" 2>/dev/null; then
     printf 'HUB_TOOLS_REPO=%s\n' "$repo" >> "$HOME/.hub/device.env"
@@ -2099,9 +2117,15 @@ kb_install_prompt_harvest() {
 
   cur="$("$cron" -l 2>/dev/null || true)"
   case "$cur" in
-    *prompt-harvest*)
+    *"$hub/bin/prompt-harvest.js"*|*hub-prompt-harvest*|*prompt-harvest.sh*)
+      # The runner carries no folder and the server's hand-written line is its own affair.
       ok "prompt archive: already scheduled on this computer"
       return 0 ;;
+    *prompt-harvest.js*)
+      # The hub's own copy, scheduled for a hub that has since moved: the line names a
+      # folder that is gone, so it is replaced rather than kept beside a new one.
+      ok "prompt archive: the daily job named another hub folder, not this one. Re-pointing it."
+      cur="$(printf '%s\n' "$cur" | grep -v -e 'prompt-harvest.js' -e "Keep the hub's record of what you type" || true)" ;;
   esac
 
   # Hourly, not nightly, and the job itself does nothing if it already ran today. A fixed time

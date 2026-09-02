@@ -596,6 +596,61 @@ Check "running the installer twice does not stack up two jobs" {
         Unregister-ScheduledTask -TaskName $TaskForTests -Confirm:$false -ErrorAction SilentlyContinue
     }
 }
+Check "a daily job for a hub that moved is re-pointed at this hub (D-179)" {
+    $old = New-TestDir 'harvest-old'; $new = New-TestDir 'harvest-new'
+    foreach ($h in $old, $new) {
+        New-Item -ItemType Directory -Force (Join-Path $h 'bin') | Out-Null
+        Set-Content (Join-Path $h 'bin\prompt-harvest.js') 'console.log(1)'
+    }
+    try {
+        $env:KB_HOME = New-TestDir 'harvest-move-home'
+        Install-KitPromptHarvest -Hub $old -TaskName $TaskForTests | Out-Null
+        $out = Install-KitPromptHarvest -Hub $new -TaskName $TaskForTests 3>&1 4>&1 6>&1 | Out-String
+        $task = Get-ScheduledTask -TaskName $TaskForTests -ErrorAction SilentlyContinue
+        [bool]$task -and ($task.Actions[0].WorkingDirectory -eq $new) -and ($task.Actions[0].Arguments -like "*`"$new`"*") -and
+            ($out -like '*Re-pointing*') -and (@(Get-ScheduledTask -TaskName $TaskForTests -ErrorAction SilentlyContinue).Count -eq 1)
+    } finally {
+        $env:KB_HOME = $null
+        Unregister-ScheduledTask -TaskName $TaskForTests -Confirm:$false -ErrorAction SilentlyContinue
+    }
+}
+Check "a daily job that already runs in this hub is left alone" {
+    $hub = New-TestDir 'harvest-same'
+    New-Item -ItemType Directory -Force (Join-Path $hub 'bin') | Out-Null
+    Set-Content (Join-Path $hub 'bin\prompt-harvest.js') 'console.log(1)'
+    try {
+        $env:KB_HOME = New-TestDir 'harvest-same-home'
+        Install-KitPromptHarvest -Hub $hub -TaskName $TaskForTests | Out-Null
+        $out = Install-KitPromptHarvest -Hub $hub -TaskName $TaskForTests 3>&1 4>&1 6>&1 | Out-String
+        $out -like '*already scheduled*'
+    } finally {
+        $env:KB_HOME = $null
+        Unregister-ScheduledTask -TaskName $TaskForTests -Confirm:$false -ErrorAction SilentlyContinue
+    }
+}
+Check "device.env is re-pointed when HUB_DIR names another folder (D-179)" {
+    try {
+        $env:KB_HOME = New-TestDir 'devenv-home'
+        New-Item -ItemType Directory -Force (Join-Path $env:KB_HOME '.hub') | Out-Null
+        Set-Content (Join-Path $env:KB_HOME '.hub\device.env') "HUB_DIR=C:\gone\hub`nHUB_PROMPT_SOURCES=claude"
+        $hub = New-TestDir 'devenv-hub'
+        Set-KitHubDirRecord -Hub $hub | Out-Null
+        $lines = @(Get-Content (Join-Path $env:KB_HOME '.hub\device.env'))
+        ($lines -contains "HUB_DIR=$hub") -and ($lines -contains 'HUB_PROMPT_SOURCES=claude') -and
+            (@($lines | Where-Object { $_ -like 'HUB_DIR=*' }).Count -eq 1)
+    } finally { $env:KB_HOME = $null }
+}
+Check "device.env that already names this hub is left exactly as it was" {
+    try {
+        $env:KB_HOME = New-TestDir 'devenv-home2'
+        $hub = New-TestDir 'devenv-hub2'
+        New-Item -ItemType Directory -Force (Join-Path $env:KB_HOME '.hub') | Out-Null
+        Set-Content (Join-Path $env:KB_HOME '.hub\device.env') "HUB_DIR=$hub"
+        $before = Get-Content (Join-Path $env:KB_HOME '.hub\device.env') -Raw
+        Set-KitHubDirRecord -Hub $hub | Out-Null
+        (Get-Content (Join-Path $env:KB_HOME '.hub\device.env') -Raw) -eq $before
+    } finally { $env:KB_HOME = $null }
+}
 Check "THE REGRESSION: the program installed under .local\bin is found and scheduled" {
     # This exact branch was dead on every reader's PC: the path carried a literal
     # BACKSPACE byte (".local<0x08>in"), so the installed program was never found
@@ -788,6 +843,23 @@ Check "running the installer twice does not stack up two hourly jobs" {
             Install-KitNotebookSync -Hub $hub -TaskName $NotebookTask | Out-Null
             Install-KitNotebookSync -Hub $hub -TaskName $NotebookTask | Out-Null
             @(Get-ScheduledTask -TaskName $NotebookTask -ErrorAction SilentlyContinue).Count -le 1
+        } finally {
+            Unregister-ScheduledTask -TaskName $NotebookTask -Confirm:$false -ErrorAction SilentlyContinue
+        }
+    }
+}
+Check "an hourly job for a hub that moved is re-pointed at this hub (D-179)" {
+    Invoke-NotebookCase {
+        param($h)
+        $old = New-NotebookHub 'nb-old'; $new = New-NotebookHub 'nb-new'
+        git -C $old init -q; git -C $new init -q
+        Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`nexit 0"
+        try {
+            Install-KitNotebookSync -Hub $old -TaskName $NotebookTask | Out-Null
+            Install-KitNotebookSync -Hub $new -TaskName $NotebookTask | Out-Null
+            $task = Get-ScheduledTask -TaskName $NotebookTask -ErrorAction SilentlyContinue
+            [bool]$task -and ($task.Actions[0].WorkingDirectory -eq $new) -and
+                (@(Get-ScheduledTask -TaskName $NotebookTask -ErrorAction SilentlyContinue).Count -eq 1)
         } finally {
             Unregister-ScheduledTask -TaskName $NotebookTask -Confirm:$false -ErrorAction SilentlyContinue
         }

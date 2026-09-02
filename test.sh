@@ -29,7 +29,7 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_run_interactive kb_skip_claude_first_run kb_grant_working_permissions \
          ensure_claude_signin ensure_gh_auth reexec_as_user handoff \
          kb_ai_memory_path kb_seed_memory_index kb_link_ai_memory \
-         kb_hub_looks_real kb_find_hub kb_update_hub kb_install_hub_cli \
+         kb_hub_looks_real kb_find_hub kb_update_hub kb_install_hub_cli kb_record_hub_dir \
          kb_default_hub_dir kb_cloud_synced_parents kb_physical_path kb_refuse_hub_path \
          kb_os kb_can_sudo kb_note_missing kb_install_one kb_install_claude_code \
          kb_install_hermes \
@@ -406,6 +406,23 @@ t "and it keeps what was already in the schedule" \
 printf '20 4 * * * /root/hub/routines/prompt-harvest.sh\n' > "$_cronfile"
 ( HOME="$_f" KB_CRONTAB="$_f/fakecrontab" kb_install_prompt_harvest "$_f/hub" ) >/dev/null 2>&1
 t "an existing hand-written job is left alone" "$(wc -l < "$_cronfile" | tr -d ' ')" "1"
+
+# A job written for a hub that has since moved names a folder that is gone. It is
+# re-pointed, not kept beside a second one (D-179, 2026-09-02). The runner form carries
+# no folder at all, so only the hub's-own-copy form can go stale.
+mkdir -p "$_f/elsewhere/bin"; printf 'console.log(1)\n' > "$_f/elsewhere/bin/prompt-harvest.js"
+printf '17 * * * * "/usr/bin/node" "%s/hub/bin/prompt-harvest.js" --once-a-day\n' "$_f" > "$_cronfile"
+( HOME="$_f" KB_CRONTAB="$_f/fakecrontab" kb_install_prompt_harvest "$_f/elsewhere" ) >/dev/null 2>&1
+t "a job for a hub that moved is re-pointed at this hub" "$(grep -c "$_f/elsewhere/bin/prompt-harvest.js" "$_cronfile")" "1"
+t "and the old line is gone, not kept beside it"        "$(grep -c "$_f/hub/bin/prompt-harvest.js" "$_cronfile")" "0"
+# device.env is how the daily jobs find the hub, so a re-run corrects it too.
+mkdir -p "$_f/.hub"
+printf 'HUB_DIR=%s/hub\nHUB_PROMPT_SOURCES=claude\n' "$_f" > "$_f/.hub/device.env"
+( HOME="$_f" kb_record_hub_dir "$_f/elsewhere" ) >/dev/null 2>&1
+t "device.env is re-pointed when HUB_DIR names another folder" "$(sed -n 's/^HUB_DIR=//p' "$_f/.hub/device.env")" "$_f/elsewhere"
+t "and the other lines in it are kept"                         "$(grep -c '^HUB_PROMPT_SOURCES=claude' "$_f/.hub/device.env")" "1"
+( HOME="$_f" kb_record_hub_dir "$_f/elsewhere" ) >/dev/null 2>&1
+t "a second run with the same hub changes nothing"            "$(grep -c '^HUB_DIR=' "$_f/.hub/device.env")" "1"
 
 # --- THE PROGRAMS THEMSELVES, INSTALLED ON THE MACHINE -----------------------
 # Added 2026-08-10. The collector used to exist in exactly one person's own hub, so the

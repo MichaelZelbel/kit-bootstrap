@@ -586,6 +586,42 @@ function Install-KitHubCli {
     Write-KbOk "commands: $n hub tools now run from anywhere, e.g. hub map lovable"
 }
 
+function Set-KitHubDirRecord {
+    <#  Where the hub is, in ~\.hub\device.env. Recorded the first time, and RE-RECORDED
+        when the line names another folder: the daily jobs read this line to find the
+        hub, so a stale one after a move is a hub that quietly files nothing
+        (observations/a-renamed-folder-silences-every-tool-that-hardcoded-it). #>
+    param([Parameter(Mandatory)][string]$Hub)
+    $dir = Join-Path (Get-KitHome) '.hub'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $f = Join-Path $dir 'device.env'
+    $recorded = Get-KitDeviceEnvValue 'HUB_DIR'
+    if (-not $recorded) {
+        Add-Content -Path $f -Value "HUB_DIR=$Hub" -Encoding ascii
+        return
+    }
+    $same = (Get-KitRealPath $recorded).TrimEnd('\').Equals((Get-KitRealPath $Hub).TrimEnd('\'), [System.StringComparison]::OrdinalIgnoreCase)
+    if ($same) { return }
+    $lines = @(Get-Content $f | ForEach-Object { if ($_ -match '^\s*HUB_DIR=') { "HUB_DIR=$Hub" } else { $_ } })
+    Set-Content -Path $f -Value $lines -Encoding ascii
+    Write-KbOk "device.env: HUB_DIR pointed at $recorded, not at this hub. Re-pointed it."
+}
+
+function Test-KitTaskPointsAt {
+    <#  Does every action of this scheduled task run in this hub? A task registered for
+        a hub that has since moved reads back perfectly and fires hourly against a folder
+        that is gone, and until 2026-09-02 the installer looked at its name, saw it, and
+        said "already scheduled". The folder is what decides, so the folder is compared. #>
+    param([Parameter(Mandatory)]$Task, [Parameter(Mandatory)][string]$Hub)
+    $want = (Get-KitRealPath $Hub).TrimEnd('\')
+    foreach ($a in $Task.Actions) {
+        if (-not $a.WorkingDirectory) { return $false }
+        $wd = (Get-KitRealPath $a.WorkingDirectory).TrimEnd('\')
+        if (-not $wd.Equals($want, [System.StringComparison]::OrdinalIgnoreCase)) { return $false }
+    }
+    return $true
+}
+
 function Install-KitHubTools {
     <#  Put the kit's own small programs on this PC. The Windows twin of
         kb_install_hub_tools in lib.sh.
@@ -689,9 +725,8 @@ function Install-KitHubTools {
 
         # Where the hub is, recorded once, so a job started by the schedule with almost
         # no environment never has to guess. The programs read this file already.
-        $devEnv = Join-Path $HOME '.hub\device.env'
-        $has = (Test-Path $devEnv) -and ((Get-Content $devEnv) -match '^\s*HUB_DIR=')
-        if (-not $has) { Add-Content -Path $devEnv -Value "HUB_DIR=$Hub" -Encoding ascii }
+        $devEnv = Join-Path (Get-KitHome) '.hub\device.env'
+        Set-KitHubDirRecord -Hub $Hub
         # And where the tools came from, so the next run can refresh them unprompted.
         $hasRepo = (Test-Path $devEnv) -and ((Get-Content $devEnv) -match '^\s*HUB_TOOLS_REPO=')
         if (-not $hasRepo) { Add-Content -Path $devEnv -Value "HUB_TOOLS_REPO=$ToolsRepo" -Encoding ascii }
@@ -803,13 +838,15 @@ function Install-KitPromptHarvest {
     # directly is from before this fix and gets replaced.
     $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     if ($existing -and $existing.Actions[0].Execute -match 'wscript') {
-        Write-KbOk "prompt archive: already scheduled on this computer"
-        return
-    }
-    if ($existing) {
-        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+        if (Test-KitTaskPointsAt -Task $existing -Hub $Hub) {
+            Write-KbOk "prompt archive: already scheduled on this computer"
+            return
+        }
+        Write-KbOk "prompt archive: the daily job ran in $($existing.Actions[0].WorkingDirectory), not in this hub. Re-pointing it."
+    } elseif ($existing) {
         Write-KbOk "prompt archive: replacing the old job, which opened a visible window every hour"
     }
+    if ($existing) { Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false }
 
     $vbs = Write-KitHiddenLauncher -Dir (Split-Path $js)
 
@@ -1638,13 +1675,15 @@ function Install-KitNotebookSync {
     # already installed gets the window taken away by re-running the installer.
     $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     if ($existing -and $existing.Actions[0].Execute -match 'wscript') {
-        Write-KbOk "notebook: the hourly catch-up is already on this PC"
-        return
-    }
-    if ($existing) {
-        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+        if (Test-KitTaskPointsAt -Task $existing -Hub $Hub) {
+            Write-KbOk "notebook: the hourly catch-up is already on this PC"
+            return
+        }
+        Write-KbOk "notebook: the hourly catch-up ran in $($existing.Actions[0].WorkingDirectory), not in this hub. Re-pointing it."
+    } elseif ($existing) {
         Write-KbOk "notebook: replacing the old hourly job, which opened a visible window every hour"
     }
+    if ($existing) { Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false }
     try {
         $posix = $runner -replace '\\', '/'
         $vbs   = Write-KitHiddenLauncher -Dir (Split-Path $runner)
