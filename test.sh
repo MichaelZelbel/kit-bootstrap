@@ -1067,6 +1067,24 @@ out="$(kb_hermes_skills_dir "$_m/skills" 2>&1)"
 t "a Hermes that stores the room as text is told on, not celebrated" \
   "$(printf '%s' "$out" | grep -c 'text it does not read')" "1"
 
+# THE READ-BACK THAT CRIED WOLF. The server installer (2026-09-02, Hermes 0.21.0) wrote
+# all eighteen deny rules, Hermes stored them as a real list, `approvals test` refused
+# the firewall reset with exit 3, and the kit still printed "The leash is NOT on".
+# The check was `kb_hermes_list approvals.deny | grep -q RULE` inside a script running
+# `set -o pipefail`. grep -q exits on the FIRST match (the rule is 11th of 18), the
+# producer's next printf hits a closed pipe, dies with 141, and pipefail hands that 141
+# to the `if`. A race, so it passed every earlier run and failed on the one that was
+# being transcribed for the book. Capture the list first, then look inside it.
+cat > "$_sk/bin/hermes" <<'STUB'
+#!/bin/sh
+if [ "$2" = "get" ]; then i=0; while [ $i -lt 400 ]; do i=$((i+1)); printf -- "- entry-%s
+" "$i"; done; fi
+exit 0
+STUB
+chmod +x "$_sk/bin/hermes"
+t "a list entry is found even when pipefail is on and it is the FIRST of many"   "$( ( set -o pipefail; kb_hermes_list_has some.key entry-1 ) >/dev/null 2>&1; echo $? )" "0"
+t "and an entry that is not there is not invented"   "$( ( set -o pipefail; kb_hermes_list_has some.key entry-401 ) >/dev/null 2>&1; echo $? )" "1"
+
 printf '#!/bin/sh\necho "$*" >> "%s/calls.log"\nif [ "$2" = "get" ]; then printf -- "- /existing/team-skills\\n"; fi\nexit 0\n' "$_sk" > "$_sk/bin/hermes"
 chmod +x "$_sk/bin/hermes"
 
