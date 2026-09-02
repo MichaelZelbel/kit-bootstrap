@@ -18,7 +18,7 @@
 # Safe to run as many times as you like. It never deletes a memory.
 #
 # Usage on its own, without the .exe:
-#   powershell -ExecutionPolicy Bypass -File setup-hub.ps1 [-Hub C:\hub] [-RepoUrl <git url>]
+#   powershell -ExecutionPolicy Bypass -File setup-hub.ps1 [-Hub C:\Users\you\hub] [-RepoUrl <git url>]
 # =============================================================================
 param(
     [string]$Hub,
@@ -118,7 +118,7 @@ if (-not $Join) {
 # copy inside the .exe when it is not there. The canary moves forward with the
 # code: it is the NEWEST function this file calls, or the check passes on a copy
 # that is missing everything added since.
-if (-not (Get-Command Set-KitHermesApprovals -ErrorAction SilentlyContinue)) {
+if (-not (Get-Command Get-KitHubPathRefusal -ErrorAction SilentlyContinue)) {
     if ($Join -ne $Bundled -and (Test-Path $Bundled)) {
         Write-Warning "the published install code is older than this installer, so I am using the copy that came with it."
         . $Bundled -AsLibrary
@@ -129,7 +129,8 @@ foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-
                  'Install-KitPromptHarvest', 'Update-KitPath',
                  'Find-KitAiTools', 'Set-KitPromptSources', 'Write-KitSyncReport',
                  'Connect-KitNotebook', 'Write-KitMcpConfig', 'Install-KitNotebookSync',
-                 'Connect-KitSkills', 'Set-KitHermesHub', 'Set-KitHermesApprovals') {
+                 'Connect-KitSkills', 'Set-KitHermesHub', 'Set-KitHermesApprovals',
+                 'Get-KitDefaultHubDir', 'Get-KitHubPathRefusal') {
     if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
         Stop-Setup "the install code on this PC is incomplete ($fn is missing). Download the newest installer from https://github.com/MichaelZelbel/kit-bootstrap/releases/latest and run that."
     }
@@ -180,7 +181,9 @@ if ($found) {
     }
 } else {
     $isNew = $true
-    if (-not $Hub) { $Hub = 'C:\hub' }
+    if (-not $Hub) { $Hub = Get-KitDefaultHubDir }
+    $why = Get-KitHubPathRefusal -Path $Hub
+    if ($why) { Stop-Setup "I will not put the hub at ${Hub}: $why" }
     Write-KbSay "No hub on this PC yet, so I am making one"
     try { New-KitHub -Path $Hub -RepoUrl $RepoUrl -StarterRepo $StarterRepo -StarterPath $StarterPath }
     catch { Stop-Setup $_.Exception.Message }

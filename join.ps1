@@ -423,6 +423,52 @@ function Test-KitHub {
             (Test-Path (Join-Path $Dir 'CLAUDE.md')))
 }
 
+function Get-KitDefaultHubDir {
+    <#  Where a new hub goes when nobody said: the top of the user folder, the same
+        sentence on every OS (D-179, 2026-09-01). C:\hub stays a power option a person
+        types in, never the suggestion. #>
+    return (Join-Path $HOME 'hub')
+}
+
+function Get-KitCloudSyncedParents {
+    <#  The folders a cloud drive syncs by default. OneDrive's folder backup takes
+        Desktop, Documents and Pictures, and on newer Windows Music and Videos too.
+        GetFolderPath follows the redirection when backup is already on, so this finds
+        the folder wherever OneDrive moved it. The OneDrive roots come last, for a path
+        typed straight into them. #>
+    $out = @()
+    foreach ($k in 'Desktop', 'MyDocuments', 'MyPictures', 'MyMusic', 'MyVideos') {
+        $p = $null
+        try { $p = [Environment]::GetFolderPath($k) } catch { $p = $null }
+        if ($p) { $out += $p }
+    }
+    foreach ($v in @($env:OneDrive, $env:OneDriveConsumer, $env:OneDriveCommercial)) {
+        if ($v) { $out += $v }
+    }
+    return $out
+}
+
+function Get-KitHubPathRefusal {
+    <#  One plain sentence when the path is a place a hub must not go, else $null.
+        The rule is D-179's: never under a folder a cloud drive syncs, because a synced
+        git folder gets its history corrupted (lock files copied mid-write, duplicate
+        conflict copies). The drive root, C:\hub, is allowed on purpose. #>
+    param([string]$Path)
+    if (-not $Path -or -not $Path.Trim()) {
+        return "a hub needs a folder path, for example $(Get-KitDefaultHubDir)"
+    }
+    $want = (Get-KitRealPath $Path).TrimEnd('\')
+    foreach ($parent in Get-KitCloudSyncedParents) {
+        $p = (Get-KitRealPath $parent).TrimEnd('\')
+        if (-not $p) { continue }
+        if ($want.Equals($p, [System.StringComparison]::OrdinalIgnoreCase) -or
+            $want.StartsWith($p + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+            return "$p is backed up by a cloud drive, and a synced hub gets its history corrupted. Put it at $(Get-KitDefaultHubDir) instead, or at C:\hub if you want the shortest path."
+        }
+    }
+    return $null
+}
+
 function Find-KitHub {
     <#  The hub already installed on this machine, or $null. A machine that has one
         knows where it is in more than one way, so look before asking the reader.
@@ -446,7 +492,7 @@ function Find-KitHub {
         if (Test-KitHub $d) { return (Resolve-Path $d).Path }
     }
 
-    foreach ($c in @('C:\hub', (Join-Path $HOME 'hub'), (Join-Path $HOME 'Documents\hub'),
+    foreach ($c in @((Join-Path $HOME 'hub'), 'C:\hub', (Join-Path $HOME 'Documents\hub'),
                      (Join-Path $HOME 'dev\hub'))) {
         if (Test-KitHub $c) { return (Resolve-Path $c).Path }
     }

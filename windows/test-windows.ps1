@@ -1976,6 +1976,48 @@ foreach ($v in 'KB_HERMES_BIN', 'STUB_LOG', 'STUB_DENY', 'STUB_TOOTIGHT') {
 # Put the real user PATH back, whatever the cases above did to it. See $UserPath0 at the top.
 try { [Environment]::SetEnvironmentVariable('Path', $UserPath0, 'User') } catch { }
 
+# --- WHERE A HUB MAY GO (D-179, 2026-09-02) -------------------------------------------
+# Twins of the cases in test.sh. The default is the top of the user folder; the folders
+# OneDrive backs up are refused with a sentence; C:\hub stays allowed as the power option.
+foreach ($fn in 'Get-KitDefaultHubDir', 'Get-KitCloudSyncedParents', 'Get-KitHubPathRefusal') {
+    Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
+}
+Check "the default is the top of the user folder" {
+    (Get-KitDefaultHubDir) -eq (Join-Path $HOME 'hub')
+}
+Check "the user folder itself is allowed" {
+    $null -eq (Get-KitHubPathRefusal -Path (Join-Path $HOME 'hub'))
+}
+Check "the drive root stays allowed, as the power option" {
+    $null -eq (Get-KitHubPathRefusal -Path 'C:\hub')
+}
+foreach ($k in 'MyDocuments', 'Desktop', 'MyPictures', 'MyMusic', 'MyVideos') {
+    $base = [Environment]::GetFolderPath($k)
+    if (-not $base) { continue }
+    $p = Join-Path $base 'hub'
+    Check "$k is refused ($p)" { [bool](Get-KitHubPathRefusal -Path $p) }.GetNewClosure()
+}
+Check "deeper inside Documents is still refused" {
+    [bool](Get-KitHubPathRefusal -Path (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'work\hub'))
+}
+Check "a folder merely named like one is allowed" {
+    $null -eq (Get-KitHubPathRefusal -Path (Join-Path $HOME 'Documents-old\hub'))
+}
+Check "the refusal says where to go instead" {
+    (Get-KitHubPathRefusal -Path (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'hub')) -like "*$(Get-KitDefaultHubDir)*"
+}
+$od0 = $env:OneDrive
+try {
+    $env:OneDrive = New-TestDir 'onedrive-root'
+    Check "a path typed straight into the OneDrive root is refused" {
+        [bool](Get-KitHubPathRefusal -Path (Join-Path $env:OneDrive 'hub'))
+    }
+} finally { $env:OneDrive = $od0 }
+Check "Find-KitHub looks in the user folder before the drive root" {
+    $src = (Get-Command Find-KitHub).ScriptBlock.ToString()
+    $src.IndexOf("(Join-Path `$HOME 'hub')") -lt $src.IndexOf("'C:\hub'")
+}
+
 Remove-Item $Root -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host ""
