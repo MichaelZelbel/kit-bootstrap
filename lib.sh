@@ -598,6 +598,32 @@ kb_skills_room() {
   return 0
 }
 
+# kb_skills_gitignore <hub> <real-room>
+# Keep git honest about the hidden doors. On Windows the doors are junctions, and git
+# there sees a junction as an ordinary folder: `git add -A` would commit the recipes a
+# second time under .claude/skills, and a Linux clone would then hold two real copies
+# that drift, which is the one thing the single room exists to prevent. So every door
+# that is a LINK is listed in .gitignore and untracked; the real room is never touched.
+# A Claude-era hub whose real room IS .claude/skills keeps that folder tracked.
+kb_skills_gitignore() {
+  local hub="${1:-}" real="${2:-}" gi door rel
+  [ -n "$hub" ] && [ -n "$real" ] || return 0
+  git -C "$hub" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+  gi="$hub/.gitignore"
+  for rel in .claude/skills .agents/skills; do
+    door="$hub/$rel"
+    # the real room is never ignored, whatever its name
+    [ "$(cd "$door" 2>/dev/null && pwd -P)" = "$(cd "$real" 2>/dev/null && pwd -P)" ] && [ ! -L "$door" ] && continue
+    [ -L "$door" ] || [ -d "$door" ] || continue
+    grep -qxF "$rel" "$gi" 2>/dev/null || grep -qxF "$rel/" "$gi" 2>/dev/null || printf '%s
+' "$rel" >> "$gi"
+    if [ -n "$(git -C "$hub" ls-files "$rel" 2>/dev/null)" ]; then
+      git -C "$hub" rm -r -q --cached "$rel" >/dev/null 2>&1         && ok "skills: $rel is a door, not a room, so git stops tracking it (the recipes stay tracked in ${real#"$hub"/})"
+    fi
+  done
+  return 0
+}
+
 # kb_point_at_room <link-path> <real-room>
 # Make <link-path> resolve to <real-room>, whatever it is today. Repairs a link
 # pointing somewhere else, and refuses to destroy a real folder that holds work:
@@ -707,6 +733,7 @@ kb_wire_skills() {
     || warn "skills: could not point $hub/.agents/skills at $real"
 
   kb_hermes_skills_dir "$real"
+  kb_skills_gitignore "$hub" "$real"
 
   # THE ASSERTION THAT WOULD HAVE CAUGHT THE OLD BUG ON THE DAY IT SHIPPED.
   # A green tick over an empty room is worse than a red one, because the reader

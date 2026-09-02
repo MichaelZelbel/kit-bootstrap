@@ -1781,6 +1781,32 @@ function Get-KitSkillsRoom {
     return $visible
 }
 
+function Set-KitSkillsGitIgnore {
+    <#  Keep git honest about the hidden doors. Git on Windows sees a junction as an
+        ordinary folder, so `git add -A` would commit the recipes a second time under
+        .claude\skills and a Linux clone would then hold two real rooms that drift, the
+        one thing the single room exists to prevent. Every door that is a LINK is listed
+        in .gitignore and untracked; the real room is never touched, whatever its name
+        (a Claude-era hub keeps .claude\skills tracked). #>
+    param([Parameter(Mandatory)][string]$Hub, [Parameter(Mandatory)][string]$Real)
+    if (-not (Test-Path -LiteralPath (Join-Path $Hub '.git'))) { return }
+    $gi = Join-Path $Hub '.gitignore'
+    $realPath = Get-KitRealPath $Real
+    foreach ($rel in @('.claude/skills', '.agents/skills')) {
+        $door = Join-Path $Hub ($rel -replace '/', '')
+        if (-not (Test-Path -LiteralPath $door)) { continue }
+        $item = Get-Item -LiteralPath $door -Force -ErrorAction SilentlyContinue
+        if ($item -and -not $item.LinkType -and ((Get-KitRealPath $door) -eq $realPath)) { continue }
+        $lines = @(); if (Test-Path -LiteralPath $gi) { $lines = @(Get-Content -LiteralPath $gi) }
+        if (-not ($lines -contains $rel) -and -not ($lines -contains "$rel/")) { Add-Content -LiteralPath $gi -Value $rel }
+        $tracked = (& git -C $Hub ls-files $rel 2>$null)
+        if ($tracked) {
+            & git -C $Hub rm -r -q --cached $rel 2>$null | Out-Null
+            Write-KbOk "skills: $rel is a door, not a room, so git stops tracking it (the recipes stay tracked in the real room)"
+        }
+    }
+}
+
 function Set-KitRoomLink {
     <#  Make $Link resolve to $Room, whatever it is today. Repairs a junction pointing
         somewhere else, and refuses to destroy a real folder that holds work: that
@@ -1906,6 +1932,7 @@ function Connect-KitSkills {
     }
 
     Set-KitHermesSkillsDir -Room $real
+    Set-KitSkillsGitIgnore -Hub $Hub -Real $real
 
     # THE ASSERTION THAT WOULD HAVE CAUGHT THE OLD BUG ON THE DAY IT SHIPPED. A green
     # tick over an empty room is worse than a red one, because the reader stops

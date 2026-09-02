@@ -1111,6 +1111,29 @@ if [ -L "$_skprobe/link" ]; then
   t "exactly one real skills folder exists in the hub" \
     "$(find "$_d1" -name skills -type d | grep -c .)" "1"
 
+  # GIT AND THE DOORS (2026-09-02). On Windows a junction looks like a folder to git,
+  # so a reader who commits their hub commits the recipes twice; a Linux clone then
+  # holds two real rooms. The doors are ignored and untracked; the real room stays.
+  _g1=$(mktemp -d); git -C "$_g1" init -q -b main 2>/dev/null || git -C "$_g1" init -q
+  mkdir -p "$_g1/skills/one" "$_g1/.claude/skills/one"; : > "$_g1/skills/one/SKILL.md"; : > "$_g1/.claude/skills/one/SKILL.md"
+  printf 'node_modules/
+' > "$_g1/.gitignore"
+  git -C "$_g1" add -A >/dev/null 2>&1; git -C "$_g1" -c user.name=t -c user.email=t@t commit -qm "before" >/dev/null 2>&1
+  kb_wire_skills "$_g1" >/dev/null 2>&1
+  t "a hidden door that is a link is listed in .gitignore" "$(grep -cxF '.claude/skills' "$_g1/.gitignore")" "1"
+  t "and so is the other door" "$(grep -cxF '.agents/skills' "$_g1/.gitignore")" "1"
+  t "and git no longer tracks the door's copy of the recipes" "$(git -C "$_g1" ls-files .claude/skills | grep -c .)" "0"
+  t "while the real room stays tracked" "$(git -C "$_g1" ls-files skills | grep -c .)" "1"
+  t "and the reader's own ignore line survives" "$(grep -cxF 'node_modules/' "$_g1/.gitignore")" "1"
+  # A Claude-era git hub: the real room is .claude/skills and must stay tracked.
+  _g2=$(mktemp -d); git -C "$_g2" init -q -b main 2>/dev/null || git -C "$_g2" init -q
+  mkdir -p "$_g2/.claude/skills/one"; : > "$_g2/.claude/skills/one/SKILL.md"
+  git -C "$_g2" add -A >/dev/null 2>&1; git -C "$_g2" -c user.name=t -c user.email=t@t commit -qm "before" >/dev/null 2>&1
+  kb_wire_skills "$_g2" >/dev/null 2>&1
+  t "a Claude-era hub keeps its real room tracked" "$(git -C "$_g2" ls-files .claude/skills | grep -c .)" "1"
+  t "and does not ignore it" "$(grep -cxF '.claude/skills' "$_g2/.gitignore" 2>/dev/null || echo 0)" "0"
+  t "but its .agents/skills door is ignored" "$(grep -cxF '.agents/skills' "$_g2/.gitignore")" "1"
+
   # A hub whose recipes really do live in .claude/skills must not be fed to
   # itself. Getting this wrong copies a folder into itself and moves it aside.
   _d2=$(mktemp -d); mkdir -p "$_d2/.claude/skills"
