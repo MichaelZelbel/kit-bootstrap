@@ -671,7 +671,7 @@ EOF
     # own readers then ignore, so the setting lands and does nothing. A success
     # line over an inert setting is the workspace lie again, so the truth is said
     # out loud instead. Not fatal: the links keep every recipe reachable.
-    if kb_hermes_list skills.external_dirs | grep -qxF "$room"; then
+    if kb_hermes_list_has skills.external_dirs "$room"; then
       ok "skills: Hermes now reads $room"
     else
       warn "skills: this Hermes stored the room as text it does not read, so Hermes
@@ -818,6 +818,23 @@ kb_hermes_list() {
         printf '
 '
       done
+}
+
+# kb_hermes_list_has <key> <value>
+# Is <value> one of the entries of the list-valued setting <key>? Exit 0 yes, 1 no.
+#
+# NEVER `kb_hermes_list KEY | grep -q VALUE` in a script that sets pipefail, which every
+# script in this family does. grep -q exits on the first match, the list producer's next
+# write meets a closed pipe and dies with 141, and pipefail reports the pipeline as
+# failed although the value was there. That is how the server installer wrote all
+# eighteen deny rules, had Hermes refuse the firewall reset, and still printed "the
+# leash is NOT on" (2026-09-02). Capture the whole list first; a printf of a captured
+# string is one write, complete before grep can close anything.
+kb_hermes_list_has() {
+  local have
+  have="$(kb_hermes_list "${1:-}")"
+  printf '%s
+' "$have" | grep -qxF -- "${2:-}"
 }
 
 # kb_hermes_has_credential
@@ -1072,7 +1089,7 @@ EOF
       # so before kb_hermes_list learnt to filter, every run nested the list one
       # level deeper. A leash that cannot be read back as entries is a leash
       # that is NOT on, and the reader hears that instead of a success line.
-      if kb_hermes_list approvals.deny | grep -qxF '*ufw --force reset*'; then
+      if kb_hermes_list_has approvals.deny '*ufw --force reset*'; then
         ok "safety: added $added rule(s) Hermes does not refuse on its own, and kept the ones you had"
       else
         warn "safety: this Hermes stored the rules as text it does not enforce. The leash
