@@ -23,7 +23,7 @@
 #   - Breaking changes go to a v2 branch. The v1 branch only gets fixes.
 # =============================================================================
 
-KB_LIB_VERSION="2.0.0"
+KB_LIB_VERSION="2.1.0"
 
 # --- Output ------------------------------------------------------------------
 # The same colour-printf block that was pasted into all four installers. The
@@ -1799,6 +1799,76 @@ kb_hub_looks_real() {
   # observations/ is today's name and memory/ was yesterday's; a hub that predates the
   # rename is still a hub, so both count.
   [ -d "$d/observations" ] || [ -d "$d/memory" ] || [ -f "$d/AGENTS.md" ] || [ -f "$d/CLAUDE.md" ]
+}
+
+# kb_default_hub_dir
+# Where a new hub goes when nobody said: the top of the home folder, on every OS
+# (D-179, 2026-09-01). C:\hub stays a power option a person types in, never the suggestion.
+kb_default_hub_dir() { printf '%s/hub' "$HOME"; }
+
+# kb_cloud_synced_parents
+# The folders a cloud drive syncs by default, one per line. A hub inside any of them is a
+# git folder being edited from underneath: OneDrive backs up Desktop, Documents, Pictures
+# and on newer Windows Music and Videos; iCloud Drive can take Desktop and Documents; every
+# cloud drive added to the Finder syncs through ~/Library/CloudStorage.
+kb_cloud_synced_parents() {
+  local n key d
+  for n in Desktop Documents Pictures Music Videos; do
+    d=""
+    if command -v xdg-user-dir >/dev/null 2>&1; then
+      key="$(printf '%s' "$n" | tr 'a-z' 'A-Z')"
+      d="$(xdg-user-dir "$key" 2>/dev/null || true)"
+      # xdg-user-dir answers with the home folder itself when a folder is not configured,
+      # and the home folder is exactly where a hub belongs, so that answer is not a parent.
+      [ -n "$d" ] && [ "$d" != "$HOME" ] || d=""
+    fi
+    printf '%s\n' "${d:-$HOME/$n}"
+  done
+  printf '%s\n' "$HOME/Library/Mobile Documents" "$HOME/Library/CloudStorage" \
+                "$HOME/OneDrive" "$HOME/Dropbox" "$HOME/Google Drive"
+  [ -n "${OneDrive:-}" ] && printf '%s\n' "$OneDrive"
+  return 0
+}
+
+# kb_physical_path <path>
+# The path with ~ expanded and symlinks resolved as far as it exists, so a hub typed
+# through a link into a cloud folder is judged by where it really lands.
+kb_physical_path() {
+  local p="${1:-}" rest=""
+  case "$p" in "~") p="$HOME" ;; "~/"*) p="$HOME${p#\~}" ;; esac
+  while [ -n "$p" ] && [ "$p" != "/" ] && [ ! -d "$p" ]; do
+    rest="/$(basename "$p")$rest"; p="$(dirname "$p")"
+  done
+  [ -d "$p" ] && p="$(cd "$p" 2>/dev/null && pwd -P)"
+  # The root is spelled "/" and the rest already starts with one, so print the rest alone.
+  if [ "$p" = "/" ]; then printf '%s' "${rest:-/}"; else printf '%s%s' "$p" "$rest"; fi
+}
+
+# kb_refuse_hub_path <path>
+# Prints one plain sentence when the path is a place a hub must not go, nothing when it
+# is fine, and always returns 0 so a caller reads the sentence rather than the status.
+# The rule is D-179's: never under a folder a cloud drive syncs; and not a folder at the
+# very root of the disk, which is sealed on a Mac and belongs to root on Linux.
+kb_refuse_hub_path() {
+  local want parent
+  [ -n "${1:-}" ] || { printf 'a hub needs a folder path, for example %s' "$(kb_default_hub_dir)"; return 0; }
+  want="$(kb_physical_path "$1")"
+  case "$want" in
+    /*/*) ;;
+    /*) printf 'the root of the disk belongs to the system, so a folder there needs administrator rights on Linux and cannot be made at all on a Mac. Put it at %s' "$(kb_default_hub_dir)"; return 0 ;;
+  esac
+  while IFS= read -r parent; do
+    [ -n "$parent" ] || continue
+    parent="$(kb_physical_path "$parent")"
+    case "$want" in
+      "$parent"|"$parent"/*)
+        printf '%s is synced by a cloud drive, and a synced hub gets its history corrupted. Put it at %s instead' "$parent" "$(kb_default_hub_dir)"
+        return 0 ;;
+    esac
+  done <<EOF
+$(kb_cloud_synced_parents)
+EOF
+  return 0
 }
 
 # kb_find_hub [hint]

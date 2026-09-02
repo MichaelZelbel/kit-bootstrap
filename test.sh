@@ -30,6 +30,7 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          ensure_claude_signin ensure_gh_auth reexec_as_user handoff \
          kb_ai_memory_path kb_seed_memory_index kb_link_ai_memory \
          kb_hub_looks_real kb_find_hub kb_update_hub kb_install_hub_cli \
+         kb_default_hub_dir kb_cloud_synced_parents kb_physical_path kb_refuse_hub_path \
          kb_os kb_can_sudo kb_note_missing kb_install_one kb_install_claude_code \
          kb_install_hermes \
          kb_install_prereqs kb_copy_starter_hub kb_new_hub kb_install_prompt_harvest \
@@ -541,6 +542,34 @@ t "the starter's memory page survives" \
   "$(head -1 "$_c/kept/observations/MEMORY.md" 2>/dev/null)" "# The page the product wrote"
 
 # =============================================================================
+# --- WHERE A HUB MAY GO (D-179, 2026-09-02) ----------------------------------
+# The default is the top of the home folder on every OS, and the folders a cloud drive
+# syncs are refused with a sentence, because a synced git folder is the one thing that
+# corrupts a hub. Twins of the cases in windows/test-windows.ps1. Change both.
+_w="$(mktemp -d)"
+mkdir -p "$_w/Documents" "$_w/Desktop" "$_w/Pictures" "$_w/Documents-old" \
+         "$_w/Library/CloudStorage/OneDrive-Personal"
+_r()  { HOME="$_w" OneDrive="" kb_refuse_hub_path "$1"; }
+_v()  { case "$(_r "$1")" in *"synced by a cloud drive"*) echo refused ;; "") echo allowed ;; *) echo other ;; esac; }
+t "the default is the top of the home folder"         "$(HOME="$_w" kb_default_hub_dir)"  "$_w/hub"
+t "the home folder itself is allowed"                  "$(_v "$_w/hub")"                    "allowed"
+t "a tilde means the home folder too"                  "$(_v "~/hub")"                      "allowed"
+t "Documents is refused"                               "$(_v "$_w/Documents/hub")"          "refused"
+t "Desktop is refused"                                 "$(_v "$_w/Desktop/hub")"            "refused"
+t "Pictures is refused"                                "$(_v "$_w/Pictures/hub")"           "refused"
+t "deeper inside Documents is still refused"           "$(_v "$_w/Documents/work/hub")"     "refused"
+t "a Mac cloud drive folder is refused"                "$(_v "$_w/Library/CloudStorage/OneDrive-Personal/hub")" "refused"
+t "a folder merely named like one is allowed"          "$(_v "$_w/Documents-old/hub")"      "allowed"
+t "the refusal names the right place to go"            "$(case "$(_r "$_w/Documents/hub")" in *"$_w/hub"*) echo yes ;; esac)" "yes"
+t "the root of the disk is refused on this side"       "$(case "$(_r /hub)" in *"root of the disk"*) echo refused ;; esac)" "refused"
+t "a deeper system folder is an admin's business"      "$(_r /srv/hub)"                     ""
+# Git Bash copies on ln -s unless MSYS=winsymlinks is set, so the case runs only where a
+# real link came out of it (every Linux and every Mac).
+if ln -s "$_w/Documents" "$_w/docs-link" 2>/dev/null && [ -L "$_w/docs-link" ]; then
+  t "a link into Documents is judged by where it lands" "$(_v "$_w/docs-link/hub")"          "refused"
+fi
+t "an empty path is refused with a sentence"           "$(case "$(_r "")" in *"needs a folder path"*) echo refused ;; esac)" "refused"
+
 # THE FOLDER RENAME, FOR SOMEBODY WHO ALREADY INSTALLED (2026-08-16)
 #
 # The names used to describe WHO TYPED a file: context/ what you wrote, memory/ what your

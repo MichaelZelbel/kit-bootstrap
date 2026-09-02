@@ -25,6 +25,8 @@
 #
 # Options (all optional):
 #   --hub <path>            where the hub is, or should go     (default: ~/hub)
+#                           Not under Documents, Desktop, Pictures or any cloud drive
+#                           folder: those are refused, with the reason.
 #   --repo <git url>        a hub you already keep, to fetch
 #   --starter-repo <url>    the product whose starter folder a new hub begins as
 #   --starter-path <name>   the folder inside that repo        (default: starter-hub)
@@ -113,7 +115,7 @@ fi
 for fn in kb_install_prereqs kb_new_hub kb_copy_starter_hub kb_link_ai_memory kb_install_hub_cli \
           kb_install_hub_tools kb_install_prompt_harvest kb_sync_report kb_write_prompt_sources \
           kb_update_hub kb_connect_notebook kb_wire_skills kb_point_hermes_at_hub \
-          kb_hermes_approvals; do
+          kb_hermes_approvals kb_refuse_hub_path kb_default_hub_dir; do
   if ! command -v "$fn" >/dev/null 2>&1; then
     echo "[stop] the install code on this computer is incomplete ($fn is missing)." >&2
     echo "       Run the newest command from https://github.com/MichaelZelbel/kit-bootstrap" >&2
@@ -167,7 +169,9 @@ if [ -n "$FOUND" ]; then
   fi
 else
   IS_NEW=1
-  [ -n "$HUB" ] || HUB="$HOME/hub"
+  [ -n "$HUB" ] || HUB="$(kb_default_hub_dir)"
+  REFUSED="$(kb_refuse_hub_path "$HUB")"
+  [ -z "$REFUSED" ] || die "I will not put the hub at $HUB: $REFUSED"
   say "No hub on this computer yet, so I am making one"
   kb_new_hub "$HUB" "$REPO_URL" "$STARTER_REPO" "$STARTER_PATH" \
     || die "I could not make the hub. Read what it said just above."
