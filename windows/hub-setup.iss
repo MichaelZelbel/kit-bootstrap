@@ -19,7 +19,7 @@
 ; =============================================================================
 
 #define AppName        "Hub"
-#define AppVersion     "2.0.0"
+#define AppVersion     "2.2.0"
 #define AppPublisher   "Michael Zelbel"
 #define AppURL         "https://github.com/MichaelZelbel/kit-bootstrap"
 
@@ -224,10 +224,13 @@ begin
     'Where your hub goes',
     'This PC has not got a hub yet, so I am about to make one.',
     'A hub is one folder holding everything your AI assistants know about you and your work.' + #13#10 + #13#10 +
+    'The suggestion below is the top of your user folder: no administrator needed, private to you, and the same place on every computer. ' +
+    'C:\hub also works if you want the shortest possible path. ' +
+    'Never Documents, Desktop or Pictures: OneDrive backs those up, and a backed-up hub gets its history corrupted, so I refuse them.' + #13#10 + #13#10 +
     'If you already keep a hub in a git repository, paste its address in the second box and I will fetch that one instead of starting an empty one. Leave the box empty if today is day one.');
   HubPage.Add('Folder on this PC:', False);
   HubPage.Add('Address of a hub you already have (optional):', False);
-  HubPage.Values[0] := 'C:\hub';
+  HubPage.Values[0] := ExpandConstant('{%USERPROFILE}\hub');
   HubPage.Values[1] := '';
 
   { The choice page. Everything a ticked row means is said HERE, before it
@@ -278,13 +281,56 @@ begin
   Result := (PageID = HubPage.ID) and (FoundHub <> '');
 end;
 
+{ Ask the shared install code whether the typed folder is a place a hub may go, the
+  same way DetectHub asks it where the hub is. The rule lives once, in join.ps1, and
+  its tests; a second copy in Pascal is how the two would drift. }
+function HubPathRefusal(Dir: String): String;
+var
+  PsFile, OutFile, Cmd: String;
+  Code: Integer;
+  Lines: TArrayOfString;
+begin
+  Result := '';
+  StringChangeEx(Dir, '''', '''''', True);
+  PsFile  := ExpandConstant('{tmp}\join.ps1');
+  OutFile := ExpandConstant('{tmp}\hub-refusal.txt');
+  DeleteFile(OutFile);
+  Cmd := '-NoProfile -ExecutionPolicy Bypass -Command "'
+       + '. ''' + PsFile + ''' -AsLibrary; '
+       + '$r = Get-KitHubPathRefusal -Path ''' + Dir + '''; '
+       + 'if ($r) { Set-Content -LiteralPath ''' + OutFile + ''' -Value $r }"';
+  if Exec('powershell.exe', Cmd, '', SW_HIDE, ewWaitUntilTerminated, Code) then
+    if FileExists(OutFile) then
+      if LoadStringsFromFile(OutFile, Lines) then
+        if GetArrayLength(Lines) > 0 then
+          Result := Trim(Lines[0]);
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  Why: String;
+begin
+  Result := True;
+  if (CurPageID = HubPage.ID) and (FoundHub = '') then
+  begin
+    if Trim(HubPage.Values[0]) = '' then
+      HubPage.Values[0] := ExpandConstant('{%USERPROFILE}\hub');
+    Why := HubPathRefusal(Trim(HubPage.Values[0]));
+    if Why <> '' then
+    begin
+      MsgBox('I will not put the hub there.' + #13#10 + #13#10 + Why, mbError, MB_OK);
+      Result := False;
+    end;
+  end;
+end;
+
 function GetHubDir(Param: String): String;
 begin
   if FoundHub <> '' then
     Result := FoundHub
   else
     Result := Trim(HubPage.Values[0]);
-  if Result = '' then Result := 'C:\hub';
+  if Result = '' then Result := ExpandConstant('{%USERPROFILE}\hub');
 end;
 
 function GetRepoUrl(Param: String): String;
