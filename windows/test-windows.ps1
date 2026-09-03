@@ -2286,6 +2286,37 @@ Check "and the flag actually reaches setup-hub.ps1" {
     ($IssSrc -match 'function GetBesideFlag') -and ($IssSrc -match '\{code:GetBesideFlag\}')
 }
 
+# --- GIT CHATTER MUST NOT ABORT THE INSTALLER (2026-09-03) -----------------------------
+# setup-hub.ps1 runs under $ErrorActionPreference = 'Stop', and PowerShell 7.3+ turns any
+# line a native program writes to stderr into a terminating error. git writes ordinary
+# progress there. "Applied autostash." stopped a real run dead, halfway through the wiring,
+# on a hub whose only sin was an edited file nobody had committed yet. That is every reader
+# who has written something in their hub.
+Check "Invoke-KitGit is defined" { [bool](Get-Command Invoke-KitGit -ErrorAction SilentlyContinue) }
+Check "THE REGRESSION: a hub with uncommitted work still finishes its update" {
+    $bare = New-TestDir 'dirty-remote'
+    $work = New-TestDir 'dirty-hub'
+    git init --bare -q $bare
+    git init -q $work
+    Set-Content (Join-Path $work 'README.md') 'one'
+    git -C $work add -A 2>&1 | Out-Null
+    git -C $work -c user.email='t@t' -c user.name='t' commit -q -m first 2>&1 | Out-Null
+    git -C $work remote add origin $bare 2>&1 | Out-Null
+    git -C $work push -q origin HEAD 2>&1 | Out-Null
+    # The edited file that used to be fatal: --autostash then says "Applied autostash." on
+    # stderr, and the run died there rather than reaching a single wiring step.
+    Set-Content (Join-Path $work 'README.md') 'one, edited and not committed'
+    $threw = $false
+    try {
+        $eap = $ErrorActionPreference
+        $ErrorActionPreference = 'Stop'
+        Update-KitHub -Hub $work | Out-Null
+    } catch { $threw = $true } finally { $ErrorActionPreference = $eap }
+    # And the reader's uncommitted edit is still there, which is the whole reason for
+    # --autostash in the first place.
+    (-not $threw) -and ((Get-Content (Join-Path $work 'README.md') -Raw).Contains('edited and not committed'))
+}
+
 Remove-Item $Root -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host ""

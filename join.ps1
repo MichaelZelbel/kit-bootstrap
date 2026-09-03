@@ -535,6 +535,29 @@ function Find-KitHub {
     return $null
 }
 
+function Invoke-KitGit {
+    <#  git, with its chatter silenced and with no power to abort the run.
+
+        WHY THIS EXISTS. setup-hub.ps1 sets $ErrorActionPreference = 'Stop', and PowerShell
+        7.3 and newer turn ANY line a native program writes to stderr into a terminating
+        error ($PSNativeCommandUseErrorActionPreference, on by default). git writes plenty
+        of ordinary progress there. On 2026-09-03 the line "Applied autostash." stopped the
+        installer dead, halfway through, on a hub whose only sin was an edited file that had
+        not been committed yet. A reader who has written something in their hub, which is
+        the entire point of owning one, would have hit exactly that. Redirecting with 2>$null
+        does not help: the error is raised before the redirection is considered.
+
+        $LASTEXITCODE is what decides whether git actually failed, and it survives this. #>
+    param([Parameter(Mandatory, ValueFromRemainingArguments = $true)][string[]]$GitArgs)
+    $eap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & git @GitArgs 2>&1 | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] }
+    } finally {
+        $ErrorActionPreference = $eap
+    }
+}
+
 function Update-KitHub {
     <#  Bring an existing installation up to date. Never fatal: a machine with no
         network should still finish wiring itself and just say it is behind. #>
@@ -548,16 +571,16 @@ function Update-KitHub {
     # untrue: there is nowhere to be out of date FROM. Say the useful thing
     # instead, which is the step that would make their folder reach their other
     # machines.
-    git -C $Hub remote get-url origin *> $null
+    Invoke-KitGit -C $Hub remote get-url origin | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-KbOk "this hub lives only on this computer for now. Give it a home on GitHub when you are ready, and it will travel to your other machines."
         return
     }
-    $branch = (git -C $Hub rev-parse --abbrev-ref HEAD 2>$null)
+    $branch = @(Invoke-KitGit -C $Hub rev-parse --abbrev-ref HEAD)[0]
     if (-not $branch -or $branch -eq 'HEAD') { $branch = 'main' }
-    git -C $Hub pull --rebase --autostash -q origin $branch 2>$null
+    Invoke-KitGit -C $Hub pull --rebase --autostash -q origin $branch | Out-Null
     if ($LASTEXITCODE -eq 0) {
-        Write-KbOk "updated your hub to $(git -C $Hub log -1 --format='%h %s' 2>$null)"
+        Write-KbOk "updated your hub to $(@(Invoke-KitGit -C $Hub log -1 --format='%h %s')[0])"
     } else {
         Write-KbWarn "could not pull (no network, or a conflict to sort out by hand). Continuing with the copy already on this machine, which may be out of date."
     }
