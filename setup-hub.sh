@@ -34,6 +34,12 @@
 #   --sources <list>        which AI tools may be synced from this machine, as a
 #                           comma list (e.g. claude,codex). "" means none. Without
 #                           it, every tool this kit can read that is found here.
+#   --beside                put a SECOND hub at --hub and leave this computer working
+#                           from the one it already has. Needs --hub, and needs a hub
+#                           already here to sit beside. For a work hub next to a
+#                           personal one, for trying a hub before moving into it, and
+#                           for a clean hub to record on a machine that carries a full
+#                           one. kb_beside in lib.sh lists what it leaves alone.
 #
 # Safe to run as many times as you like. It never deletes a memory.
 # =============================================================================
@@ -59,6 +65,7 @@ STARTER_PATH="starter-hub"
 SKIP_PREREQS=0
 SOURCES=""
 SOURCES_SET=0
+BESIDE=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -67,9 +74,10 @@ while [ $# -gt 0 ]; do
     --starter-repo) STARTER_REPO="${2:-}"; shift 2 ;;
     --starter-path) STARTER_PATH="${2:-starter-hub}"; shift 2 ;;
     --skip-prereqs) SKIP_PREREQS=1;        shift ;;
+    --beside)       BESIDE=1;              shift ;;
     --sources)      SOURCES="${2:-}"; SOURCES_SET=1; shift 2 ;;
     --sources=*)    SOURCES="${1#--sources=}"; SOURCES_SET=1; shift ;;
-    -h|--help)      sed -n '2,35p' "$0" 2>/dev/null; exit 0 ;;
+    -h|--help)      sed -n '2,44p' "$0" 2>/dev/null; exit 0 ;;
     # A bare path, so `... | bash -s -- ~/hub` keeps working the way join.sh did.
     *)              [ -z "$HUB" ] && HUB="$1"; shift ;;
   esac
@@ -115,7 +123,7 @@ fi
 for fn in kb_install_prereqs kb_new_hub kb_copy_starter_hub kb_link_ai_memory kb_install_hub_cli \
           kb_install_hub_tools kb_install_prompt_harvest kb_sync_report kb_write_prompt_sources \
           kb_update_hub kb_connect_notebook kb_wire_skills kb_point_hermes_at_hub \
-          kb_hermes_approvals kb_refuse_hub_path kb_default_hub_dir; do
+          kb_hermes_approvals kb_refuse_hub_path kb_default_hub_dir \n          kb_beside kb_same_path; do
   if ! command -v "$fn" >/dev/null 2>&1; then
     echo "[stop] the install code on this computer is incomplete ($fn is missing)." >&2
     echo "       Run the newest command from https://github.com/MichaelZelbel/kit-bootstrap" >&2
@@ -141,7 +149,30 @@ fi
 # -----------------------------------------------------------------------------
 # 3. Install or update? Look, do not ask.
 # -----------------------------------------------------------------------------
-FOUND="$(kb_find_hub "$HUB" 2>/dev/null || true)"
+# BESIDE means "do not ask this machine where its hub is". kb_find_hub answers that
+# question, and on a machine that already works from one it answers with THAT one: it
+# reads $HUB_DIR before it looks at anything else. So an explicit --hub naming a folder
+# that did not exist yet used to fall straight through to the hub already here, which
+# was then brought up to date under a green tick while the folder actually asked for was
+# never made and nothing said why. A beside run looks at the path it was given and at
+# nothing else.
+OTHER=""
+if [ "$BESIDE" -eq 1 ]; then
+  [ -n "$HUB" ] || die "--beside needs --hub as well. It puts a hub in a place you name and leaves this computer working from the one it already has, so it has to be told where. Example: --beside --hub $(kb_default_hub_dir)"
+  OTHER="$(kb_find_hub 2>/dev/null || true)"
+  [ -n "$OTHER" ] || die "there is no hub on this computer yet, so there is nothing for a second one to sit beside. Run this without --beside and it will make the first one."
+  ! kb_same_path "$OTHER" "$HUB" || die "$HUB is the hub this computer already works from, so it cannot sit beside itself. Run this without --beside to bring it up to date."
+  KB_BESIDE=1
+  export KB_BESIDE
+  say "This computer works from $OTHER and keeps working from it. The new hub will sit beside it."
+  FOUND=""
+  kb_hub_looks_real "$HUB" && FOUND="$(cd "$HUB" && pwd -P)"
+else
+  FOUND="$(kb_find_hub "$HUB" 2>/dev/null || true)"
+  if [ -n "$FOUND" ] && [ -n "$HUB" ] && ! kb_same_path "$FOUND" "$HUB"; then
+    die "you asked for a hub at $HUB, but this computer already works from $FOUND. To put a second hub at $HUB and leave $FOUND in charge of this computer, add --beside. To bring $FOUND up to date instead, leave off --hub."
+  fi
+fi
 IS_NEW=0
 
 if [ -n "$FOUND" ]; then
@@ -172,7 +203,8 @@ else
   [ -n "$HUB" ] || HUB="$(kb_default_hub_dir)"
   REFUSED="$(kb_refuse_hub_path "$HUB")"
   [ -z "$REFUSED" ] || die "I will not put the hub at $HUB: $REFUSED"
-  say "No hub on this computer yet, so I am making one"
+  if [ "$BESIDE" -eq 1 ]; then say "Making the hub at $HUB"
+  else say "No hub on this computer yet, so I am making one"; fi
   kb_new_hub "$HUB" "$REPO_URL" "$STARTER_REPO" "$STARTER_PATH" \
     || die "I could not make the hub. Read what it said just above."
   HUB="$(cd "$HUB" && pwd -P)"
@@ -222,7 +254,9 @@ kb_hermes_approvals
 # tool (or none) had been wired. The truth lets a person see a gap; the promise
 # hides it.
 say "Done"
-if [ "$IS_NEW" -eq 1 ]; then
+if [ "$BESIDE" -eq 1 ]; then
+  echo "This second hub is ready at:"
+elif [ "$IS_NEW" -eq 1 ]; then
   echo "Your hub is at:"
 else
   echo "This computer is up to date and wired in. Your hub is at:"
@@ -232,6 +266,15 @@ cat <<EOF
   $HUB
 
 EOF
+if [ "$BESIDE" -eq 1 ]; then
+  cat <<EOF
+It has its own folders, its own git history and its own assistant memory.
+This computer still works from $OTHER, which keeps the hub commands, the daily
+job, the hourly notebook job and the folder Hermes starts in. To work in the new
+one, open a terminal or an assistant inside it.
+
+EOF
+fi
 kb_sync_report
 cat <<EOF
 

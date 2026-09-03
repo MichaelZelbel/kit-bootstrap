@@ -70,7 +70,7 @@ Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 
 [Run]
 Filename: "powershell.exe"; \
-    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-hub.ps1"" -NoPause -Hub ""{code:GetHubDir}"" -RepoUrl ""{code:GetRepoUrl}"" -PromptSources ""{code:GetPromptSources}"""; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-hub.ps1"" -NoPause -Hub ""{code:GetHubDir}"" -RepoUrl ""{code:GetRepoUrl}"" -PromptSources ""{code:GetPromptSources}""{code:GetBesideFlag}"; \
     StatusMsg: "Setting up your hub. This can take a few minutes, and a window will show what it is doing..."; \
     Flags: waituntilterminated
 Filename: "{code:GetHubDir}"; Description: "Open my hub folder"; \
@@ -87,6 +87,7 @@ ConfirmUninstall=This removes the setup program only.%n%nYour hub folder, and ev
 [Code]
 var
   HubPage: TInputQueryWizardPage;
+  BesidePage: TInputOptionWizardPage;
   FoundHub: String;
   { The AI-tools checklist. ToolIds/ToolNames/ToolRows describe only the rows a
     person can tick (the syncable ones); tools this kit cannot read are shown as
@@ -220,7 +221,20 @@ begin
   FoundHub := DetectHub();
   DetectTools(RecordedSources, ToolLines);
 
-  HubPage := CreateInputQueryPage(wpWelcome,
+  { Shown only on a PC that already has a hub. Unticked, so the common path stays
+    one click: a returning reader clicks Next and their hub is brought up to date,
+    exactly as before this page existed. Ticked, the folder page opens and the run
+    leaves all five of this PC's "which hub do I work from" settings alone. }
+  BesidePage := CreateInputOptionPage(wpWelcome,
+    'You already have a hub',
+    'This PC works from a hub already.',
+    'Clicking Next brings that hub up to date and re-checks how this PC is wired to it, which is what almost everybody wants.' + #13#10 + #13#10 +
+    'Tick the box instead if you want a SECOND hub in another folder: a work hub next to a personal one, or a clean one to try something in. This PC keeps working from the hub it has, so its commands, its daily jobs and the folder your assistant starts in are left alone. The second hub gets its own folders and its own history, and you use it by opening a terminal or an assistant inside it.',
+    False, False);
+  BesidePage.Add('Make a second hub somewhere else, and leave this PC working from the one it has');
+  BesidePage.Values[0] := False;
+
+  HubPage := CreateInputQueryPage(BesidePage.ID,
     'Where your hub goes',
     'This PC has not got a hub yet, so I am about to make one.',
     'A hub is one folder holding everything your AI assistants know about you and your work.' + #13#10 + #13#10 +
@@ -275,10 +289,37 @@ begin
   end;
 end;
 
+{ Is this run making a SECOND hub and leaving this PC working from the one it has? }
+function Beside: Boolean;
+begin
+  Result := (FoundHub <> '') and BesidePage.Values[0];
+end;
+
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
-  { A PC that already has a hub is never asked where to put one. }
-  Result := (PageID = HubPage.ID) and (FoundHub <> '');
+  Result := False;
+  { Nothing to sit beside, so nothing to ask. }
+  if PageID = BesidePage.ID then
+    Result := (FoundHub = '');
+  { A PC that already has a hub is not asked where to put one, unless it just said
+    it wants a second one somewhere else. }
+  if PageID = HubPage.ID then
+    Result := (FoundHub <> '') and (not Beside);
+end;
+
+{ The folder page introduces itself differently for a second hub, because "this PC has
+  not got a hub yet" is then untrue and the reader would rightly not believe the rest. }
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if CurPageID = HubPage.ID then
+  begin
+    if Beside then
+      WizardForm.PageDescriptionLabel.Caption :=
+        'Where the second hub goes. This PC keeps working from ' + FoundHub + '.'
+    else
+      WizardForm.PageDescriptionLabel.Caption :=
+        'This PC has not got a hub yet, so I am about to make one.';
+  end;
 end;
 
 { Ask the shared install code whether the typed folder is a place a hub may go, the
@@ -311,10 +352,21 @@ var
   Why: String;
 begin
   Result := True;
-  if (CurPageID = HubPage.ID) and (FoundHub = '') then
+  if (CurPageID = HubPage.ID) and ((FoundHub = '') or Beside) then
   begin
     if Trim(HubPage.Values[0]) = '' then
       HubPage.Values[0] := ExpandConstant('{%USERPROFILE}\hub');
+    { A second hub cannot be the first one. Compared here rather than left to
+      setup-hub.ps1, because a message on the page beats one in a console window
+      that closes. }
+    if Beside and (CompareText(Trim(HubPage.Values[0]), FoundHub) = 0) then
+    begin
+      MsgBox('That is the hub this PC already works from, so it cannot sit beside itself.'
+        + #13#10 + #13#10 + 'Pick another folder, or go back and untick the box to bring '
+        + FoundHub + ' up to date instead.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
     Why := HubPathRefusal(Trim(HubPage.Values[0]));
     if Why <> '' then
     begin
@@ -326,7 +378,9 @@ end;
 
 function GetHubDir(Param: String): String;
 begin
-  if FoundHub <> '' then
+  if Beside then
+    Result := Trim(HubPage.Values[0])
+  else if FoundHub <> '' then
     Result := FoundHub
   else
     Result := Trim(HubPage.Values[0]);
@@ -335,10 +389,17 @@ end;
 
 function GetRepoUrl(Param: String): String;
 begin
-  if FoundHub <> '' then
-    Result := ''
+  if Beside or (FoundHub = '') then
+    Result := Trim(HubPage.Values[1])
   else
-    Result := Trim(HubPage.Values[1]);
+    Result := '';
+end;
+
+{ Appended to the command line, so one Run entry covers both shapes. A switch cannot be
+  given a value through -File, which is why this is the flag itself or nothing at all. }
+function GetBesideFlag(Param: String): String;
+begin
+  if Beside then Result := ' -Beside' else Result := '';
 end;
 
 { The ticked tools, as the comma list setup-hub.ps1 expects. '-' is NONE spelled

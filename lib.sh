@@ -945,6 +945,11 @@ kb_point_hermes_at_hub() {
   [ -d "$hub" ] || { warn "kb_point_hermes_at_hub: no folder at $hub"; return 1; }
   abs="$(cd "$hub" && pwd -P)"
 
+  if kb_beside; then
+    ok "hub: left Hermes pointing where it was. This hub sits beside the one this computer works from."
+    return 0
+  fi
+
   kb_hermes_here || {
     ok "hub: Hermes is not on this machine yet, so there is nothing to point at $abs. Run this again once it is."
     return 0
@@ -1805,6 +1810,38 @@ kb_hub_looks_real() {
 # Where a new hub goes when nobody said: the top of the home folder, on every OS
 # (D-179, 2026-09-01). C:\hub stays a power option a person types in, never the suggestion.
 kb_default_hub_dir() { printf '%s/hub' "$HOME"; }
+# kb_beside
+# Is this run putting a hub BESIDE the one this computer already works from, instead of
+# making it the one this computer works from? The bash twin of Test-KitBeside in join.ps1.
+#
+# WHY THIS EXISTS. Only a handful of things on an account answer the question "which hub
+# does this computer work from": the HUB_DIR line in ~/.hub/device.env, the two cron
+# jobs, and Hermes' terminal.cwd. Every other wiring step is either inside the hub folder
+# or keyed by the hub's own path (the assistant memory link mangles the path into its
+# folder name, and kb_install_hub_cli writes nothing at all for a hub that ships no
+# commands), so it cannot collide. Before this switch existed, a second hub on one
+# machine took all of them, and the first hub's daily jobs went quiet with nothing on
+# screen to say so: the same failure as a renamed folder
+# (a-renamed-folder-silences-every-tool-that-hardcoded-it).
+#
+# Who wants it: anyone keeping a work hub beside a personal one, a reader trying the
+# book's hub before moving into it, and a screen recording that has to show a clean hub
+# on a machine that already carries a full one.
+#
+# An environment variable rather than a parameter threaded through four functions,
+# matching KB_SYNC_SOURCES and KB_HERMES_BIN: the installer makes the choice once, every
+# wiring step reads it wherever it lands, and a test sets it in one place.
+kb_beside() { [ "${KB_BESIDE:-0}" = "1" ]; }
+
+# kb_same_path <a> <b>
+# Do these two paths name the same folder? Links and trailing slashes both have to be
+# settled before two hub paths can be compared. The bash twin of Test-KitSamePath.
+kb_same_path() {
+  local a="${1:-}" b="${2:-}"
+  [ -n "$a" ] && [ -n "$b" ] || return 1
+  [ "$(kb_physical_path "$a")" = "$(kb_physical_path "$b")" ]
+}
+
 
 # kb_cloud_synced_parents
 # The folders a cloud drive syncs by default, one per line. A hub inside any of them is a
@@ -1961,8 +1998,13 @@ kb_install_hub_cli() {
 # one after a move is a hub that quietly files nothing
 # (a-renamed-folder-silences-every-tool-that-hardcoded-it).
 kb_record_hub_dir() {
-  local hub="${1:-}" f="$HOME/.hub/device.env" recorded="" tmp
+  local hub="${1:-}" f="$HOME/.hub/device.env" recorded="" tmp keep
   [ -n "$hub" ] || return 0
+  if kb_beside; then
+    keep="$(sed -n 's/^[[:space:]]*HUB_DIR=//p' "$f" 2>/dev/null | tail -1)"
+    [ -z "$keep" ] || ok "device.env: HUB_DIR still points at $keep. This hub sits beside it."
+    return 0
+  fi
   mkdir -p "$HOME/.hub"
   [ -f "$f" ] && recorded="$(sed -n 's/^[[:space:]]*HUB_DIR=//p' "$f" | tail -1)"
   if [ -z "$recorded" ]; then
@@ -2093,6 +2135,10 @@ kb_install_hub_tools() {
 # can safely reach.
 kb_install_prompt_harvest() {
   local hub="${1:-}" cron node cur line runner
+  if kb_beside; then
+    ok "prompt archive: left the daily job where it is. This hub sits beside the one this computer works from."
+    return 0
+  fi
   cron="${KB_CRONTAB:-crontab}"
 
   # The installed program first, the hub's own copy second. The second is only for a hub set up
@@ -2882,6 +2928,14 @@ kb_install_notebook_sync() {
       chmod +x "$hook" 2>/dev/null || true
       ok "notebook: your hub now updates the notebook the moment you save a change"
     fi
+  fi
+
+  # 2. The hourly catch-up. A hub sitting beside another one stops here: the hook above
+  #    is inside this folder and is its own, but the cron line is one line for the whole
+  #    account.
+  if kb_beside; then
+    ok "notebook: left the hourly catch-up where it is. This hub sits beside the one this computer works from."
+    return 0
   fi
 
   # 2. The hourly catch-up, for whatever happened while the computer was asleep. Hourly

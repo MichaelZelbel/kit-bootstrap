@@ -2090,6 +2090,145 @@ Check "Find-KitHub looks in the user folder before the drive root" {
     $src.IndexOf("(Join-Path `$HOME 'hub')") -lt $src.IndexOf("'C:\hub'")
 }
 
+# --- A SECOND HUB BESIDE THE FIRST (2026-09-03) ---------------------------------------
+# Twins of the cases in test.sh. Exactly five things on a Windows account answer "which
+# hub does this computer work from": the HUB_DIR line in device.env, the HUB_DIR user
+# environment variable, the two scheduled jobs, and Hermes' terminal.cwd. A beside run
+# takes none of them, and everything else it wires is either inside the hub folder or
+# keyed by the hub's path. Before this existed, a second hub took all five and the first
+# hub's daily jobs went quiet with nothing on screen to say so.
+foreach ($fn in 'Test-KitBeside', 'Test-KitSamePath') {
+    Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
+}
+Check "beside is off unless it is asked for" {
+    $b0 = $env:KB_BESIDE
+    try { $env:KB_BESIDE = $null; -not (Test-KitBeside) } finally { $env:KB_BESIDE = $b0 }
+}
+Check "beside is on at exactly 1, and nothing else turns it on" {
+    $b0 = $env:KB_BESIDE
+    try {
+        $env:KB_BESIDE = '1';    $on  = Test-KitBeside
+        $env:KB_BESIDE = 'true'; $off = Test-KitBeside
+        $on -and -not $off
+    } finally { $env:KB_BESIDE = $b0 }
+}
+Check "the same folder spelled two ways is one folder" {
+    $d = New-TestDir 'same-a'
+    (Test-KitSamePath $d ($d + '\')) -and (Test-KitSamePath $d $d.ToUpper())
+}
+Check "two folders are two folders, and a missing side is never a match" {
+    (-not (Test-KitSamePath (New-TestDir 'same-b') (New-TestDir 'same-c'))) -and
+    (-not (Test-KitSamePath '' (New-TestDir 'same-d')))
+}
+Check "beside leaves the HUB_DIR line in device.env exactly as it was" {
+    $b0 = $env:KB_BESIDE
+    try {
+        $env:KB_HOME = New-TestDir 'beside-home'
+        $env:KB_BESIDE = '1'
+        New-Item -ItemType Directory -Force (Join-Path $env:KB_HOME '.hub') | Out-Null
+        $f = Join-Path $env:KB_HOME '.hub\device.env'
+        Set-Content $f "HUB_DIR=C:\hub`nHUB_PROMPT_SOURCES=claude"
+        $before = Get-Content $f -Raw
+        Set-KitHubDirRecord -Hub (New-TestDir 'beside-hub') | Out-Null
+        (Get-Content $f -Raw) -eq $before
+    } finally { $env:KB_HOME = $null; $env:KB_BESIDE = $b0 }
+}
+Check "beside schedules no daily job, so the first hub keeps the only one" {
+    $b0 = $env:KB_BESIDE
+    $task = 'Hub prompt archive BESIDE TEST'
+    try {
+        $env:KB_HOME = New-TestDir 'beside-harvest-home'
+        $hub = New-TestDir 'beside-harvest-hub'
+        New-Item -ItemType Directory -Force (Join-Path $hub 'bin') | Out-Null
+        Set-Content (Join-Path $hub 'bin\prompt-harvest.js') 'console.log(1)'
+        $env:KB_BESIDE = '1'
+        Install-KitPromptHarvest -Hub $hub -TaskName $task | Out-Null
+        -not (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue)
+    } finally {
+        $env:KB_HOME = $null; $env:KB_BESIDE = $b0
+        Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
+    }
+}
+Check "beside still gives THIS hub its own save hook, because that lives inside it" {
+    $b0 = $env:KB_BESIDE
+    $task = 'Hub notebook sync BESIDE TEST'
+    try {
+        Invoke-NotebookCase {
+            param($h)
+            $hub = New-TestDir 'beside-nb-hub'
+            git -C $hub init -q
+            Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`nexit 0"
+            $env:KB_BESIDE = '1'
+            Install-KitNotebookSync -Hub $hub -TaskName $task | Out-Null
+            $hook = Join-Path $hub '.git\hooks\post-commit'
+            (Test-Path $hook) -and
+                ((Get-Content $hook -Raw).Contains('hub-notebook-sync')) -and
+                -not (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue)
+        }
+    } finally {
+        $env:KB_BESIDE = $b0
+        Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
+    }
+}
+Check "beside leaves Hermes pointing where it was, and says so" {
+    $b0 = $env:KB_BESIDE
+    try {
+        $env:KB_BESIDE = '1'
+        $hub = New-TestDir 'beside-hermes-hub'
+        $out = Set-KitHermesHub -Hub $hub 3>&1 4>&1 6>&1 | Out-String
+        $out -like '*left Hermes pointing where it was*'
+    } finally { $env:KB_BESIDE = $b0 }
+}
+
+# The installer's own half, read as text: these five lines are the whole contract, and a
+# refactor that drops one of them puts the collision back without failing anything above.
+$SetupSrc = Get-Content (Join-Path $PSScriptRoot 'setup-hub.ps1') -Raw
+Check "the installer takes -Beside" { $SetupSrc -match '\[switch\]\$Beside' }
+Check "the missing-code canary is the newest function, Test-KitBeside" {
+    $SetupSrc -match "Get-Command Test-KitBeside -ErrorAction SilentlyContinue"
+}
+Check "the HUB_DIR user variable is written only when this hub is the one in charge" {
+    $SetupSrc -match "if \(-not \(Test-KitBeside\)\) \{[^}]*SetEnvironmentVariable\('HUB_DIR'"
+}
+Check "-Beside without -Hub stops rather than guessing a folder" {
+    $SetupSrc -match '-Beside needs -Hub as well'
+}
+Check "-Beside with no hub to sit beside stops and says to run it plain" {
+    $SetupSrc -match 'nothing for a second one to sit beside'
+}
+Check "THE BUG: asking for one hub while this PC works from another now stops" {
+    # Until 2026-09-03 this silently brought the OTHER hub up to date under a green
+    # tick, and the folder actually asked for was never made. Find-KitHub reads
+    # $env:HUB_DIR before it looks anywhere else, which is why -Hub alone could never
+    # reach a folder that did not exist yet.
+    ($SetupSrc -match 'already works from \$found') -and ($SetupSrc -match 'add -Beside')
+}
+Check "and Find-KitHub really does read HUB_DIR before the usual homes" {
+    $src = (Get-Command Find-KitHub).ScriptBlock.ToString()
+    $src.IndexOf('$env:HUB_DIR') -lt $src.IndexOf("(Join-Path `$HOME 'hub')")
+}
+
+# The clickable wizard's half, read as text. It cannot be driven from a test, so what is
+# checked is the contract: the page exists, the box starts empty so the common path is
+# still one click, the folder page opens when it is ticked, and the flag reaches the run.
+$IssSrc = Get-Content (Join-Path $PSScriptRoot 'hub-setup.iss') -Raw
+Check "the wizard asks before making a second hub" { $IssSrc -match 'BesidePage := CreateInputOptionPage' }
+Check "and the box starts unticked, so a returning reader still just clicks Next" {
+    $IssSrc -match 'BesidePage\.Values\[0\] := False'
+}
+Check "the page is not shown on a PC with no hub to sit beside" {
+    $IssSrc -match "if PageID = BesidePage\.ID then\s+Result := \(FoundHub = ''\)"
+}
+Check "the folder page opens when the box is ticked, and stays skipped when it is not" {
+    $IssSrc -match "Result := \(FoundHub <> ''\) and \(not Beside\)"
+}
+Check "a second hub may not be the folder this PC already works from" {
+    $IssSrc -match 'cannot sit beside itself'
+}
+Check "and the flag actually reaches setup-hub.ps1" {
+    ($IssSrc -match 'function GetBesideFlag') -and ($IssSrc -match '\{code:GetBesideFlag\}')
+}
+
 Remove-Item $Root -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host ""

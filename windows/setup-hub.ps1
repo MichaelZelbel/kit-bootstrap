@@ -19,6 +19,12 @@
 #
 # Usage on its own, without the .exe:
 #   powershell -ExecutionPolicy Bypass -File setup-hub.ps1 [-Hub C:\Users\you\hub] [-RepoUrl <git url>]
+#
+#   -Beside   put a SECOND hub at -Hub and leave this computer working from the one
+#             it already has. Needs -Hub, and needs a hub already here to sit beside.
+#             For a work hub next to a personal one, for trying a hub before moving
+#             into it, and for a clean hub to record on a machine that carries a full
+#             one. See Test-KitBeside in join.ps1 for what it leaves alone and why.
 # =============================================================================
 param(
     [string]$Hub,
@@ -35,7 +41,8 @@ param(
     # wizard fills this from its checklist page.
     [string]$PromptSources = '(auto)',
     [switch]$SkipPrereqs,
-    [switch]$NoPause
+    [switch]$NoPause,
+    [switch]$Beside
 )
 
 $ErrorActionPreference = 'Stop'
@@ -118,7 +125,7 @@ if (-not $Join) {
 # copy inside the .exe when it is not there. The canary moves forward with the
 # code: it is the NEWEST function this file calls, or the check passes on a copy
 # that is missing everything added since.
-if (-not (Get-Command Get-KitHubPathRefusal -ErrorAction SilentlyContinue)) {
+if (-not (Get-Command Test-KitBeside -ErrorAction SilentlyContinue)) {
     if ($Join -ne $Bundled -and (Test-Path $Bundled)) {
         Write-Warning "the published install code is older than this installer, so I am using the copy that came with it."
         . $Bundled -AsLibrary
@@ -130,7 +137,8 @@ foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-
                  'Find-KitAiTools', 'Set-KitPromptSources', 'Write-KitSyncReport',
                  'Connect-KitNotebook', 'Write-KitMcpConfig', 'Install-KitNotebookSync',
                  'Connect-KitSkills', 'Set-KitHermesHub', 'Set-KitHermesApprovals',
-                 'Get-KitDefaultHubDir', 'Get-KitHubPathRefusal') {
+                 'Get-KitDefaultHubDir', 'Get-KitHubPathRefusal',
+                 'Test-KitBeside', 'Test-KitSamePath') {
     if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
         Stop-Setup "the install code on this PC is incomplete ($fn is missing). Download the newest installer from https://github.com/MichaelZelbel/kit-bootstrap/releases/latest and run that."
     }
@@ -153,7 +161,33 @@ if (-not (Test-KitCommand 'git')) {
 # -----------------------------------------------------------------------------
 # 3. Install or update? Look, do not ask.
 # -----------------------------------------------------------------------------
-$found = Find-KitHub -Hint $Hub
+# BESIDE means "do not ask this machine where its hub is". Find-KitHub answers that
+# question, and on a machine that already works from one it answers with THAT one: it
+# reads $env:HUB_DIR before it looks at anything else. So an explicit -Hub naming a
+# folder that did not exist yet used to fall straight through to the hub already here,
+# which was then brought up to date under a green tick while the folder actually asked
+# for was never made and nothing said why. A beside run looks at the path it was given
+# and at nothing else.
+if ($Beside) {
+    if (-not $Hub) {
+        Stop-Setup "-Beside needs -Hub as well. It puts a hub in a place you name and leaves this PC working from the one it already has, so it has to be told where. Example: -Beside -Hub $(Get-KitDefaultHubDir)"
+    }
+    $other = Find-KitHub
+    if (-not $other) {
+        Stop-Setup "there is no hub on this PC yet, so there is nothing for a second one to sit beside. Run this without -Beside and it will make the first one."
+    }
+    if (Test-KitSamePath $other $Hub) {
+        Stop-Setup "$Hub is the hub this PC already works from, so it cannot sit beside itself. Run this without -Beside to bring it up to date."
+    }
+    $env:KB_BESIDE = '1'
+    Write-KbSay "This PC works from $other and keeps working from it. The new hub will sit beside it."
+    $found = if (Test-KitHub $Hub) { (Resolve-Path $Hub).Path } else { $null }
+} else {
+    $found = Find-KitHub -Hint $Hub
+    if ($found -and $Hub -and -not (Test-KitSamePath $found $Hub)) {
+        Stop-Setup "you asked for a hub at $Hub, but this PC already works from $found. To put a second hub at $Hub and leave $found in charge of this PC, add -Beside. To bring $found up to date instead, leave off -Hub."
+    }
+}
 $isNew = $false
 
 if ($found) {
@@ -184,7 +218,8 @@ if ($found) {
     if (-not $Hub) { $Hub = Get-KitDefaultHubDir }
     $why = Get-KitHubPathRefusal -Path $Hub
     if ($why) { Stop-Setup "I will not put the hub at ${Hub}: $why" }
-    Write-KbSay "No hub on this PC yet, so I am making one"
+    if ($Beside) { Write-KbSay "Making the hub at $Hub" }
+    else          { Write-KbSay "No hub on this PC yet, so I am making one" }
     try { New-KitHub -Path $Hub -RepoUrl $RepoUrl -StarterRepo $StarterRepo -StarterPath $StarterPath }
     catch { Stop-Setup $_.Exception.Message }
     $Hub = (Resolve-Path $Hub).Path
@@ -232,9 +267,13 @@ Set-KitHermesHub -Hub $Hub | Out-Null
 Set-KitHermesApprovals | Out-Null
 
 # Remember where it is, so the next run of the installer finds it instantly and so
-# other tools on this PC can stop guessing.
-[Environment]::SetEnvironmentVariable('HUB_DIR', $Hub, 'User')
-$env:HUB_DIR = $Hub
+# other tools on this PC can stop guessing. One of the five things that answer "which
+# hub does this computer work from", so a hub sitting beside another one does not take
+# it (Test-KitBeside in join.ps1 lists all five).
+if (-not (Test-KitBeside)) {
+    [Environment]::SetEnvironmentVariable('HUB_DIR', $Hub, 'User')
+    $env:HUB_DIR = $Hub
+}
 
 # -----------------------------------------------------------------------------
 # 5. What just happened, in words.
@@ -243,11 +282,19 @@ $env:HUB_DIR = $Hub
 # text claimed every assistant shares one memory, on machines where one tool (or
 # none) had been wired. The truth lets a person see a gap; the promise hides it.
 Write-KbSay "Done"
-if ($isNew) { Write-Host "Your hub is at:" }
-else        { Write-Host "This PC is up to date and wired in. Your hub is at:" }
+if (Test-KitBeside)  { Write-Host "This second hub is ready at:" }
+elseif ($isNew)      { Write-Host "Your hub is at:" }
+else                 { Write-Host "This PC is up to date and wired in. Your hub is at:" }
 Write-Host ""
 Write-Host "  $Hub"
 Write-Host ""
+if (Test-KitBeside) {
+    Write-Host "It has its own folders, its own git history and its own assistant memory."
+    Write-Host "This PC still works from $other, which keeps the hub commands, the daily"
+    Write-Host "job, the hourly notebook job and the folder Hermes starts in. To work in"
+    Write-Host "the new one, open a terminal or an assistant inside it."
+    Write-Host ""
+}
 Write-KitSyncReport
 Write-Host @"
 

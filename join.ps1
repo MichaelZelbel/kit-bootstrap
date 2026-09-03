@@ -469,6 +469,42 @@ function Get-KitHubPathRefusal {
     return $null
 }
 
+function Test-KitSamePath {
+    <#  Do these two paths name the same folder? Windows case, trailing slashes and
+        junctions all have to be settled before two hub paths can be compared, and the
+        comparison was inlined in three places before this function existed. #>
+    param([string]$A, [string]$B)
+    if (-not $A -or -not $B) { return $false }
+    return (Get-KitRealPath $A).TrimEnd('\').Equals(
+            (Get-KitRealPath $B).TrimEnd('\'), [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Test-KitBeside {
+    <#  Is this run putting a hub BESIDE the one this computer already works from,
+        instead of making it the one this computer works from?
+
+        WHY THIS EXISTS. Exactly five things on a Windows account answer the question
+        "which hub does this computer work from": the HUB_DIR line in ~\.hub\device.env,
+        the HUB_DIR user environment variable, the two scheduled jobs, and Hermes'
+        terminal.cwd. Every other wiring step is either inside the hub folder or keyed
+        by the hub's own path (the assistant memory link mangles the path into its
+        folder name, and Install-KitHubCli writes nothing at all for a hub that ships
+        no commands), so it cannot collide. Before this switch existed, a second hub on
+        one machine took all five, and the first hub's daily jobs went quiet with
+        nothing on screen to say so: the same failure as a renamed folder
+        (observations/a-renamed-folder-silences-every-tool-that-hardcoded-it).
+
+        Who wants it: anyone keeping a work hub beside a personal one, a reader trying
+        the book's hub before moving into it, and a screen recording that has to show a
+        clean hub on a machine that already carries a full one.
+
+        An environment variable rather than a parameter threaded through five
+        functions, matching KB_SYNC_SOURCES and KB_HERMES_BIN: the installer makes the
+        choice once, every wiring step reads it wherever it lands, and a test sets it
+        in one place. #>
+    return ($env:KB_BESIDE -eq '1')
+}
+
 function Find-KitHub {
     <#  The hub already installed on this machine, or $null. A machine that has one
         knows where it is in more than one way, so look before asking the reader.
@@ -592,6 +628,11 @@ function Set-KitHubDirRecord {
         hub, so a stale one after a move is a hub that quietly files nothing
         (observations/a-renamed-folder-silences-every-tool-that-hardcoded-it). #>
     param([Parameter(Mandatory)][string]$Hub)
+    if (Test-KitBeside) {
+        $keep = Get-KitDeviceEnvValue 'HUB_DIR'
+        if ($keep) { Write-KbOk "device.env: HUB_DIR still points at $keep. This hub sits beside it." }
+        return
+    }
     $dir = Join-Path (Get-KitHome) '.hub'
     New-Item -ItemType Directory -Force $dir | Out-Null
     $f = Join-Path $dir 'device.env'
@@ -805,6 +846,10 @@ function Install-KitPromptHarvest {
         [Parameter(Mandatory)][string]$Hub,
         [string]$TaskName = 'Hub prompt archive'
     )
+    if (Test-KitBeside) {
+        Write-KbOk "prompt archive: left the daily job where it is. This hub sits beside the one this computer works from."
+        return
+    }
 
     # The installed program first, the hub's own copy second. The second is only for a
     # hub set up before the programs were installed on the machine, so nothing breaks
@@ -1663,6 +1708,13 @@ function Install-KitNotebookSync {
         }
     }
 
+    # 2. The hourly catch-up, for whatever happened while the PC was asleep. A hub
+    #    sitting beside another one stops here: the hook above is inside this folder and
+    #    is its own, but the hourly job is one name for the whole account.
+    if (Test-KitBeside) {
+        Write-KbOk "notebook: left the hourly catch-up where it is. This hub sits beside the one this computer works from."
+        return
+    }
     # 2. The hourly catch-up, for whatever happened while the PC was asleep.
     if (-not $bash) {
         Write-KbWarn "notebook: I could not find Git Bash, so the hourly catch-up was not scheduled. Your notebook still updates when you save."
@@ -2250,6 +2302,11 @@ function Set-KitHermesHub {
         return $false
     }
     $abs = Get-KitRealPath $Hub
+
+    if (Test-KitBeside) {
+        Write-KbOk "hub: left Hermes pointing where it was. This hub sits beside the one this computer works from."
+        return $true
+    }
 
     if (-not (Test-KitHermesHere)) {
         Write-KbOk "hub: Hermes is not on this PC yet, so there is nothing to point at $abs. Run this again once it is."

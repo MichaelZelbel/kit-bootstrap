@@ -29,7 +29,7 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_run_interactive kb_skip_claude_first_run kb_grant_working_permissions \
          ensure_claude_signin ensure_gh_auth reexec_as_user handoff \
          kb_ai_memory_path kb_seed_memory_index kb_link_ai_memory \
-         kb_hub_looks_real kb_find_hub kb_update_hub kb_install_hub_cli kb_record_hub_dir \
+         kb_hub_looks_real kb_find_hub kb_update_hub kb_install_hub_cli kb_record_hub_dir          kb_beside kb_same_path \
          kb_default_hub_dir kb_cloud_synced_parents kb_physical_path kb_refuse_hub_path \
          kb_os kb_can_sudo kb_note_missing kb_install_one kb_install_claude_code \
          kb_install_hermes \
@@ -1779,6 +1779,98 @@ t "the README does not become a command either" \
   "$([ -f "$_thome/.local/bin/README.md" ] && echo shipped || echo no)" "no"
 t "the launcher for a real command is still made" \
   "$([ -f "$_thome/.local/bin/hub-due" ] && echo yes)" "yes"
+
+# --- A SECOND HUB BESIDE THE FIRST (2026-09-03) -------------------------------
+# The twins of the cases in windows/test-windows.ps1. Only a handful of things on an
+# account answer "which hub does this computer work from": the HUB_DIR line in
+# device.env, the two cron jobs, and Hermes' terminal.cwd. A beside run takes none of
+# them, and everything else it wires is either inside the hub folder or keyed by the
+# hub's path. Before this existed, a second hub took all of them and the first hub's
+# daily jobs went quiet with nothing on screen to say so.
+#
+# Its own fixture folder and its own fake crontab on purpose: $_f and $_cronfile have
+# both been reused by cases further up, and borrowing them here made four of these
+# write into a folder that no longer existed and pass or fail for the wrong reason.
+_bd="$(mktemp -d)"; _bh="$_bd/home"; _bcron="$_bd/crontab.txt"
+mkdir -p "$_bd/one" "$_bd/two/bin" "$_bh/.hub" "$_bh/.local/bin"
+: > "$_bcron"
+cat > "$_bd/fakecrontab" <<FAKE
+#!/bin/sh
+case "\$1" in
+  -l) cat "$_bcron" ;;
+  -)  cat > "$_bcron" ;;
+esac
+FAKE
+chmod +x "$_bd/fakecrontab"
+
+t "beside is off unless it is asked for" \
+  "$(kb_beside && echo on || echo off)" "off"
+t "beside is on at exactly 1"  "$(KB_BESIDE=1 kb_beside && echo on || echo off)" "on"
+t "and nothing else turns it on" "$(KB_BESIDE=true kb_beside && echo on || echo off)" "off"
+
+t "the same folder spelled two ways is one folder" \
+  "$(kb_same_path "$_bd/one" "$_bd/one/" && echo yes || echo no)" "yes"
+t "two folders are two folders" \
+  "$(kb_same_path "$_bd/one" "$_bd/two" && echo yes || echo no)" "no"
+t "a missing side is never a match" \
+  "$(kb_same_path "" "$_bd/one" && echo yes || echo no)" "no"
+
+# device.env is how the daily jobs find the hub. A hub sitting beside another one must
+# not touch that line, or the first hub's jobs file into the second one.
+printf 'HUB_DIR=%s/one\nHUB_PROMPT_SOURCES=claude\n' "$_bd" > "$_bh/.hub/device.env"
+_bbefore="$(cat "$_bh/.hub/device.env")"
+( HOME="$_bh" KB_BESIDE=1 kb_record_hub_dir "$_bd/two" ) >/dev/null 2>&1
+t "beside leaves the HUB_DIR line exactly as it was" \
+  "$(cat "$_bh/.hub/device.env")" "$_bbefore"
+# The same call without beside is what re-points it, so the guard is what made the
+# difference and not a fixture that could not be written to either way.
+( HOME="$_bh" kb_record_hub_dir "$_bd/two" ) >/dev/null 2>&1
+t "and the same call without beside does re-point it" \
+  "$(sed -n 's/^HUB_DIR=//p' "$_bh/.hub/device.env")" "$_bd/two"
+
+# The daily job is one cron line for the whole account, so beside adds none.
+printf 'console.log(1)\n' > "$_bd/two/bin/prompt-harvest.js"
+( HOME="$_bh" KB_BESIDE=1 KB_CRONTAB="$_bd/fakecrontab" kb_install_prompt_harvest "$_bd/two" ) >/dev/null 2>&1
+t "beside schedules no daily job" "$(grep -c 'prompt-harvest.js' "$_bcron")" "0"
+( HOME="$_bh" KB_CRONTAB="$_bd/fakecrontab" kb_install_prompt_harvest "$_bd/two" ) >/dev/null 2>&1
+t "and the same call without beside does schedule one" \
+  "$(grep -c 'prompt-harvest.js' "$_bcron")" "1"
+
+# The save hook lives INSIDE this hub, so beside still gets its own. The hourly cron
+# line does not, so beside adds none.
+: > "$_bcron"
+printf '#!/bin/sh\nexit 0\n' > "$_bh/.local/bin/hub-notebook-sync"
+chmod +x "$_bh/.local/bin/hub-notebook-sync"
+git -C "$_bd/two" init -q >/dev/null 2>&1
+( HOME="$_bh" KB_BESIDE=1 KB_CRONTAB="$_bd/fakecrontab" kb_install_notebook_sync "$_bd/two" ) >/dev/null 2>&1
+t "beside still gives THIS hub its own save hook" \
+  "$(grep -c 'hub-notebook-sync' "$_bd/two/.git/hooks/post-commit" 2>/dev/null || echo 0)" "1"
+t "and adds no hourly line to the account's crontab" \
+  "$(grep -c 'hub-notebook-sync' "$_bcron")" "0"
+
+t "beside leaves Hermes pointing where it was, and says so" \
+  "$(HOME="$_bh" KB_BESIDE=1 kb_point_hermes_at_hub "$_bd/two" 2>&1 | grep -c 'left Hermes pointing where it was')" "1"
+rm -rf "$_bd"
+
+# The installer's own half, read as text: these lines are the whole contract, and a
+# refactor that drops one puts the collision back without failing anything above.
+t "the installer takes --beside"          "$(grep -c -- '--beside)       BESIDE=1' setup-hub.sh)" "1"
+t "--beside without --hub stops"          "$(grep -c -- '--beside needs --hub as well' setup-hub.sh)" "1"
+t "--beside with nothing to sit beside stops" \
+  "$(grep -c 'nothing for a second one to sit beside' setup-hub.sh)" "1"
+# THE BUG: until 2026-09-03 asking for one hub while this computer worked from another
+# brought the OTHER one up to date under a green tick, and the folder asked for was
+# never made. kb_find_hub reads $HUB_DIR before it looks anywhere else, which is why
+# --hub alone could never reach a folder that did not exist yet.
+t "asking for one hub while this computer works from another now stops" \
+  "$(grep -c 'already works from \$FOUND' setup-hub.sh)" "1"
+_bsrc="$(declare -f kb_find_hub)"
+_bneedle='$HOME/hub'
+_bpre_env="${_bsrc%%HUB_DIR*}"
+_bpre_home="${_bsrc%%$_bneedle*}"
+t "and kb_find_hub really does read HUB_DIR before the usual homes" \
+  "$([ ${#_bpre_env} -lt ${#_bpre_home} ] && echo yes || echo no)" "yes"
+
 
 echo
 echo "  $pass passed, $fail failed"
