@@ -2317,6 +2317,35 @@ Check "THE REGRESSION: a hub with uncommitted work still finishes its update" {
     (-not $threw) -and ((Get-Content (Join-Path $work 'README.md') -Raw).Contains('edited and not committed'))
 }
 
+# --- -Hub HAS TO SURVIVE THE LIBRARY LOAD (2026-09-03) ---------------------------------
+# join.ps1 is a script in its own right as well as setup-hub.ps1's library, so it has its
+# own param block, and that block declares [string]$Hub. Dot-sourcing runs a param block in
+# the CALLER'S scope, so `. $Join -AsLibrary` set $Hub back to $null and threw away whatever
+# -Hub the installer was given. -Hub therefore never worked on Windows, on any run, and
+# nothing said so: with $Hub empty, Find-KitHub detected the machine's existing hub and the
+# common case looked perfect. It surfaced as "-Beside needs -Hub as well" on a command line
+# that plainly had one. The bash twin loads a library with no param block and never had it.
+Check "THE MECHANISM: dot-sourcing the library really does wipe a caller's Hub" {
+    $lib = Join-Path $PSScriptRoot '..\join.ps1'
+    $after = & {
+        $Hub = 'C:\typed-by-the-user'
+        . $lib -AsLibrary
+        $Hub
+    }
+    # If this ever comes back as the typed path, the library stopped declaring -Hub and the
+    # guard in setup-hub.ps1 can go. Until then the guard is load-bearing.
+    [string]::IsNullOrEmpty($after)
+}
+Check "so the installer saves -Hub before the load and puts it back after" {
+    ($SetupSrc -match '\$WantHub = \$Hub') -and ($SetupSrc -match '\$Hub = \$WantHub')
+}
+Check "and it puts it back AFTER both dot-sources, not between them" {
+    $save    = $SetupSrc.IndexOf('$WantHub = $Hub')
+    $restore = $SetupSrc.IndexOf('$Hub = $WantHub')
+    $lastDot = $SetupSrc.LastIndexOf('-AsLibrary')
+    ($save -lt $lastDot) -and ($lastDot -lt $restore)
+}
+
 Remove-Item $Root -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host ""

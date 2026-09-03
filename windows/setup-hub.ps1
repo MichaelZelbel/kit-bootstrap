@@ -96,6 +96,21 @@ Write-Host ""
 # Overridable so a test can point at a branch without editing this file.
 $KbBranch = if ($env:KB_BRANCH) { $env:KB_BRANCH } else { 'v2' }
 
+# WHAT THE CALLER ASKED FOR, KEPT SAFE ACROSS THE LIBRARY LOAD.
+#
+# join.ps1 is a script in its own right as well as this file's library, so it has its own
+# param block, and that block declares [string]$Hub. Dot-sourcing runs a param block IN THE
+# CALLER'S SCOPE, so `. $Join -AsLibrary` set $Hub back to its default of $null and threw
+# away whatever -Hub this installer was given. -Hub therefore never worked, on any run,
+# since the day the library grew that parameter, and nothing ever said so: with $Hub empty,
+# Find-KitHub simply detected the machine's existing hub and the common case looked perfect.
+# It surfaced on 2026-09-03 as "-Beside needs -Hub as well" on a command line that plainly
+# had one.
+#
+# Saved here and put back after every load, rather than renaming the library's parameter,
+# because readers run join.ps1 directly too and -Hub means the same thing to them.
+$WantHub = $Hub
+
 $Bundled = Join-Path $PSScriptRoot 'join.ps1'
 $Join    = $null
 $cache   = Join-Path $env:LOCALAPPDATA 'Hub\join.ps1'
@@ -131,6 +146,9 @@ if (-not (Get-Command Test-KitBeside -ErrorAction SilentlyContinue)) {
         . $Bundled -AsLibrary
     }
 }
+# Both loads above are dot-sources, and both wiped it. See $WantHub.
+$Hub = $WantHub
+
 foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-KitHub',
                  'Join-KitMemory', 'Install-KitHubCli', 'Install-KitHubTools',
                  'Install-KitPromptHarvest', 'Update-KitPath',
