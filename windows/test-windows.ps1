@@ -2346,6 +2346,40 @@ Check "and it puts it back AFTER both dot-sources, not between them" {
     ($save -lt $lastDot) -and ($lastDot -lt $restore)
 }
 
+# --- A SHIM RUNS THE PROGRAM'S OWN INTERPRETER (2026-09-03) -----------------------------
+# Every .cmd this writes said `bash "<file>" %*` until today, and 18 of the hub's own
+# commands are Python or Node. bash handed a file as an argument does not honour its
+# shebang, it reads it as bash, so `hub-check-voice` answered "import: command not found"
+# and all 18 were broken when typed by name. Unnoticed because the `hub` dispatcher runs its
+# siblings through its own interpreter, never through these shims. No bash twin:
+# kb_install_hub_cli makes symlinks and chmods them, and a kernel reads a shebang.
+Check "Get-KitPython is defined" { [bool](Get-Command Get-KitPython -ErrorAction SilentlyContinue) }
+Check "a bash command still gets bash, a python one python, a node one node" {
+    $hub = New-TestDir 'shim-hub'
+    $cli = Join-Path $hub 'agents\hub-cli'
+    New-Item -ItemType Directory -Force $cli | Out-Null
+    Set-Content (Join-Path $cli 'hub')          "#!/usr/bin/env bash`necho hi"
+    Set-Content (Join-Path $cli 'hub-pytool')   "#!/usr/bin/env python3`nprint(1)"
+    Set-Content (Join-Path $cli 'hub-nodetool') "#!/usr/bin/env node`nconsole.log(1)"
+    $home0 = $HOME
+    try {
+        $h = New-TestDir 'shim-home'
+        $env:HOME = $h
+        Set-Variable -Name HOME -Value $h -Scope Global -Force
+        Install-KitHubCli -Hub $hub | Out-Null
+        $bin = Join-Path $h '.local\bin'
+        $b = (Get-Content (Join-Path $bin 'hub.cmd') -Raw)
+        $p = (Get-Content (Join-Path $bin 'hub-pytool.cmd') -Raw)
+        $nd = (Get-Content (Join-Path $bin 'hub-nodetool.cmd') -Raw)
+        ($b -match 'bash') -and
+        ($p -notmatch 'bash') -and ($p -match 'py') -and
+        ($nd -notmatch 'bash') -and ($nd -match 'node')
+    } finally {
+        Set-Variable -Name HOME -Value $home0 -Scope Global -Force
+        $env:HOME = $home0
+    }
+}
+
 Remove-Item $Root -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host ""

@@ -605,6 +605,16 @@ function Get-KitGitBash {
     return $null
 }
 
+function Get-KitPython {
+    <#  A python this PC will actually run, probed the way the hub's own CLI probes it.
+        Windows rarely has `python3`; it has `python`, or the `py` launcher, or neither. #>
+    foreach ($c in 'python3', 'python', 'py') {
+        $cmd = Get-Command $c -ErrorAction SilentlyContinue
+        if ($cmd) { return $cmd.Source }
+    }
+    return $null
+}
+
 function Install-KitHubCli {
     <#  Put the hub's own commands on this machine's PATH.
 
@@ -625,12 +635,36 @@ function Install-KitHubCli {
 
     $bin = Join-Path $HOME '.local\bin'
     New-Item -ItemType Directory -Force $bin | Out-Null
+    $node = (Get-Command node -ErrorAction SilentlyContinue).Source
+    $py   = Get-KitPython
     $n = 0
     Get-ChildItem $src -File |
         Where-Object { ($_.Name -eq 'hub' -or $_.Name -like 'hub-*') -and $_.Extension -notin '.env', '.md' } |
         ForEach-Object {
             $target = $_.FullName -replace '\\', '/'
-            @('@echo off', "`"$bash`" `"$target`" %*") |
+            # WHICH RUNNER, read from the file's own first line.
+            #
+            # Every one of these got `bash "<file>" %*` until 2026-09-03, and 18 of the hub's
+            # own commands are Python or Node. bash does not honour a shebang in a file it is
+            # handed as an argument, it just reads it as bash, so `hub-check-voice` answered
+            # "import: command not found" and every one of those 18 was broken when typed by
+            # name. It went unnoticed because the `hub` dispatcher runs its siblings through
+            # its own interpreter and never through these shims.
+            #
+            # No bash twin: kb_install_hub_cli makes symlinks and chmods them, and a kernel
+            # reads the shebang. Windows has no shebang, which is the whole reason a .cmd
+            # wrapper exists here at all.
+            $shebang = ''
+            try { $shebang = [string](Get-Content -LiteralPath $_.FullName -TotalCount 1 -ErrorAction Stop) } catch { }
+            $runner = "`"$bash`" `"$target`""
+            if ($shebang -match '^#!.*\bnode\b') {
+                if ($node) { $runner = "`"$node`" `"$target`"" }
+                else { Write-KbWarn "commands: $($_.Name) needs Node.js and this PC has none, so it was left pointing at bash and will not run."; }
+            } elseif ($shebang -match '^#!.*\bpy(thon3?)?\b') {
+                if ($py) { $runner = "`"$py`" `"$target`"" }
+                else { Write-KbWarn "commands: $($_.Name) needs Python and this PC has none, so it was left pointing at bash and will not run."; }
+            }
+            @('@echo off', "$runner %*") |
                 Set-Content -Path (Join-Path $bin "$($_.Name).cmd") -Encoding ascii
             $n++
         }
