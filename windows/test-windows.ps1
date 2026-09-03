@@ -34,6 +34,35 @@ $Root = Join-Path ([System.IO.Path]::GetTempPath()) ("kb-test-" + [guid]::NewGui
 # So: remember it now, put it back at the end, and never mind what any case did in between.
 $UserPath0 = [Environment]::GetEnvironmentVariable('Path', 'User')
 
+# AND THE SAME MISTAKE, ONE FLOOR DOWN: THE SUITE HAD NO HOME OF ITS OWN.
+#
+# The header above says this file "never touches a real hub". It did. Found on 2026-09-03 by
+# `hub demo status`, which reported that the HUB_DIR line in the real ~\.hub\device.env and the
+# real HUB_DIR user variable both named a kb-test-* temporary folder that no longer existed. The
+# daily jobs read that line to find the hub, so the suite had quietly pointed them at nothing.
+#
+# The case that did it is "no kit named means nothing installed and nothing said". Passing
+# -ToolsRepo '' does not mean "do nothing": Install-KitHubTools then reads the recorded
+# HUB_TOOLS_REPO out of device.env and uses that, which is deliberate (a join does not retype the
+# product). On a machine with no recorded kit, as in CI, the case is honest. On the author's own
+# machine it ran a full install against a temporary hub, wrote the real device.env, and still
+# passed, because its assertion captured streams 3 and 4 while Write-KbOk speaks on 6.
+#
+# Faking KB_HOME per case was never enough either: most cases end with `$env:KB_HOME = $null`, so
+# the case after each of them saw the real home again. $HOME is what Get-KitHome falls back to and
+# what join.ps1 uses directly in a dozen places, so $HOME is what has to be false for the whole
+# run. Individual cases still fake their own on top of this; they now fall back to a fake.
+$Home0    = $HOME
+$EnvHome0 = $env:HOME
+$KbHome0  = $env:KB_HOME
+$HubDir0  = [Environment]::GetEnvironmentVariable('HUB_DIR', 'User')
+$SuiteHome = Join-Path $Root 'suite-home'
+New-Item -ItemType Directory -Force (Join-Path $SuiteHome '.hub') | Out-Null
+New-Item -ItemType Directory -Force (Join-Path $SuiteHome '.local\bin') | Out-Null
+$env:HOME = $SuiteHome
+$env:KB_HOME = $SuiteHome
+Set-Variable -Name HOME -Value $SuiteHome -Scope Global -Force
+
 function Check {
     param([string]$Name, [scriptblock]$Body)
     try {
@@ -483,8 +512,17 @@ function New-TestKit {
     git -C $Path -c user.email='t@t' -c user.name='t' commit -q -m 'tools' 2>&1 | Out-Null
 }
 Check "no kit named means nothing installed and nothing said" {
-    $out = Install-KitHubTools -Hub (New-TestDir 'tools-none') -ToolsRepo '' 3>&1 4>&1 | Out-String
-    $out.Trim() -eq ''
+    # The assertion is now what the name claims. It used to capture streams 3 and 4 only,
+    # while Write-KbOk speaks on 6, so this case passed on the author's machine while
+    # actually running a full install: -ToolsRepo '' falls back to the HUB_TOOLS_REPO
+    # recorded in device.env, which is deliberate, and the suite had no home of its own so
+    # it read (and rewrote) the real one. Both halves are fixed: the run has a fake home,
+    # and this counts the programs as well as the words.
+    $bin = Join-Path (Get-KitHome) '.local\bin'
+    $before = @(Get-ChildItem $bin -File -ErrorAction SilentlyContinue).Count
+    $out = Install-KitHubTools -Hub (New-TestDir 'tools-none') -ToolsRepo '' 3>&1 4>&1 6>&1 | Out-String
+    $after = @(Get-ChildItem $bin -File -ErrorAction SilentlyContinue).Count
+    ($out.Trim() -eq '') -and ($after -eq $before)
 }
 Check "the three programs land on the PC and a README does not" {
     $kit = New-TestDir 'kit'; New-TestKit -Path $kit
@@ -2047,6 +2085,25 @@ foreach ($v in 'KB_HERMES_BIN', 'STUB_LOG', 'STUB_DENY', 'STUB_TOOTIGHT') {
 
 # Put the real user PATH back, whatever the cases above did to it. See $UserPath0 at the top.
 try { [Environment]::SetEnvironmentVariable('Path', $UserPath0, 'User') } catch { }
+
+# Prove the run never left its own folder before putting the real home back, because an
+# assertion after the restore would be checking the restore and not the run.
+Check "THE SUITE NEVER TOUCHED THE REAL HOME: its home stayed inside its temp folder" {
+    $HOME.StartsWith($Root, [System.StringComparison]::OrdinalIgnoreCase)
+}
+Check "and the real HUB_DIR user variable is exactly what it was before the run" {
+    [Environment]::GetEnvironmentVariable('HUB_DIR', 'User') -eq $HubDir0
+}
+
+# The real home back, and the HUB_DIR variable with it. See $Home0 at the top.
+try {
+    Set-Variable -Name HOME -Value $Home0 -Scope Global -Force
+    $env:HOME = $EnvHome0
+    $env:KB_HOME = $KbHome0
+    if ([Environment]::GetEnvironmentVariable('HUB_DIR', 'User') -ne $HubDir0) {
+        [Environment]::SetEnvironmentVariable('HUB_DIR', $HubDir0, 'User')
+    }
+} catch { }
 
 # --- WHERE A HUB MAY GO (D-179, 2026-09-02) -------------------------------------------
 # Twins of the cases in test.sh. The default is the top of the user folder; the folders
