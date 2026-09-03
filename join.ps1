@@ -610,7 +610,20 @@ function Get-KitPython {
         Windows rarely has `python3`; it has `python`, or the `py` launcher, or neither. #>
     foreach ($c in 'python3', 'python', 'py') {
         $cmd = Get-Command $c -ErrorAction SilentlyContinue
-        if ($cmd) { return $cmd.Source }
+        if (-not $cmd) { continue }
+        # PROVE IT RUNS. Windows ships stubs at %LOCALAPPDATA%\Microsoft\WindowsApps named
+        # python.exe and python3.exe that are not Python at all: they open the Microsoft Store
+        # page. Get-Command finds them, they are first on PATH, and baking one into a command
+        # gives somebody a shop instead of an answer, with nothing on screen explaining it.
+        # Asking for a version separates the real one from the shop in about 200 milliseconds.
+        $ok = $false
+        try {
+            $eap = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            & $cmd.Source --version 2>&1 | Out-Null
+            $ok = ($LASTEXITCODE -eq 0)
+        } catch { $ok = $false } finally { $ErrorActionPreference = $eap }
+        if ($ok) { return $cmd.Source }
     }
     return $null
 }

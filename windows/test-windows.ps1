@@ -2354,6 +2354,16 @@ Check "and it puts it back AFTER both dot-sources, not between them" {
 # siblings through its own interpreter, never through these shims. No bash twin:
 # kb_install_hub_cli makes symlinks and chmods them, and a kernel reads a shebang.
 Check "Get-KitPython is defined" { [bool](Get-Command Get-KitPython -ErrorAction SilentlyContinue) }
+Check "and the python it names actually runs, not a Store stub that opens a shop" {
+    $p = Get-KitPython
+    if (-not $p) { return $true }   # a PC with no Python is a real answer, and it says so
+    $eap = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $v = (& $p --version 2>&1 | Out-String)
+        ($LASTEXITCODE -eq 0) -and ($v -match 'Python')
+    } finally { $ErrorActionPreference = $eap }
+}
 Check "a bash command still gets bash, a python one python, a node one node" {
     $hub = New-TestDir 'shim-hub'
     $cli = Join-Path $hub 'agents\hub-cli'
