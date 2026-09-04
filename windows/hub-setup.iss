@@ -19,7 +19,12 @@
 ; =============================================================================
 
 #define AppName        "Hub"
-#define AppVersion     "2.2.0"
+#define AppVersion     "2.3.1"
+; THE PIN. The kit-bootstrap tag this .exe carries and fetches from, so a reader runs
+; exactly the code that passed its runs. build-installer.ps1 refuses to build unless this
+; tag exists and names the very commit being built, which is what stops it drifting from
+; the .exe it labels. install-hub.sh carries the same pin for macOS and Linux.
+#define KbPin         "v2.7"
 #define AppPublisher   "Michael Zelbel"
 #define AppURL         "https://github.com/MichaelZelbel/kit-bootstrap"
 
@@ -63,14 +68,14 @@ Source: "..\join.ps1";   DestDir: "{tmp}";  Flags: dontcopy
 [Icons]
 ; So the next update is a Start Menu click and never a typed command again.
 Name: "{group}\Update my hub"; Filename: "powershell.exe"; \
-    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-hub.ps1"""; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-hub.ps1"" -KbBranch ""{#KbPin}"""; \
     Comment: "Bring this PC's hub up to date"
 Name: "{group}\Open my hub folder"; Filename: "{code:GetHubDir}"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 
 [Run]
 Filename: "powershell.exe"; \
-    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-hub.ps1"" -NoPause -Hub ""{code:GetHubDir}"" -RepoUrl ""{code:GetRepoUrl}"" -PromptSources ""{code:GetPromptSources}""{code:GetBesideFlag}"; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-hub.ps1"" -NoPause -Hub ""{code:GetHubDir}"" -RepoUrl ""{code:GetRepoUrl}"" -PromptSources ""{code:GetPromptSources}"" -KbBranch ""{#KbPin}""{code:GetBesideFlag}"; \
     StatusMsg: "Setting up your hub. This can take a few minutes, and a window will show what it is doing..."; \
     Flags: waituntilterminated
 Filename: "{code:GetHubDir}"; Description: "Open my hub folder"; \

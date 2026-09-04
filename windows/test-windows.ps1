@@ -2390,6 +2390,44 @@ Check "a bash command still gets bash, a python one python, a node one node" {
     }
 }
 
+# --- WINDOWS PINS A TAG NOW, LIKE ITS TWIN (2026-09-04) --------------------------------
+# install-hub.sh has always pinned an immutable tag and says why: this book's readers get
+# exactly the code that passed its end-to-end runs. setup-hub.ps1 defaulted to the moving v2
+# branch, so the two platforms made different promises and only one was written down. On
+# 2026-09-03 six pushes to v2 reached every Windows reader who ran the installer, hours
+# before the release describing them existed, while macOS and Linux stayed on the old tag.
+$IssSrc2   = Get-Content (Join-Path $PSScriptRoot 'hub-setup.iss') -Raw
+$BuildSrc  = Get-Content (Join-Path $PSScriptRoot 'build-installer.ps1') -Raw
+Check "the wizard carries a pin, and it is a tag rather than the moving branch" {
+    ($IssSrc2 -match '#define\s+KbPin\s+"(v[0-9]+\.[0-9]+(\.[0-9]+)?)"')
+}
+Check "the wizard also carries its own version" { $IssSrc2 -match '#define\s+AppVersion\s+"[0-9]' }
+Check "the install run is given the pin" {
+    ($IssSrc2 -split "`n" | Where-Object { $_ -match 'setup-hub\.ps1.*-NoPause' } |
+        Where-Object { $_ -match '-KbBranch' }).Count -eq 1
+}
+Check "and so is the Start Menu updater, or a reader who clicks it floats after all" {
+    ($IssSrc2 -split "`n" | Where-Object { $_ -match 'setup-hub\.ps1' -and $_ -notmatch '-NoPause' -and $_ -match 'Parameters:' } |
+        Where-Object { $_ -match '-KbBranch' }).Count -ge 1
+}
+Check "setup-hub.ps1 takes -KbBranch, and an explicit one beats the environment" {
+    ($SetupSrc -match '\[string\]\$KbBranch') -and
+    ($SetupSrc -match 'if \(-not \$KbBranch\) \{ \$KbBranch = if \(\$env:KB_BRANCH\)')
+}
+Check "a developer with no pin still gets the moving branch, which is what they want" {
+    $SetupSrc -match "else \{ 'v2' \}"
+}
+Check "THE GATE: the build refuses a pin that is not a tag naming the commit being built" {
+    ($BuildSrc -match 'no such tag exists here') -and
+    ($BuildSrc -match '\$pinnedAt -ne \$head') -and
+    ($BuildSrc -match 'uncommitted changes')
+}
+Check "and the build reads git without git being able to kill it" {
+    # build-installer.ps1 also runs under 'Stop', and `git rev-parse` on a tag that does not
+    # exist yet writes to stderr. It killed the build instead of reporting the missing pin.
+    ($BuildSrc -match 'function git0') -and ($BuildSrc -notmatch '\(git rev-parse HEAD')
+}
+
 Remove-Item $Root -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host ""

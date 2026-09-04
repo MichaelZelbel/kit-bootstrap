@@ -42,7 +42,13 @@ param(
     [string]$PromptSources = '(auto)',
     [switch]$SkipPrereqs,
     [switch]$NoPause,
-    [switch]$Beside
+    [switch]$Beside,
+    # Which kit-bootstrap tag or branch the shared install code comes from. The wizard
+    # passes the tag this .exe was built from, so a reader runs exactly the code that
+    # passed its runs, the same promise install-hub.sh has always made on macOS and Linux.
+    # Empty falls back to KB_BRANCH and then to the moving v2 branch, which is what a
+    # developer running this file straight out of a checkout wants.
+    [string]$KbBranch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -94,7 +100,24 @@ Write-Host ""
 # exactly like v1, so a whole line of work reaches nobody while every test that fetches
 # from the network still passes. The bash twin carries KB_BRANCH for the same reason.
 # Overridable so a test can point at a branch without editing this file.
-$KbBranch = if ($env:KB_BRANCH) { $env:KB_BRANCH } else { 'v2' }
+# THE PIN, AND WHY WINDOWS NOW HAS ONE (2026-09-04).
+#
+# install-hub.sh has always pinned an immutable TAG, and says why in its own comment: this
+# book's readers get exactly the code that passed its end-to-end runs. This file defaulted to
+# the moving v2 branch instead, so the two platforms made different promises and only one of
+# them was written down. The consequence was real: on 2026-09-03 six pushes to v2 reached
+# every Windows reader who ran the installer, hours before the release that described them
+# existed, while macOS and Linux readers stayed on the previous tag until its pin moved.
+#
+# So the wizard passes -KbBranch with the tag the .exe was built from, and
+# build-installer.ps1 refuses to build unless that tag exists and names the very commit being
+# built. A developer running this file straight from a checkout passes nothing and still gets
+# v2, which is what they want.
+#
+# The self-healing this gives up (an installer saved in March fetching today's fixes) is paid
+# for by the copy of join.ps1 inside the .exe, which is now the same code as the pin rather
+# than a fallback for a machine with no network.
+if (-not $KbBranch) { $KbBranch = if ($env:KB_BRANCH) { $env:KB_BRANCH } else { 'v2' } }
 
 # WHAT THE CALLER ASKED FOR, KEPT SAFE ACROSS THE LIBRARY LOAD.
 #
