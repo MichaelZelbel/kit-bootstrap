@@ -2830,10 +2830,10 @@ kb_connect_notebook() {
       if [ -z "$token" ]; then
         have_tty || return 0        # a one-line install stays a one-line install
         kb_tell ""
-        kb_tell "A notebook is optional. Everything in this book works on plain files without one."
-        kb_tell "It adds one thing: searching your hub by MEANING instead of by exact word."
-        kb_tell "It needs a free account at menerio.com, and the book has a whole chapter on it later."
-        ask_yes "Connect a notebook now?" "n" || { ok "notebook: not connected, which is a complete way to own a hub. Run this installer again whenever you change your mind."; return 0; }
+        kb_tell "Menerio is optional: an AI notebook that lets you search your hub by meaning instead of by exact word."
+        kb_tell "Everything in this book works on plain files without it."
+        kb_tell "It needs a free account at menerio.com."
+        ask_yes "Connect Menerio now?" "n" || { ok "Menerio: not connected, which is a complete way to own a hub. Run this installer again whenever you change your mind."; return 0; }
         kb_tell "In Menerio: Settings, then API Keys, then Generate new API key. Leave every box ticked (that is the default)."
         token="$(ask "Paste that key here")"
       fi
