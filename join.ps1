@@ -813,11 +813,31 @@ function Install-KitHubTools {
             @{ src = 'prompt-harvest.js'; cmd = 'hub-prompt-harvest' },
             @{ src = 'compile-rules.js';  cmd = 'hub-compile-rules'  },
             @{ src = 'check-keys.js';     cmd = 'hub-check-keys'     },
-            @{ src = 'due.js';            cmd = 'hub-due'            }
+            @{ src = 'due.js';            cmd = 'hub-due'            },
+            @{ src = 'goals.js';          cmd = 'hub-goals'          },
+            @{ src = 'forecast.js';       cmd = 'hub-forecast'       },
+            @{ src = 'work.js';           cmd = 'hub-work'           }
         )) {
             if (-not (Test-Path (Join-Path $bin $pair.src))) { continue }
             @('@echo off', "node `"%~dp0$($pair.src)`" %*") |
                 Set-Content -Path (Join-Path $bin ($pair.cmd + '.cmd')) -Encoding ascii
+        }
+
+        # THE TWO SHELL PROGRAMS NEED A DIFFERENT LAUNCHER, AND ON WINDOWS THEY NEED A SHELL.
+        # hub-run and hub-decide are shell rather than Node, because their whole job is to start
+        # another program and hand it a very long prompt. Windows cannot run one on its own, so
+        # the .cmd hands it to the bash that arrives with Git, which this installer already
+        # requires. Without this the file is copied here, looks installed, and does nothing at
+        # all when typed, which is the exact failure hub-check-keys had before 2026-08-29.
+        $gitBash = Get-KitGitBash
+        foreach ($shellCmd in @('hub-run', 'hub-decide')) {
+            if (-not (Test-Path (Join-Path $bin $shellCmd))) { continue }
+            if (-not $gitBash) {
+                Write-Warning "$shellCmd was installed but Windows cannot run it without the bash that comes with Git. Install Git and run this again."
+                continue
+            }
+            @('@echo off', "`"$gitBash`" `"%~dp0$shellCmd`" %*") |
+                Set-Content -Path (Join-Path $bin ($shellCmd + '.cmd')) -Encoding ascii
         }
 
         # The rules compiler, which a reader types by hand rather than the schedule
@@ -1582,7 +1602,7 @@ function Write-KitDueFolder {
         '| more than half | says it once when the window opens, then at most monthly |'
         '| half to a quarter | a line in your brief about every fortnight |'
         '| a quarter to a tenth | its own line, near the top, about weekly |'
-        '| under a tenth, and always the last day | every morning |'
+        '| the loud days at the end: a tenth of the window, never fewer than three days and never more than fourteen | every morning |'
         ''
         '**One rule, whether the window is a week or a year.** That is the whole reason you can have a'
         'hundred of these. There is nothing to tune per item, and if a thing feels like it needs its own'
@@ -1638,7 +1658,7 @@ function Write-KitDueFolder {
         '## No date, not eligible'
         ''
         '`hub-due add` refuses anything without both dates, in those words. That refusal is the only thing'
-        'standing between this folder and a to-do app you stop maintaining.'
+        'between this folder and a to-do app you stop maintaining.'
         ''
         '## Three states, and only three'
         ''
