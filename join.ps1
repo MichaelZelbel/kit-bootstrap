@@ -816,7 +816,10 @@ function Install-KitHubTools {
             @{ src = 'due.js';            cmd = 'hub-due'            },
             @{ src = 'goals.js';          cmd = 'hub-goals'          },
             @{ src = 'forecast.js';       cmd = 'hub-forecast'       },
-            @{ src = 'work.js';           cmd = 'hub-work'           }
+            @{ src = 'work.js';           cmd = 'hub-work'           },
+            # 2026-09-14: the work runner's CHECK line names hub-check-written, so without
+            # this launcher no written piece of the hub's own work could verify on Windows.
+            @{ src = 'check-written.js';  cmd = 'hub-check-written'  }
         )) {
             if (-not (Test-Path (Join-Path $bin $pair.src))) { continue }
             @('@echo off', "node `"%~dp0$($pair.src)`" %*") |
@@ -830,7 +833,7 @@ function Install-KitHubTools {
         # requires. Without this the file is copied here, looks installed, and does nothing at
         # all when typed, which is the exact failure hub-check-keys had before 2026-08-29.
         $gitBash = Get-KitGitBash
-        foreach ($shellCmd in @('hub-run', 'hub-decide')) {
+        foreach ($shellCmd in @('hub-run', 'hub-decide', 'hub-work-run')) {
             if (-not (Test-Path (Join-Path $bin $shellCmd))) { continue }
             if (-not $gitBash) {
                 Write-Warning "$shellCmd was installed but Windows cannot run it without the bash that comes with Git. Install Git and run this again."

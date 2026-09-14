@@ -2102,7 +2102,8 @@ kb_install_hub_tools() {
   # launcher: they are already shell, and the copy loop above made them executable.
   for pair in "prompt-harvest.js:hub-prompt-harvest" "compile-rules.js:hub-compile-rules" \
               "check-keys.js:hub-check-keys" "due.js:hub-due" \
-              "goals.js:hub-goals" "forecast.js:hub-forecast" "work.js:hub-work"; do
+              "goals.js:hub-goals" "forecast.js:hub-forecast" "work.js:hub-work" \
+              "check-written.js:hub-check-written"; do
     lsrc="${pair%%:*}"; lcmd="${pair##*:}"
     [ -f "$bindir/$lsrc" ] || continue
     printf '#!/bin/sh\nexec node "$(dirname "$0")/%s" "$@"\n' "$lsrc" > "$bindir/$lcmd"
