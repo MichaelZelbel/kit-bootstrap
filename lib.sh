@@ -2381,6 +2381,21 @@ kb_copy_starter_hub() {
     fi
     cp -R "$f" "$path/" 2>/dev/null || true
   done
+  # A recipe the starter ships reaches an existing hub too (2026-09-15). Every hub has a
+  # skills/ folder from day one, so skip-if-present at the top level would keep next-action
+  # and work-item, which the book's Chapter 7 says every hub has, from any hub made before
+  # they shipped. A recipe folder is copied only when the hub's own room holds no folder of
+  # that name, so a recipe the reader has edited is never touched, and it goes into the room
+  # the recipes actually live in, which on a Claude-era hub is the hidden one.
+  if [ -d "$tmp/$sub/skills" ]; then
+    local room; room="$(kb_skills_room "$path")"
+    for f in "$tmp/$sub/skills"/*/; do
+      [ -f "$f/SKILL.md" ] || continue
+      base="$(basename "$f")"
+      [ -e "$room/$base" ] && continue
+      mkdir -p "$room/$base" && cp -R "$f/." "$room/$base/" 2>/dev/null || true
+    done
+  fi
   rm -rf "$tmp"
   return 0
 }

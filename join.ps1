@@ -1172,6 +1172,24 @@ function Copy-KitStarterHub {
                 if ($add.Count) { Add-Content -Path $dest -Value $add }
             }
         }
+        # A recipe the starter ships reaches an existing hub too (2026-09-15). Every hub has
+        # a skills\ folder from day one, so skip-if-present at the top level would keep
+        # next-action and work-item, which the book's Chapter 7 says every hub has, from any
+        # hub made before they shipped. A recipe folder is copied only when the hub's own
+        # room holds no folder of that name, so a recipe the reader has edited is never
+        # touched, and it goes into the room the recipes actually live in. Twin of the block
+        # in kb_copy_starter_hub in lib.sh; change one, change both.
+        $skillsSrc = Join-Path $src 'skills'
+        if (Test-Path $skillsSrc) {
+            $room = Get-KitSkillsRoom -Hub $Path
+            Get-ChildItem $skillsSrc -Directory | ForEach-Object {
+                if (-not (Test-Path (Join-Path $_.FullName 'SKILL.md'))) { return }
+                $rdest = Join-Path $room $_.Name
+                if (Test-Path $rdest) { return }
+                New-Item -ItemType Directory -Force $room | Out-Null
+                Copy-Item $_.FullName $rdest -Recurse -Force
+            }
+        }
         return $true
     } catch {
         return $false

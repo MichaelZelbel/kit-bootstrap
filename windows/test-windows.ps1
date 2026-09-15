@@ -210,6 +210,30 @@ Check "the starter's own memory page is kept, not replaced by a blank one" {
     New-KitHub -Path $d -StarterRepo $sr | Out-Null
     (Get-Content (Join-Path $d 'observations\MEMORY.md') -Raw).Contains('the product wrote this')
 }
+# The recipes the starter ships (next-action and work-item since 2026-09-15) reach every hub:
+# a new one whole, and one made before they shipped by a top-up into its skills room, which
+# never touches a recipe folder the reader already has. Twins of the cases in test.sh.
+Check "a new hub has the recipe the starter ships" {
+    $sr = Join-Path $Root 'starter-src'
+    New-Item -ItemType Directory -Force (Join-Path $sr 'starter-hub\skills\next-action') | Out-Null
+    Set-Content (Join-Path $sr 'starter-hub\skills\next-action\SKILL.md') 'the recipe'
+    git -C $sr add -A 2>&1 | Out-Null
+    git -C $sr -c user.email='t@t' -c user.name='t' commit -q -m 'recipe' 2>&1 | Out-Null
+    $d = Join-Path $Root 'withrecipe'
+    New-KitHub -Path $d -StarterRepo $sr | Out-Null
+    (Get-Content (Join-Path $d 'skills\next-action\SKILL.md') -Raw).Contains('the recipe')
+}
+Check "a hub made before the recipe shipped gets it on the next run" {
+    $d = Join-Path $Root 'fromstarter'   # made above, before the recipe existed
+    Copy-KitStarterHub -Path $d -StarterRepo (Join-Path $Root 'starter-src') | Out-Null
+    (Get-Content (Join-Path $d 'skills\next-action\SKILL.md') -Raw).Contains('the recipe')
+}
+Check "a recipe the reader has edited is never overwritten" {
+    $d = Join-Path $Root 'fromstarter'
+    Set-Content (Join-Path $d 'skills\next-action\SKILL.md') 'my own version'
+    Copy-KitStarterHub -Path $d -StarterRepo (Join-Path $Root 'starter-src') | Out-Null
+    (Get-Content (Join-Path $d 'skills\next-action\SKILL.md') -Raw).Contains('my own version')
+}
 Check "a starter that cannot be fetched still leaves a usable hub, and warns" {
     $d = Join-Path $Root 'nostarter'
     $warned = $false
@@ -228,14 +252,17 @@ Check "the real book kit's starter folder is reachable and has what the book nam
         if (-not (Test-Path (Join-Path $d $f))) { $missing += $f }
     }
     if ($missing.Count) { Write-Host "        missing: $($missing -join ', ')" }
-    # skills/ must ARRIVE and must arrive EMPTY. The five starter recipes moved out of
-    # starter-hub/ into the kit's own skills/ on 2026-08-20, so the first recipe in a
-    # reader's folder is one they wrote themselves. This branch kept looking for one of
-    # them, which is a red that is not true.
-    $recipes = @(Get-ChildItem (Join-Path $d 'skills') -File -ErrorAction SilentlyContinue |
-                 Where-Object { $_.Extension -eq '.md' }).Count
-    if ($recipes -gt 0) { Write-Host "        skills/ arrived with $recipes recipe(s) in it" }
-    ($missing.Count -eq 0) -and ($recipes -eq 0)
+    # skills/ must ARRIVE holding exactly the two recipes the hub runs by itself,
+    # next-action and work-item (in the starter since 2026-09-15, Chapter 7), and no
+    # loose file: the five starter recipes moved out of starter-hub/ on 2026-08-20 so
+    # the first recipe a reader puts there is one they wrote themselves.
+    $loose = @(Get-ChildItem (Join-Path $d 'skills') -File -ErrorAction SilentlyContinue |
+               Where-Object { $_.Extension -eq '.md' }).Count
+    if ($loose -gt 0) { Write-Host "        skills/ arrived with $loose loose recipe file(s) in it" }
+    $shipped = (Test-Path (Join-Path $d 'skills\next-action\SKILL.md')) -and
+               (Test-Path (Join-Path $d 'skills\work-item\SKILL.md'))
+    if (-not $shipped) { Write-Host "        skills/ arrived without next-action and work-item" }
+    ($missing.Count -eq 0) -and ($loose -eq 0) -and $shipped
 }
 
 Write-Host ""

@@ -558,6 +558,23 @@ printf '# The page the product wrote\n' > "$_starter/starter-hub/observations/ME
 t "the starter's memory page survives" \
   "$(head -1 "$_c/kept/observations/MEMORY.md" 2>/dev/null)" "# The page the product wrote"
 
+# The recipes the starter ships (next-action and work-item since 2026-09-15) reach every hub:
+# a new one whole, and one made before they shipped by a top-up into its skills room, which
+# never touches a recipe folder the reader already has. Twins in windows/test-windows.ps1.
+mkdir -p "$_starter/starter-hub/skills/next-action"
+printf -- '---\nname: next-action\n---\nthe recipe\n' > "$_starter/starter-hub/skills/next-action/SKILL.md"
+( cd "$_starter" && git add -A && git -c user.email=t@t -c user.name=t commit -q -m recipe ) >/dev/null 2>&1
+( HOME="$_c" kb_new_hub "$_c/withrecipe" "" "$_starter" ) >/dev/null 2>&1
+t "a new hub has the recipe the starter ships" \
+  "$(tail -1 "$_c/withrecipe/skills/next-action/SKILL.md" 2>/dev/null)" "the recipe"
+( HOME="$_c" kb_copy_starter_hub "$_c/made" "$_starter" ) >/dev/null 2>&1
+t "a hub made before the recipe shipped gets it on the next run" \
+  "$(tail -1 "$_c/made/skills/next-action/SKILL.md" 2>/dev/null)" "the recipe"
+printf 'my own version\n' > "$_c/made/skills/next-action/SKILL.md"
+( HOME="$_c" kb_copy_starter_hub "$_c/made" "$_starter" ) >/dev/null 2>&1
+t "a recipe the reader has edited is never overwritten" \
+  "$(cat "$_c/made/skills/next-action/SKILL.md")" "my own version"
+
 # =============================================================================
 # --- WHERE A HUB MAY GO (D-179, 2026-09-02) ----------------------------------
 # The default is the top of the home folder on every OS, and the folders a cloud drive
