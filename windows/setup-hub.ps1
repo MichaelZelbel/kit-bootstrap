@@ -237,9 +237,11 @@ $isNew = $false
 if ($found) {
     $Hub = $found
     Write-KbSay "Found the hub already on this PC at $Hub"
-    $before = (git -C $Hub rev-parse --short HEAD 2>$null)
+    $before = @(Invoke-KitGit -C $Hub rev-parse --short HEAD)[0]
+    if ($LASTEXITCODE -ne 0) { $before = $null }
     Update-KitHub -Hub $Hub
-    $after = (git -C $Hub rev-parse --short HEAD 2>$null)
+    $after = @(Invoke-KitGit -C $Hub rev-parse --short HEAD)[0]
+    if ($LASTEXITCODE -ne 0) { $after = $null }
     if ($before -and $after -and $before -ne $after) {
         Write-KbOk "it was out of date. Brought it up to date ($before to $after)."
     }
