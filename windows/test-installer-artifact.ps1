@@ -32,7 +32,11 @@ if ($Route -eq 'upgrade') {
     if ((Get-FileHash $baseline -Algorithm SHA256).Hash -ne 'dc5a80a97671f2f37d5db748575e910639955681994d2ac3dc72a465b3da0aa7') {
         throw 'The previous public installer differs from the inspected baseline.'
     }
-    Install-Artifact $baseline 'baseline' | Out-Null
+    # The old executable has no unattended engine flag. Use its existing option
+    # to decline the optional notebook, avoiding an invisible keyboard prompt.
+    $env:KB_NOTEBOOK = 'skip'
+    try { Install-Artifact $baseline 'baseline' | Out-Null }
+    finally { Remove-Item Env:KB_NOTEBOOK }
     if (-not (Test-Path (Join-Path $readerHub 'AGENTS.md'))) { throw 'The baseline did not create a reader hub.' }
     [IO.File]::WriteAllText((Join-Path $readerHub 'reader-note.txt'),'Keep this personal note exactly.')
 }
