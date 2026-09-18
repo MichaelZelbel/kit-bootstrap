@@ -290,7 +290,7 @@ Write-KitSyncReport
 Join-KitMemory     -Hub $Hub    # the one memory every machine shares
 Install-KitHubCli  -Hub $Hub    # the hub's own commands, on PATH, from any folder
 if (-not $ToolsRef -and $StarterRepo -eq 'https://github.com/MichaelZelbel/teach-it-once-kit.git') {
-    $ToolsRef = 'e5e26ee540628764c6bfefe2d5cfaaa8deae0490'
+    $ToolsRef = '746f28420747caf6911d92e3abb5b05101876288'
 }
 Install-KitHubTools -Hub $Hub -ToolsRepo $StarterRepo -ToolsRef $ToolsRef
 Install-KitPromptHarvest -Hub $Hub   # the daily job that files what you type to an AI here
