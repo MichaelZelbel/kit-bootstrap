@@ -2342,7 +2342,7 @@ Check "a second hub may not be the folder this PC already works from" {
     $IssSrc -match 'cannot sit beside itself'
 }
 Check "and the flag actually reaches setup-hub.ps1" {
-    ($IssSrc -match 'function GetBesideFlag') -and ($IssSrc -match '\{code:GetBesideFlag\}')
+    ($IssSrc -match 'function GetBesideFlag') -and ($IssSrc -match '\+ GetBesideFlag\(')
 }
 
 # --- GIT CHATTER MUST NOT ABORT THE INSTALLER (2026-09-03) -----------------------------
@@ -2462,8 +2462,12 @@ Check "the wizard carries a pin, and it is a tag rather than the moving branch" 
 }
 Check "the wizard also carries its own version" { $IssSrc2 -match '#define\s+AppVersion\s+"[0-9]' }
 Check "the install run is given the pin" {
-    ($IssSrc2 -split "`n" | Where-Object { $_ -match 'setup-hub\.ps1.*-NoPause' } |
-        Where-Object { $_ -match '-KbBranch' }).Count -eq 1
+    ($IssSrc2 -match '-NoPause -Hub') -and ($IssSrc2 -match '-KbBranch "\{#KbPin\}"')
+}
+Check "an unattended PowerShell cannot enter optional interactive setup" {
+    $libraryPath = Join-Path $PSScriptRoot '..\join.ps1'
+    $result = & powershell.exe -NoProfile -NonInteractive -Command ". '$libraryPath' -AsLibrary; if (Test-KitInteractive) { exit 5 } else { exit 0 }"
+    $LASTEXITCODE -eq 0
 }
 Check "and so is the Start Menu updater, or a reader who clicks it floats after all" {
     ($IssSrc2 -split "`n" | Where-Object { $_ -match 'setup-hub\.ps1' -and $_ -notmatch '-NoPause' -and $_ -match 'Parameters:' } |

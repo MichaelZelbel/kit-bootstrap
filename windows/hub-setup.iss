@@ -19,12 +19,16 @@
 ; =============================================================================
 
 #define AppName        "Hub"
-#define AppVersion     "2.3.1"
+#define AppVersion     "2.4.0"
 ; THE PIN. The kit-bootstrap tag this .exe carries and fetches from, so a reader runs
 ; exactly the code that passed its runs. build-installer.ps1 refuses to build unless this
 ; tag exists and names the very commit being built, which is what stops it drifting from
 ; the .exe it labels. install-hub.sh carries the same pin for macOS and Linux.
-#define KbPin         "v2.7"
+#ifdef CandidatePin
+#define KbPin CandidatePin
+#else
+#define KbPin         "v2.8"
+#endif
 #define AppPublisher   "Michael Zelbel"
 #define AppURL         "https://github.com/MichaelZelbel/kit-bootstrap"
 
@@ -74,12 +78,8 @@ Name: "{group}\Open my hub folder"; Filename: "{code:GetHubDir}"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 
 [Run]
-Filename: "powershell.exe"; \
-    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-hub.ps1"" -NoPause -Hub ""{code:GetHubDir}"" -RepoUrl ""{code:GetRepoUrl}"" -PromptSources ""{code:GetPromptSources}"" -KbBranch ""{#KbPin}""{code:GetBesideFlag}"; \
-    StatusMsg: "Setting up your hub. This can take a few minutes, and a window will show what it is doing..."; \
-    Flags: waituntilterminated
 Filename: "{code:GetHubDir}"; Description: "Open my hub folder"; \
-    Flags: postinstall shellexec nowait unchecked
+    Flags: postinstall shellexec nowait unchecked; Check: EngineSucceeded
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
@@ -103,6 +103,9 @@ var
   ToolRows: array of Integer;
   ToolCount: Integer;
   RecordedSources: String;
+  EngineCode: Integer;
+  SetupNotice: String;
+  ResultButton: TNewButton;
 
 { Field N of 'a|b|c|d'. Inno's Pascal has no split, so this walks the string. }
 function PipeField(const S: String; Index: Integer): String;
@@ -125,6 +128,51 @@ begin
     end;
   if field = Index then
     Result := Copy(S, start, Length(S) - start + 1);
+end;
+
+function EngineSucceeded(): Boolean;
+begin
+  Result := EngineCode = 0;
+end;
+
+procedure OpenSetupResult(Sender: TObject);
+var
+  ResultCode: Integer;
+begin
+  if EngineCode <> 0 then
+    ShellExec('open', ExpandConstant('{localappdata}\Hub\setup-log.txt'), '', '', SW_SHOWNORMAL, ewNoWait, ResultCode)
+  else
+    ShellExec('open', 'https://github.com/MichaelZelbel/teach-it-once-kit/blob/main/docs/telegram-conversations.md#updating-a-connected-server', '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+end;
+
+<event('CurPageChanged')>
+procedure ShowSetupResult(CurPageID: Integer);
+begin
+  if CurPageID <> wpFinished then Exit;
+  if SetupNotice <> '' then
+  begin
+    WizardForm.FinishedLabel.Caption := SetupNotice;
+    WizardForm.FinishedLabel.Height := ScaleY(120);
+  end;
+  if EngineCode <> 0 then WizardForm.FinishedHeadingLabel.Caption := 'Setup needs attention';
+  if (EngineCode <> 0) or FileExists(ExpandConstant('{%USERPROFILE}\.hub\chat\pending-server-update.json')) then
+  begin
+    ResultButton := TNewButton.Create(WizardForm);
+    ResultButton.Parent := WizardForm.FinishedPage;
+    ResultButton.Left := WizardForm.FinishedLabel.Left;
+    ResultButton.Top := WizardForm.FinishedLabel.Top + WizardForm.FinishedLabel.Height + ScaleY(8);
+    ResultButton.Width := ScaleX(190);
+    ResultButton.Height := ScaleY(25);
+    if EngineCode <> 0 then ResultButton.Caption := 'Open setup log'
+    else ResultButton.Caption := 'Server update instructions';
+    ResultButton.OnClick := @OpenSetupResult;
+    WizardForm.RunList.Top := ResultButton.Top + ResultButton.Height + ScaleY(8);
+  end;
+end;
+
+function GetCustomSetupExitCode(): Integer;
+begin
+  if EngineCode <> 0 then Result := 1 else Result := 0;
 end;
 
 function InCsv(const Csv, Id: String): Boolean;
@@ -457,4 +505,32 @@ begin
   end;
   Result := Result + NewLine + NewLine
           + 'Synced through your hub from this PC: ' + GetSyncSummary();
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Params, NoticeFile: String;
+  ShowMode: Integer;
+  RawNotice: AnsiString;
+begin
+  if CurStep <> ssPostInstall then Exit;
+  Params := '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\setup-hub.ps1')
+    + '" -NoPause -Hub "' + GetHubDir('') + '" -RepoUrl "' + GetRepoUrl('')
+    + '" -PromptSources "' + GetPromptSources('') + '" -KbBranch "{#KbPin}"' + GetBesideFlag('');
+  if WizardSilent then
+  begin
+    ShowMode := SW_HIDE;
+    Params := '-NonInteractive ' + Params;
+  end
+  else ShowMode := SW_SHOWNORMAL;
+  if not Exec('powershell.exe', Params, '', ShowMode, ewWaitUntilTerminated, EngineCode) then EngineCode := 1;
+  Log('Hub setup engine exit code: ' + IntToStr(EngineCode));
+  if EngineCode <> 0 then
+    SetupNotice := 'The hub setup did not finish. Open the setup log for the reason, then run the installer again after fixing it.'
+  else
+  begin
+    NoticeFile := ExpandConstant('{localappdata}\Hub\setup-notice.txt');
+    if LoadStringFromFile(NoticeFile, RawNotice) then SetupNotice := UTF8Decode(RawNotice);
+  end;
+  Log('Hub setup result: ' + SetupNotice);
 end;

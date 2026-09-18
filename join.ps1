@@ -1373,6 +1373,7 @@ function Test-KitInteractive {
         on 2026-08-16, where it hung for seven minutes on a case that was meant to
         return in a millisecond. The bash side has always had this guard (have_tty);
         this side did not. #>
+    if ([Environment]::GetCommandLineArgs() -contains '-NonInteractive') { return $false }
     try { return ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) }
     catch { return $false }
 }

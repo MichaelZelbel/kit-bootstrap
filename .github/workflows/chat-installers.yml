@@ -1,4 +1,4 @@
-name: Telegram installer components
+name: Telegram installer journeys
 on:
   push:
     branches: [codex/telegram-clarity]
@@ -28,4 +28,50 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File windows/test-windows.ps1
-# Actual download and installed-gateway journeys have separate release gates.
+  windows-artifact:
+    needs: installer
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Build committed installer with exact source pin
+        shell: powershell
+        run: ./windows/build-installer.ps1 -SkipCompilerInstall -Candidate
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: windows-candidate
+          path: |
+            windows/dist/HubSetup.exe
+            windows/dist/candidate.json
+          if-no-files-found: error
+  windows-journey:
+    needs: windows-artifact
+    strategy:
+      fail-fast: false
+      matrix:
+        route: [fresh, upgrade]
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: windows-candidate
+          path: candidate
+      - name: Run downloaded executable on a disposable reader account
+        shell: powershell
+        run: ./windows/test-installer-artifact.ps1 -ArtifactDir "$pwd/candidate" -Route '${{ matrix.route }}'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: windows-${{ matrix.route }}-evidence
+          path: |
+            candidate/*.log
+            ~/AppData/Local/Hub/setup-log.txt
+            ~/.hub/chat/setup-status.json

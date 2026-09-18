@@ -69,6 +69,8 @@ try {
 $LogDir = Join-Path $env:LOCALAPPDATA 'Hub'
 New-Item -ItemType Directory -Force $LogDir | Out-Null
 $LogFile = Join-Path $LogDir 'setup-log.txt'
+$NoticeFile = Join-Path $LogDir 'setup-notice.txt'
+if (Test-Path $NoticeFile) { Remove-Item -LiteralPath $NoticeFile -Force }
 try { Start-Transcript -Path $LogFile -Append -ErrorAction Stop | Out-Null } catch { }
 
 function Stop-Setup {
@@ -178,7 +180,7 @@ foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-
                  'Install-KitPromptHarvest', 'Update-KitPath',
                  'Find-KitAiTools', 'Set-KitPromptSources', 'Write-KitSyncReport',
                  'Connect-KitNotebook', 'Write-KitMcpConfig', 'Install-KitNotebookSync',
-                 'Connect-KitSkills', 'Set-KitHermesHub', 'Set-KitHermesApprovals',
+                   'Connect-KitSkills', 'Set-KitHermesHub', 'Set-KitHermesApprovals', 'Set-KitChatGateway',
                  'Get-KitDefaultHubDir', 'Get-KitHubPathRefusal',
                  'Test-KitBeside', 'Test-KitSamePath') {
     if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
@@ -286,7 +288,7 @@ Write-KitSyncReport
 Join-KitMemory     -Hub $Hub    # the one memory every machine shares
 Install-KitHubCli  -Hub $Hub    # the hub's own commands, on PATH, from any folder
 if (-not $ToolsRef -and $StarterRepo -eq 'https://github.com/MichaelZelbel/teach-it-once-kit.git') {
-    $ToolsRef = '8ba2f4647dfd308b36cac410e141f5cef2244315'
+    $ToolsRef = 'a9e3c8429a79208ef4a6a5ff712d1d16c43942b3'
 }
 Install-KitHubTools -Hub $Hub -ToolsRepo $StarterRepo -ToolsRef $ToolsRef
 Install-KitPromptHarvest -Hub $Hub   # the daily job that files what you type to an AI here
@@ -306,6 +308,11 @@ Connect-KitSkills -Hub $Hub | Out-Null
 # of the six known ways to do this are silent no-ops and the kit shipped one.
 Set-KitHermesHub -Hub $Hub | Out-Null
 Set-KitChatGateway -Hub $Hub
+$chatStatus = Join-Path $HOME '.hub\chat\setup-status.json'
+if (Test-Path $chatStatus) {
+    $chatResult = Get-Content -LiteralPath $chatStatus -Raw | ConvertFrom-Json
+    Set-KbTextFile -Path $NoticeFile -Lines @([string]$chatResult.notice)
+}
 
 # The leash. A translation of the Claude permissions file, not a rename: Hermes
 # already allows every command the kit runs, so this writes no allowlist at all and

@@ -11,6 +11,8 @@
 # =============================================================================
 param(
     [switch]$SkipCompilerInstall,
+    # CI artifact: pin downloads to this exact committed source without publishing a tag.
+    [switch]$Candidate,
     # Build anyway with a pin that is not a tag at this commit. For trying something
     # locally. Never for anything a reader will download: the whole point of the pin is
     # that the .exe and the code it fetches are the same code.
@@ -82,8 +84,9 @@ $ver  = if ($iss -match '#define\s+AppVersion\s+"([^"]+)"') { $Matches[1] } else
 if (-not $pin) { throw "hub-setup.iss has no #define KbPin, so this .exe would fetch the moving branch. Add one." }
 
 $head     = @(git0 rev-parse HEAD)[0]
-$pinnedAt = @(git0 rev-parse "$pin^{commit}")[0]
-if ($LASTEXITCODE -ne 0) { $pinnedAt = $null }
+$pinnedAt = if ($Candidate) { $head } else { @(git0 rev-parse "$pin^{commit}")[0] }
+if (-not $Candidate -and $LASTEXITCODE -ne 0) { $pinnedAt = $null }
+if ($Candidate) { $pin = $head }
 if (-not $pinnedAt) {
     $msg = "the pin in hub-setup.iss is $pin, and no such tag exists here. Tag this commit first:  git tag -a $pin -m '...' ; git push origin $pin"
     if ($AllowUnpinnedBuild) { Write-Warning $msg } else { throw $msg }
@@ -100,7 +103,8 @@ if ($dirty -and -not $AllowUnpinnedBuild) {
 Write-Host "version:  $ver"
 
 New-Item -ItemType Directory -Force 'dist' | Out-Null
-& $iscc /Qp 'hub-setup.iss'
+if ($Candidate) { & $iscc /Qp "/DCandidatePin=$head" 'hub-setup.iss' }
+else { & $iscc /Qp 'hub-setup.iss' }
 if ($LASTEXITCODE -ne 0) { throw "The compiler failed with exit code $LASTEXITCODE." }
 
 $exe = Join-Path $PSScriptRoot 'dist\HubSetup.exe'
@@ -108,6 +112,10 @@ if (-not (Test-Path $exe)) { throw "The compiler reported success but produced n
 
 $size = [math]::Round((Get-Item $exe).Length / 1MB, 2)
 $sha  = (Get-FileHash $exe -Algorithm SHA256).Hash
+if ($Candidate) {
+    @{ schema = 1; sha256 = $sha.ToLowerInvariant(); source_commit = $head; bootstrap_pin = $pin; candidate = $true } |
+        ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $PSScriptRoot 'dist\candidate.json')
+}
 
 Write-Host ""
 Write-Host "built: $exe" -ForegroundColor Green

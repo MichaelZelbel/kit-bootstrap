@@ -228,7 +228,7 @@ kb_sync_report
 kb_link_ai_memory   "$HUB"    # the one memory every machine shares
 kb_install_hub_cli  "$HUB"    # the hub's own commands, on PATH, from any folder
 if [ -z "${KB_TOOLS_REF:-}" ] && [ "$STARTER_REPO" = "https://github.com/MichaelZelbel/teach-it-once-kit.git" ]; then
-  KB_TOOLS_REF="8ba2f4647dfd308b36cac410e141f5cef2244315"
+  KB_TOOLS_REF="a9e3c8429a79208ef4a6a5ff712d1d16c43942b3"
   export KB_TOOLS_REF
 fi
 kb_install_hub_tools "$HUB" "$STARTER_REPO" || exit 1
