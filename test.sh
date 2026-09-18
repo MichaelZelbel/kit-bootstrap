@@ -453,6 +453,10 @@ git -C "$_kit" -c user.email=t@t -c user.name=t commit -qm newer >/dev/null 2>&1
 ( HOME="$_f" KB_TOOLS_REF="$_tools_ref" kb_install_hub_tools "$_f/hub2" "$_kit" ) >/dev/null 2>&1
 t "a tools pin selects the tested commit instead of newer code" "$(cat "$_f/.local/bin/prompt-harvest.js")" "console.log(1)"
 t "a moving tools pin is refused" "$(KB_TOOLS_REF=main kb_install_hub_tools "$_f/hub2" "$_kit" >/dev/null 2>&1; echo $?)" "1"
+printf 'process.exit(2)\n' > "$_f/chat-result.js"
+t "a remote server notice allows desktop setup" "$(kb_configure_chat "$_f/hub2" "$_f/chat-result.js" >/dev/null 2>&1; echo $?)" "0"
+printf 'process.exit(1)\n' > "$_f/chat-result.js"
+t "a local gateway error stops setup" "$(kb_configure_chat "$_f/hub2" "$_f/chat-result.js" >/dev/null 2>&1; echo $?)" "1"
 t "the collector is installed on the machine" \
   "$([ -f "$_f/.local/bin/hub-prompt-archive" ] && echo yes || echo no)" "yes"
 t "the runner is installed beside it, which is how it finds it" \
@@ -496,6 +500,7 @@ t "the kit the tools came from was written down beside it" \
   "$(grep -c '^HUB_TOOLS_REPO=' "$_f/.hub/device.env" 2>/dev/null)" "1"
 rm -f "$_f/.local/bin/hub-notebook-sync"
 ( HOME="$_f" kb_install_hub_tools "$_f/hub2" "" ) >/dev/null 2>&1
+t "a join preserves the saved tools pin" "$(cat "$_f/.local/bin/prompt-harvest.js")" "console.log(1)"
 t "a later run that names no kit refreshes from the one written down" \
   "$([ -f "$_f/.local/bin/hub-notebook-sync" ] && echo yes || echo no)" "yes"
 

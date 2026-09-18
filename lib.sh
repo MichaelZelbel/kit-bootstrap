@@ -2040,6 +2040,7 @@ kb_install_hub_tools() {
   # that names no kit, which is what join.sh does, refreshes them instead of skipping.
   if [ -z "$repo" ] && [ -r "$HOME/.hub/device.env" ]; then
     repo="$(sed -n 's/^[[:space:]]*HUB_TOOLS_REPO=//p' "$HOME/.hub/device.env" | head -1)"
+    [ -n "$ref" ] || ref="$(sed -n 's/^[[:space:]]*HUB_TOOLS_REF=//p' "$HOME/.hub/device.env" | tail -1)"
   fi
   [ -n "$repo" ] || return 0          # nothing to fetch from: not an error, just nothing to do
   if [ -n "$ref" ] && ! [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
@@ -2139,9 +2140,29 @@ kb_install_hub_tools() {
   if ! grep -q '^[[:space:]]*HUB_TOOLS_REPO=' "$HOME/.hub/device.env" 2>/dev/null; then
     printf 'HUB_TOOLS_REPO=%s\n' "$repo" >> "$HOME/.hub/device.env"
   fi
+  if [ -n "$ref" ]; then
+    local pin_file="$HOME/.hub/device.env" pin_temp="$HOME/.hub/device.env.pin-tmp"
+    sed '/^[[:space:]]*HUB_TOOLS_REF=/d; /^[[:space:]]*HUB_TOOLS_REPO=/d' "$pin_file" > "$pin_temp"
+    printf 'HUB_TOOLS_REPO=%s\nHUB_TOOLS_REF=%s\n' "$repo" "$ref" >> "$pin_temp"
+    chmod 0600 "$pin_temp"
+    mv "$pin_temp" "$pin_file"
+  fi
 
   kb_persist_path
   ok "prompt archive: installed the program that files what you type to an AI, and its answers ($bindir)"
+}
+
+# Shared by first setup and joining another computer. A remote server is checked there.
+kb_configure_chat() {
+  local hub="$1" gateway="${2:-$HOME/.local/bin/chat-gateway.js}" chat_status=0
+  [ -f "$gateway" ] || return 0
+  node "$gateway" "$hub" --human || chat_status=$?
+  if [ "$chat_status" -eq 2 ]; then
+    warn "Desktop setup can finish. Verify Telegram protection separately on your server, as described above."
+  elif [ "$chat_status" -ne 0 ]; then
+    warn "Telegram protection could not be configured. Run hub-chat doctor on its host."
+    return 1
+  fi
 }
 
 # kb_install_prompt_harvest <hub-dir>

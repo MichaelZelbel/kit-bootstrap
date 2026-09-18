@@ -733,6 +733,17 @@ function Test-KitTaskPointsAt {
     return $true
 }
 
+function Set-KitChatGateway {
+    param([Parameter(Mandatory)][string]$Hub, [string]$Gateway = (Join-Path $HOME '.local\bin\chat-gateway.js'))
+    if (-not (Test-Path $Gateway)) { return }
+    & node $Gateway $Hub --human
+    if ($LASTEXITCODE -eq 2) {
+        Write-KbWarn 'Desktop setup can finish. Verify Telegram protection separately on your server, as described above.'
+    } elseif ($LASTEXITCODE -ne 0) {
+        throw 'Telegram protection could not be configured. Run hub-chat doctor on its host.'
+    }
+}
+
 function Install-KitHubTools {
     <#  Put the kit's own small programs on this PC. The Windows twin of
         kb_install_hub_tools in lib.sh.
@@ -765,6 +776,10 @@ function Install-KitHubTools {
         if (Test-Path $devEnv) {
             $line = @(Get-Content $devEnv | Where-Object { $_ -match '^\s*HUB_TOOLS_REPO=' })[0]
             if ($line) { $ToolsRepo = ($line -replace '^\s*HUB_TOOLS_REPO=', '').Trim() }
+            if (-not $ToolsRef) {
+                $pinLine = @(Get-Content $devEnv | Where-Object { $_ -match '^\s*HUB_TOOLS_REF=' } | Select-Object -Last 1)
+                if ($pinLine.Count) { $ToolsRef = ($pinLine[0] -replace '^\s*HUB_TOOLS_REF=', '').Trim() }
+            }
         }
     }
     if (-not $ToolsRepo) { return }
@@ -883,6 +898,10 @@ function Install-KitHubTools {
         # And where the tools came from, so the next run can refresh them unprompted.
         $hasRepo = (Test-Path $devEnv) -and ((Get-Content $devEnv) -match '^\s*HUB_TOOLS_REPO=')
         if (-not $hasRepo) { Add-Content -Path $devEnv -Value "HUB_TOOLS_REPO=$ToolsRepo" -Encoding ascii }
+        if ($ToolsRef) {
+            $pinLines = @(Get-Content $devEnv | Where-Object { $_ -notmatch '^\s*HUB_TOOLS_(REF|REPO)=' })
+            Set-KbTextFile -Path $devEnv -Lines ($pinLines + "HUB_TOOLS_REPO=$ToolsRepo" + "HUB_TOOLS_REF=$ToolsRef")
+        }
 
         Update-KitPath
         $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -2679,6 +2698,7 @@ Connect-KitSkills -Hub $Hub | Out-Null
 # rather than by reading the setting back. See the long note above the function: four
 # of the six known ways to do this are silent no-ops and the kit shipped one.
 Set-KitHermesHub -Hub $Hub | Out-Null
+Set-KitChatGateway -Hub $Hub
 
 # The leash. A translation of the Claude permissions file, not a rename: Hermes
 # already allows every command the kit runs, so this writes no allowlist at all and

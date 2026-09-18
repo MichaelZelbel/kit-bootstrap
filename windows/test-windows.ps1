@@ -620,11 +620,21 @@ Check "an exact tools pin installs the tested version and refuses a moving ref" 
     git -C $kit add -A 2>&1 | Out-Null
     git -C $kit -c user.email='t@t' -c user.name='t' commit -q -m 'newer' 2>&1 | Out-Null
     Install-KitHubTools -Hub (New-TestDir 'pinned-hub') -ToolsRepo $kit -ToolsRef $ref | Out-Null
+    Install-KitHubTools -Hub (New-TestDir 'pinned-hub') -ToolsRepo '' | Out-Null
     $text = (Get-Content (Join-Path $HOME '.local\bin\prompt-harvest.js') -Raw).Trim()
     $refused = $false
     try { Install-KitHubTools -Hub (New-TestDir 'pinned-hub') -ToolsRepo $kit -ToolsRef 'main' | Out-Null }
     catch { $refused = $true }
     ($text -eq 'console.log(1)') -and $refused
+}
+Check "a remote server notice allows desktop setup but a local error stops it" {
+    $gateway = Join-Path (New-TestDir 'chat-result') 'gateway.js'
+    Set-Content $gateway 'process.exit(2)'
+    Set-KitChatGateway -Hub 'fixture' -Gateway $gateway 3>&1 | Out-Null
+    Set-Content $gateway 'process.exit(1)'
+    $refused = $false
+    try { Set-KitChatGateway -Hub 'fixture' -Gateway $gateway | Out-Null } catch { $refused = $true }
+    $refused
 }
 Check "the standalone join offers the notebook connection" {
     # Until 2026-08-18 only setup-hub.ps1 called the connect step: a joined second

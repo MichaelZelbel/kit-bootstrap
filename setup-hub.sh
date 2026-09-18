@@ -227,6 +227,10 @@ kb_sync_report
 
 kb_link_ai_memory   "$HUB"    # the one memory every machine shares
 kb_install_hub_cli  "$HUB"    # the hub's own commands, on PATH, from any folder
+if [ -z "${KB_TOOLS_REF:-}" ] && [ "$STARTER_REPO" = "https://github.com/MichaelZelbel/teach-it-once-kit.git" ]; then
+  KB_TOOLS_REF="8ba2f4647dfd308b36cac410e141f5cef2244315"
+  export KB_TOOLS_REF
+fi
 kb_install_hub_tools "$HUB" "$STARTER_REPO" || exit 1
 kb_install_prompt_harvest "$HUB"  # the daily job that files what you type to an AI here
 # The notebook, and the one thing about it that has to travel: connect it once and the
@@ -240,16 +244,7 @@ kb_wire_skills "$HUB"   # one real room, links to it, and it counts what it wire
 # rather than by reading the setting back. See the long note above the function:
 # four of the six known ways to do this are silent no-ops and the kit shipped one.
 kb_point_hermes_at_hub "$HUB"
-if [ -f "$HOME/.local/bin/chat-gateway.js" ]; then
-  chat_status=0
-  node "$HOME/.local/bin/chat-gateway.js" "$HUB" --human || chat_status=$?
-  if [ "$chat_status" -eq 2 ]; then
-    warn "Desktop setup can finish. Verify Telegram protection separately on your server, as described above."
-  elif [ "$chat_status" -ne 0 ]; then
-    warn "Telegram protection is not active. Keep the previous gateway version and run hub-chat doctor on its host."
-    exit 1
-  fi
-fi
+kb_configure_chat "$HUB" || exit 1
 
 # The leash. A translation of the Claude permissions file, not a rename: Hermes
 # already allows every command the kit runs, so this writes no allowlist at all and

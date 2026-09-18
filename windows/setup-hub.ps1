@@ -35,6 +35,7 @@ param(
     # Another kit building its own .exe overrides these two and changes nothing else.
     [string]$StarterRepo = 'https://github.com/MichaelZelbel/teach-it-once-kit.git',
     [string]$StarterPath = 'starter-hub',
+    [string]$ToolsRef = $env:KB_TOOLS_REF,
     # Which AI tools may be synced from this PC, as a comma list (e.g. claude,codex).
     # '-' or '' means none. The default '(auto)' means "no choice made this run": keep
     # what this device already has recorded, or every syncable tool found here. The
@@ -284,7 +285,10 @@ Write-KitSyncReport
 
 Join-KitMemory     -Hub $Hub    # the one memory every machine shares
 Install-KitHubCli  -Hub $Hub    # the hub's own commands, on PATH, from any folder
-Install-KitHubTools -Hub $Hub -ToolsRepo $StarterRepo   # the kit's own programs, on this machine
+if (-not $ToolsRef -and $StarterRepo -eq 'https://github.com/MichaelZelbel/teach-it-once-kit.git') {
+    $ToolsRef = '8ba2f4647dfd308b36cac410e141f5cef2244315'
+}
+Install-KitHubTools -Hub $Hub -ToolsRepo $StarterRepo -ToolsRef $ToolsRef
 Install-KitPromptHarvest -Hub $Hub   # the daily job that files what you type to an AI here
 # The notebook, and the one thing about it that has to travel: connect it once and the
 # connection lives in the folder, so the next computer only ever types the passphrase.
@@ -301,12 +305,7 @@ Connect-KitSkills -Hub $Hub | Out-Null
 # rather than by reading the setting back. See the long note above the function: four
 # of the six known ways to do this are silent no-ops and the kit shipped one.
 Set-KitHermesHub -Hub $Hub | Out-Null
-$chatGateway = Join-Path $HOME '.local\bin\chat-gateway.js'
-if (Test-Path $chatGateway) {
-    & node $chatGateway $Hub --human
-    if ($LASTEXITCODE -eq 2) { Write-Warning 'Desktop setup can finish. Verify Telegram protection separately on your server, as described above.' }
-    elseif ($LASTEXITCODE -ne 0) { throw 'Telegram protection is not active. Keep the previous gateway version and run hub-chat doctor on its host.' }
-}
+Set-KitChatGateway -Hub $Hub
 
 # The leash. A translation of the Claude permissions file, not a rename: Hermes
 # already allows every command the kit runs, so this writes no allowlist at all and
