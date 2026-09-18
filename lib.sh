@@ -2033,7 +2033,7 @@ kb_record_hub_dir() {
 #
 # Quiet on a kit that ships no `tools/` folder, which is every other product that uses this file.
 kb_install_hub_tools() {
-  local hub="${1:-}" repo="${2:-}" sub="${3:-tools}" tmp bindir f base n=0
+  local hub="${1:-}" repo="${2:-}" sub="${3:-tools}" ref="${KB_TOOLS_REF:-}" tmp bindir f base n=0
   [ -n "$hub" ] || return 0
   # A join does not retype the product. The kit the tools came from is written down in
   # ~/.hub/device.env the first time it is known (below, beside HUB_DIR), so a later run
@@ -2042,12 +2042,26 @@ kb_install_hub_tools() {
     repo="$(sed -n 's/^[[:space:]]*HUB_TOOLS_REPO=//p' "$HOME/.hub/device.env" | head -1)"
   fi
   [ -n "$repo" ] || return 0          # nothing to fetch from: not an error, just nothing to do
+  if [ -n "$ref" ] && ! [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+    warn "The tools version must be an exact tested commit."
+    return 1
+  fi
 
   tmp="$(mktemp -d 2>/dev/null)" || return 0
   if ! git clone --depth 1 --quiet "$repo" "$tmp" >/dev/null 2>&1; then
     rm -rf "$tmp"
     warn "prompt archive: I could not fetch the kit's programs from $repo, so the daily job has nothing to run yet. Check this computer can reach the internet and run this again."
-    return 0
+    [ -z "$ref" ] && return 0
+    return 1
+  fi
+  if [ -n "$ref" ]; then
+    if ! git -C "$tmp" fetch --depth 1 --quiet origin "$ref" >/dev/null 2>&1 \
+       || ! git -C "$tmp" checkout --quiet --detach "$ref" >/dev/null 2>&1 \
+       || [ "$(git -C "$tmp" rev-parse HEAD)" != "$ref" ]; then
+      warn "The tested tools version could not be retrieved. The update is incomplete."
+      rm -rf "$tmp"
+      return 1
+    fi
   fi
   if [ ! -d "$tmp/$sub" ]; then rm -rf "$tmp"; return 0; fi
 

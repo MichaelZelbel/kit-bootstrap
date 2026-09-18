@@ -65,6 +65,8 @@ Set-Variable -Name HOME -Value $SuiteHome -Scope Global -Force
 
 function Check {
     param([string]$Name, [scriptblock]$Body)
+    $casePath = $env:Path
+    $caseUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     try {
         $r = & $Body
         if ($r) { Write-Host "  ok    $Name"; $script:Pass++ }
@@ -72,6 +74,13 @@ function Check {
     } catch {
         Write-Host "  FAIL  $Name  ($($_.Exception.Message))" -ForegroundColor Red
         $script:Fail++
+    } finally {
+        # Each install fixture owns its PATH additions. Letting hundreds of them
+        # accumulate eventually exceeds Windows' environment size limit.
+        $env:Path = $casePath
+        if ([Environment]::GetEnvironmentVariable('Path', 'User') -ne $caseUserPath) {
+            [Environment]::SetEnvironmentVariable('Path', $caseUserPath, 'User')
+        }
     }
 }
 
@@ -603,6 +612,19 @@ Check "the notebook runner lands with them, and a join refreshes from the kit wr
         Set-Variable -Name HOME -Value $home0 -Scope Global -Force
         $env:HOME = $home0
     }
+}
+Check "an exact tools pin installs the tested version and refuses a moving ref" {
+    $kit = New-TestDir 'pinned-kit'; New-TestKit -Path $kit
+    $ref = (git -C $kit rev-parse HEAD).Trim()
+    Set-Content (Join-Path $kit 'tools\prompt-harvest.js') 'console.log(2)'
+    git -C $kit add -A 2>&1 | Out-Null
+    git -C $kit -c user.email='t@t' -c user.name='t' commit -q -m 'newer' 2>&1 | Out-Null
+    Install-KitHubTools -Hub (New-TestDir 'pinned-hub') -ToolsRepo $kit -ToolsRef $ref | Out-Null
+    $text = (Get-Content (Join-Path $HOME '.local\bin\prompt-harvest.js') -Raw).Trim()
+    $refused = $false
+    try { Install-KitHubTools -Hub (New-TestDir 'pinned-hub') -ToolsRepo $kit -ToolsRef 'main' | Out-Null }
+    catch { $refused = $true }
+    ($text -eq 'console.log(1)') -and $refused
 }
 Check "the standalone join offers the notebook connection" {
     # Until 2026-08-18 only setup-hub.ps1 called the connect step: a joined second

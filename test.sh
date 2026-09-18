@@ -446,7 +446,13 @@ git -C "$_kit" -c user.email=t@t -c user.name=t commit -qm tools >/dev/null 2>&1
 t "no kit named means nothing installed and nothing said" \
   "$(HOME="$_f" kb_install_hub_tools "$_f/hub2" "" 2>&1)" ""
 
-( HOME="$_f" kb_install_hub_tools "$_f/hub2" "$_kit" ) >/dev/null 2>&1
+_tools_ref="$(git -C "$_kit" rev-parse HEAD)"
+printf 'console.log(2)\n' > "$_kit/tools/prompt-harvest.js"
+git -C "$_kit" add -A >/dev/null 2>&1
+git -C "$_kit" -c user.email=t@t -c user.name=t commit -qm newer >/dev/null 2>&1
+( HOME="$_f" KB_TOOLS_REF="$_tools_ref" kb_install_hub_tools "$_f/hub2" "$_kit" ) >/dev/null 2>&1
+t "a tools pin selects the tested commit instead of newer code" "$(cat "$_f/.local/bin/prompt-harvest.js")" "console.log(1)"
+t "a moving tools pin is refused" "$(KB_TOOLS_REF=main kb_install_hub_tools "$_f/hub2" "$_kit" >/dev/null 2>&1; echo $?)" "1"
 t "the collector is installed on the machine" \
   "$([ -f "$_f/.local/bin/hub-prompt-archive" ] && echo yes || echo no)" "yes"
 t "the runner is installed beside it, which is how it finds it" \

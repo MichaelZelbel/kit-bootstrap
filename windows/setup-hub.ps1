@@ -303,8 +303,9 @@ Connect-KitSkills -Hub $Hub | Out-Null
 Set-KitHermesHub -Hub $Hub | Out-Null
 $chatGateway = Join-Path $HOME '.local\bin\chat-gateway.js'
 if (Test-Path $chatGateway) {
-    & node $chatGateway $Hub
-    if ($LASTEXITCODE -ne 0) { throw 'Telegram protection is not active. Keep the previous gateway version and run hub-chat doctor on its host.' }
+    & node $chatGateway $Hub --human
+    if ($LASTEXITCODE -eq 2) { Write-Warning 'Desktop setup can finish. Verify Telegram protection separately on your server, as described above.' }
+    elseif ($LASTEXITCODE -ne 0) { throw 'Telegram protection is not active. Keep the previous gateway version and run hub-chat doctor on its host.' }
 }
 
 # The leash. A translation of the Claude permissions file, not a rename: Hermes

@@ -753,7 +753,8 @@ function Install-KitHubTools {
     param(
         [Parameter(Mandatory)][string]$Hub,
         [string]$ToolsRepo,
-        [string]$ToolsPath = 'tools'
+        [string]$ToolsPath = 'tools',
+        [string]$ToolsRef = $env:KB_TOOLS_REF
     )
 
     # A join does not retype the product. The kit the tools came from is written
@@ -767,13 +768,25 @@ function Install-KitHubTools {
         }
     }
     if (-not $ToolsRepo) { return }
+    if ($ToolsRef -and $ToolsRef -notmatch '^[0-9a-f]{40}$') {
+        throw 'The tools version must be an exact tested commit.'
+    }
 
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("kb-tools-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
     try {
         git clone --depth 1 --quiet $ToolsRepo $tmp 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
+            if ($ToolsRef) { throw 'The tested tools could not be retrieved. The update is incomplete.' }
             Write-KbWarn "prompt archive: I could not fetch the kit's programs from $ToolsRepo, so the daily job has nothing to run yet. Check this PC can reach the internet and run this again."
             return
+        }
+        if ($ToolsRef) {
+            git -C $tmp fetch --depth 1 --quiet origin $ToolsRef 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'The tested tools version could not be retrieved.' }
+            git -C $tmp checkout --quiet --detach $ToolsRef 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0 -or (git -C $tmp rev-parse HEAD) -ne $ToolsRef) {
+                throw 'The tested tools version could not be selected.'
+            }
         }
         $src = Join-Path $tmp $ToolsPath
         if (-not (Test-Path $src)) { return }
