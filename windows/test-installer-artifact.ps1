@@ -43,6 +43,7 @@ if ($Route -eq 'upgrade' -and (Get-Content (Join-Path $readerHub 'reader-note.tx
     throw 'The update changed a personal file.'
 }
 $status = Get-Content (Join-Path $env:USERPROFILE '.hub\chat\setup-status.json') -Raw | ConvertFrom-Json
+Copy-Item -LiteralPath (Join-Path $env:USERPROFILE '.hub\chat\setup-status.json') -Destination (Join-Path $ArtifactDir 'setup-status.json')
 if ($status.state -ne 'remote_update_pending' -or $status.notice -notmatch 'not checked') { throw 'Desktop setup did not explain the separate server check.' }
 if ((Get-Content $log -Raw) -notmatch 'Hub setup engine exit code: 0') { throw 'The wizard did not record the engine outcome.' }
 if ((Get-Content $log -Raw) -notmatch 'not checked') { throw 'The server notice did not reach the wizard result.' }

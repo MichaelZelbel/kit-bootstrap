@@ -95,5 +95,4 @@ jobs:
           name: windows-${{ matrix.route }}-evidence
           path: |
             candidate/*.log
-            ~/AppData/Local/Hub/setup-log.txt
-            ~/.hub/chat/setup-status.json
+            candidate/setup-status.json
