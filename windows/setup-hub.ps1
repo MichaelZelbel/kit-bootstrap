@@ -301,6 +301,11 @@ Connect-KitSkills -Hub $Hub | Out-Null
 # rather than by reading the setting back. See the long note above the function: four
 # of the six known ways to do this are silent no-ops and the kit shipped one.
 Set-KitHermesHub -Hub $Hub | Out-Null
+$chatGateway = Join-Path $HOME '.local\bin\chat-gateway.js'
+if (Test-Path $chatGateway) {
+    & node $chatGateway $Hub
+    if ($LASTEXITCODE -ne 0) { throw 'Telegram protection is not active. Keep the previous gateway version and run hub-chat doctor on its host.' }
+}
 
 # The leash. A translation of the Claude permissions file, not a rename: Hermes
 # already allows every command the kit runs, so this writes no allowlist at all and

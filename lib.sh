@@ -1655,7 +1655,7 @@ kb_ai_tool_detected() {
     # it. HERMES_HOME wins because that is where a relocated install lives.
     hermes)         [ -f "${HERMES_HOME:-/nonexistent}/config.yaml" ] || \
                     [ -f "$HOME/.hermes/config.yaml" ] || \
-                    [ -f /home/hermes/.hermes/config.yaml ] ;;
+                    [ -f "${KB_SHARED_HERMES_HOME:-/home/hermes/.hermes}/config.yaml" ] ;;
     claude-desktop) [ -d "$HOME/Library/Application Support/Claude" ] || \
                     [ -d "${APPDATA:-/nonexistent}/Claude" ] || \
                     [ -d "${LOCALAPPDATA:-/nonexistent}/AnthropicClaude" ] ;;
@@ -2077,6 +2077,14 @@ kb_install_hub_tools() {
     chmod +x "$bindir/$base" 2>/dev/null || true
     n=$((n + 1))
   done
+  # Package directories and integration files are one verified, atomic bundle.
+  if [ -f "$tmp/$sub/install-chat.js" ] && [ -d "$tmp/$sub/hub_chat" ]; then
+    node "$tmp/$sub/install-chat.js" "$tmp" "$HOME" >/dev/null || {
+      warn "Telegram protection could not be installed; the previous package is still selected."
+      rm -rf "$tmp"
+      return 1
+    }
+  fi
   rm -rf "$tmp"
   [ "$n" -gt 0 ] || return 0
 
@@ -2103,7 +2111,7 @@ kb_install_hub_tools() {
   for pair in "prompt-harvest.js:hub-prompt-harvest" "compile-rules.js:hub-compile-rules" \
               "check-keys.js:hub-check-keys" "due.js:hub-due" \
               "goals.js:hub-goals" "forecast.js:hub-forecast" "work.js:hub-work" \
-              "check-written.js:hub-check-written"; do
+              "check-written.js:hub-check-written" "hub-chat.js:hub-chat"; do
     lsrc="${pair%%:*}"; lcmd="${pair##*:}"
     [ -f "$bindir/$lsrc" ] || continue
     printf '#!/bin/sh\nexec node "$(dirname "$0")/%s" "$@"\n' "$lsrc" > "$bindir/$lcmd"
@@ -2286,7 +2294,7 @@ kb_install_hermes() {
   fi
   log "Installing Hermes..."
   export PATH="$HOME/.local/bin:$PATH"
-  curl -fsSL https://hermes-agent.nousresearch.com/install.sh 2>/dev/null | bash >/dev/null 2>&1
+  curl -fsSL https://hermes-agent.nousresearch.com/install.sh 2>/dev/null | bash -s -- --commit db64ddb58eef6aebd0874bcdaad266ca8f6205a0 >/dev/null 2>&1
   kb_persist_path
   if kb_hermes_here; then ok "Hermes installed"; return 0; fi
   warn "Hermes did not become usable. Open a new terminal and run: hermes --version"

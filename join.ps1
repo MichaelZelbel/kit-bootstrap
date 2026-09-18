@@ -800,6 +800,11 @@ function Install-KitHubTools {
             $n++
         }
         if ($n -eq 0) { return }
+        $chatInstaller = Join-Path $src 'install-chat.js'
+        if ((Test-Path $chatInstaller) -and (Test-Path (Join-Path $src 'hub_chat'))) {
+            & node $chatInstaller $tmp $HOME | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Telegram protection could not be installed. The previous package remains selected.' }
+        }
 
         # The launchers. A .cmd rather than a shortcut, because a scheduled task and a terminal
         # both understand one, and %~dp0 is how it finds its other half: the program sits in the
@@ -817,6 +822,7 @@ function Install-KitHubTools {
             @{ src = 'goals.js';          cmd = 'hub-goals'          },
             @{ src = 'forecast.js';       cmd = 'hub-forecast'       },
             @{ src = 'work.js';           cmd = 'hub-work'           },
+            @{ src = 'hub-chat.js';       cmd = 'hub-chat'           },
             # 2026-09-14: the work runner's CHECK line names hub-check-written, so without
             # this launcher no written piece of the hub's own work could verify on Windows.
             @{ src = 'check-written.js';  cmd = 'hub-check-written'  }

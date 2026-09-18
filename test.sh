@@ -740,7 +740,7 @@ t "hermes is seen where HERMES_HOME points" \
 t "a default-profile install with no profiles folder is still seen" \
   "$( (HOME="$_hm/native" HERMES_HOME= KB_ASSUME_TOOLS= kb_ai_tool_detected hermes && echo yes) )" "yes"
 t "no config file anywhere means not seen" \
-  "$( (HOME="$_hm/bare" HERMES_HOME= KB_ASSUME_TOOLS= kb_ai_tool_detected hermes || echo no) )" "no"
+  "$( (HOME="$_hm/bare" HERMES_HOME= KB_SHARED_HERMES_HOME="$_hm/absent" KB_ASSUME_TOOLS= kb_ai_tool_detected hermes || echo no) )" "no"
 t "the report calls it Hermes, not chat bots" \
   "$(kb_ai_tool_info hermes)" "prompts|Hermes|"
 rm -rf "$_hm"
@@ -1194,7 +1194,7 @@ if [ -L "$_skprobe/link" ]; then
   git -C "$_g2" add -A >/dev/null 2>&1; git -C "$_g2" -c user.name=t -c user.email=t@t commit -qm "before" >/dev/null 2>&1
   kb_wire_skills "$_g2" >/dev/null 2>&1
   t "a Claude-era hub keeps its real room tracked" "$(git -C "$_g2" ls-files .claude/skills | grep -c .)" "1"
-  t "and does not ignore it" "$(grep -cxF '.claude/skills' "$_g2/.gitignore" 2>/dev/null || echo 0)" "0"
+  t "and does not ignore it" "$(grep -cxF '.claude/skills' "$_g2/.gitignore" 2>/dev/null || true)" "0"
   t "but its .agents/skills door is ignored" "$(grep -cxF '.agents/skills' "$_g2/.gitignore")" "1"
 
   # A hub whose recipes really do live in .claude/skills must not be fed to

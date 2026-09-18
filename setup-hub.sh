@@ -240,6 +240,12 @@ kb_wire_skills "$HUB"   # one real room, links to it, and it counts what it wire
 # rather than by reading the setting back. See the long note above the function:
 # four of the six known ways to do this are silent no-ops and the kit shipped one.
 kb_point_hermes_at_hub "$HUB"
+if [ -f "$HOME/.local/bin/chat-gateway.js" ]; then
+  node "$HOME/.local/bin/chat-gateway.js" "$HUB" || {
+    warn "Telegram protection is not active. Keep the previous gateway version and run hub-chat doctor on its host."
+    exit 1
+  }
+fi
 
 # The leash. A translation of the Claude permissions file, not a rename: Hermes
 # already allows every command the kit runs, so this writes no allowlist at all and
