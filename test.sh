@@ -594,15 +594,15 @@ t "Pictures is refused"                                "$(_v "$_w/Pictures/hub")
 t "deeper inside Documents is still refused"           "$(_v "$_w/Documents/work/hub")"     "refused"
 t "a Mac cloud drive folder is refused"                "$(_v "$_w/Library/CloudStorage/OneDrive-Personal/hub")" "refused"
 t "a folder merely named like one is allowed"          "$(_v "$_w/Documents-old/hub")"      "allowed"
-t "the refusal names the right place to go"            "$(case "$(_r "$_w/Documents/hub")" in *"$_w/hub"*) echo yes ;; esac)" "yes"
-t "the root of the disk is refused on this side"       "$(case "$(_r /hub)" in *"root of the disk"*) echo refused ;; esac)" "refused"
+t "the refusal names the right place to go"            "$(_r "$_w/Documents/hub" | grep -F -c "$_w/hub")" "1"
+t "the root of the disk is refused on this side"       "$(_r /hub | grep -F -c 'root of the disk')" "1"
 t "a deeper system folder is an admin's business"      "$(_r /srv/hub)"                     ""
 # Git Bash copies on ln -s unless MSYS=winsymlinks is set, so the case runs only where a
 # real link came out of it (every Linux and every Mac).
 if ln -s "$_w/Documents" "$_w/docs-link" 2>/dev/null && [ -L "$_w/docs-link" ]; then
   t "a link into Documents is judged by where it lands" "$(_v "$_w/docs-link/hub")"          "refused"
 fi
-t "an empty path is refused with a sentence"           "$(case "$(_r "")" in *"needs a folder path"*) echo refused ;; esac)" "refused"
+t "an empty path is refused with a sentence"           "$(_r "" | grep -F -c 'needs a folder path')" "1"
 
 # THE FOLDER RENAME, FOR SOMEBODY WHO ALREADY INSTALLED (2026-08-16)
 #
@@ -693,9 +693,9 @@ _hm="$(mktemp -d)"
 mkdir -p "$_hm/fresh" "$_hm/empty"
 
 t "a Hermes already here is not reinstalled" \
-  "$(KB_HERMES_BIN=/bin/true kb_install_hermes >/dev/null 2>&1; echo $?)" "0"
+  "$(KB_HERMES_BIN="$(type -P true)" kb_install_hermes >/dev/null 2>&1; echo $?)" "0"
 t "and it is reported as already here, not fetched" \
-  "$(KB_HERMES_BIN=/bin/true kb_install_hermes 2>&1 | grep -c 'already here')" "1"
+  "$(KB_HERMES_BIN="$(type -P true)" kb_install_hermes 2>&1 | grep -c 'already here')" "1"
 
 # The install path, end to end, with the network stood in for by a local script.
 # The official installer's one observable promise is a hermes command that works
@@ -1102,6 +1102,7 @@ t "and a lone quote is not eaten"        "$(kb_yaml_unquote "$_q")" "$_q"
 # team folder they added themselves.
 : > "$_sk/calls.log"
 _m=$(mktemp -d); mkdir -p "$_m/skills"; : > "$_m/skills/a.md"
+_m="$(cd "$_m" && pwd -P)"
 kb_wire_skills "$_m" >/dev/null 2>&1
 t "an entry already in external_dirs survives" \
   "$(grep -c '"/existing/team-skills"' "$_sk/calls.log")" "1"

@@ -27,5 +27,5 @@ jobs:
       - name: Windows PowerShell 5.1 installation components
         if: runner.os == 'Windows'
         shell: powershell
-        run: .\windows\test-windows.ps1
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File windows/test-windows.ps1
 # Actual download and installed-gateway journeys have separate release gates.
