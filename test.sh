@@ -691,11 +691,13 @@ rm -rf "$_c"
 # kb_stdin_is_tty, because this suite never reaches the network.
 _hm="$(mktemp -d)"
 mkdir -p "$_hm/fresh" "$_hm/empty"
+printf '#!/bin/sh\nexit 0\n' > "$_hm/hermes-present"
+chmod +x "$_hm/hermes-present"
 
 t "a Hermes already here is not reinstalled" \
-  "$(KB_HERMES_BIN="$(type -P true)" kb_install_hermes >/dev/null 2>&1; echo $?)" "0"
+  "$( ( export KB_HERMES_BIN="$_hm/hermes-present"; curl() { return 88; }; kb_install_hermes >/dev/null 2>&1; echo $? ) )" "0"
 t "and it is reported as already here, not fetched" \
-  "$(KB_HERMES_BIN="$(type -P true)" kb_install_hermes 2>&1 | grep -c 'already here')" "1"
+  "$( ( export KB_HERMES_BIN="$_hm/hermes-present"; curl() { return 88; }; kb_install_hermes 2>&1 ) | grep -c 'already here')" "1"
 
 # The install path, end to end, with the network stood in for by a local script.
 # The official installer's one observable promise is a hermes command that works
