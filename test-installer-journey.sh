@@ -18,7 +18,22 @@ printf '%s' '{"version":2,"connections":[{"kind":"ssh","host":"example.org","tok
 cp "$client_dir/connections.json" journey-evidence/connection-before.json
 if [[ $route == upgrade ]]; then
   curl -fsSL 'https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v2.7/setup-hub.sh' -o journey-evidence/baseline.sh
-  KB_BRANCH=v2.7 bash journey-evidence/baseline.sh --hub "$HOME/hub" --skip-prereqs --sources= </dev/null >journey-evidence/baseline.log 2>&1
+  if ! KB_BRANCH=v2.7 bash journey-evidence/baseline.sh --hub "$HOME/hub" --skip-prereqs --sources= </dev/null >journey-evidence/baseline.log 2>&1; then
+    # The published Mac baseline has a literal backslash-n in its function list.
+    # Record the failure, then repair only that typo to establish its old installed
+    # file layout. This is an upgrade fixture, not a claim the old download worked.
+    grep -q 'incomplete (n is missing)' journey-evidence/baseline.log
+    python3 - <<'PY'
+from pathlib import Path
+p=Path('journey-evidence/baseline.sh')
+text=p.read_text()
+bad='kb_default_hub_dir '+chr(92)+'n          kb_beside'
+assert text.count(bad)==1
+Path('journey-evidence/baseline-fixture.sh').write_text(text.replace(bad,'kb_default_hub_dir kb_beside'))
+Path('journey-evidence/baseline-limitation.txt').write_text('Public baseline failed before install. Old-version fixture changes only the invalid function-list separator. Candidate is unmodified.\n')
+PY
+    KB_BRANCH=v2.7 bash journey-evidence/baseline-fixture.sh --hub "$HOME/hub" --skip-prereqs --sources= </dev/null >journey-evidence/baseline-fixture.log 2>&1
+  fi
   [[ -f "$HOME/hub/AGENTS.md" ]]
   printf '%s' 'Keep this personal note exactly.' > "$HOME/hub/reader-note.txt"
 fi

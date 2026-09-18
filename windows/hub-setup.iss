@@ -516,7 +516,7 @@ begin
   if CurStep <> ssPostInstall then Exit;
   Params := '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\setup-hub.ps1')
     + '" -NoPause -Hub "' + GetHubDir('') + '" -RepoUrl "' + GetRepoUrl('')
-    + '" -PromptSources "' + GetPromptSources('') + '" -KbBranch "{#KbPin}"' + GetBesideFlag('');
+    + '" -PromptSources:"' + GetPromptSources('') + '" -KbBranch "{#KbPin}"' + GetBesideFlag('');
   if WizardSilent then
   begin
     ShowMode := SW_HIDE;

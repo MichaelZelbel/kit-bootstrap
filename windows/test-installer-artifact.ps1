@@ -18,10 +18,15 @@ function Install-Artifact([string]$Exe, [string]$Name, [int]$ExpectedCode = 0) {
     $log = Join-Path $ArtifactDir ($Name + '.log')
     $process = Start-Process -FilePath $Exe -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/LOG="' + $log + '"')) -WindowStyle Hidden -PassThru
     if (-not $process.WaitForExit(900000)) { $process.Kill(); throw "$Name did not finish in 15 minutes." }
+    $engineLog = Join-Path $env:LOCALAPPDATA 'Hub/setup-log.txt'
+    if (Test-Path $engineLog) { Copy-Item -LiteralPath $engineLog -Destination (Join-Path $ArtifactDir ($Name + '-engine.log')) }
     if ($process.ExitCode -ne $ExpectedCode) { throw "$Name returned $($process.ExitCode); expected $ExpectedCode. Read $log." }
     return $log
 }
 if ($Route -eq 'upgrade') {
+    # Previous installer needs at least one detected tool: its empty selection was
+    # passed as a bare dash, which PowerShell 5.1 rejects. Fresh tests cover the fix.
+    New-Item -ItemType Directory -Force (Join-Path $env:USERPROFILE '.claude/projects') | Out-Null
     $baseline = Join-Path $ArtifactDir 'HubSetup-v2.3.1.exe'
     Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/MichaelZelbel/teach-it-once-kit/releases/download/v2.3.1/HubSetup.exe' -OutFile $baseline
     if ((Get-FileHash $baseline -Algorithm SHA256).Hash -ne 'dc5a80a97671f2f37d5db748575e910639955681994d2ac3dc72a465b3da0aa7') {
