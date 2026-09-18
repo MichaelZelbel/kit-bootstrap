@@ -29,7 +29,6 @@ jobs:
         shell: powershell
         run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File windows/test-windows.ps1
   windows-artifact:
-    needs: installer
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -45,7 +44,6 @@ jobs:
             windows/dist/candidate.json
           if-no-files-found: error
   unix-journey:
-    needs: installer
     strategy:
       fail-fast: false
       matrix:
