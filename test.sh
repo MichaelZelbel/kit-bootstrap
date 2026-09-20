@@ -39,6 +39,7 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_age kb_age_keygen kb_have_age kb_hub_key_path kb_notebook_state \
          kb_unseal_hub_key kb_seal_hub_key kb_store_notebook_token kb_write_mcp_config \
          kb_install_notebook_sync kb_persist_notebook_env kb_connect_notebook \
+         kb_ensure_age kb_connect_assistants \
          kb_seed_expiry_record kb_seed_due_folder \
          kb_json_str kb_count_recipes kb_skills_room kb_point_at_room \
          kb_hermes_skills_dir kb_wire_skills kb_hermes_bin kb_hermes_here \
@@ -775,18 +776,24 @@ rm -f "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-key.age"
 # The file that tells CLAUDE CODE where the notebook is. Not "the assistant": Hermes
 # never reads a folder .mcp.json, checked in its source, so a kit that says otherwise is
 # telling a reader their hub carries configuration it does not carry.
+#
+# Until 2026-09-20 the file and the installer both went on to tell the reader to run
+# `hermes mcp add` by hand. hub-menerio-connect does that now, from the same stored key,
+# so the file names THAT and nobody is handed a command to type.
 _mcpout="$(kb_write_mcp_config "$_n/hub" 2>&1)"
 t "Claude Code is given an .mcp.json" "$([ -f "$_n/hub/.mcp.json" ] && echo yes || echo no)" "yes"
-t "the file says plainly that Hermes does not read it" \
-  "$(grep -c "Hermes does not read it" "$_n/hub/.mcp.json")" "1"
-t "and it names the commands that DO tell Hermes" \
-  "$(grep -c "hermes mcp add" "$_n/hub/.mcp.json")" "1"
+t "the file says plainly that Hermes and Codex do not read it" \
+  "$(grep -c "Hermes and Codex do not read this file" "$_n/hub/.mcp.json")" "1"
+t "and it names the program that gives them the same connection" \
+  "$(grep -c "hub-menerio-connect" "$_n/hub/.mcp.json")" "1"
+t "it no longer tells the reader to connect Hermes by hand" \
+  "$(grep -c "hermes mcp" "$_n/hub/.mcp.json")" "0"
 t "nothing in it claims to configure \"your assistant\" in general" \
   "$(grep -c "tells your assistant" "$_n/hub/.mcp.json")" "0"
 t "the installer says which tool it wrote the file for" \
   "$(printf '%s' "$_mcpout" | grep -c "for Claude Code")" "1"
-t "and repeats that Hermes needs telling separately" \
-  "$(printf '%s' "$_mcpout" | grep -c "Hermes does not read that file")" "1"
+t "and no longer prints a Hermes command for the reader to type" \
+  "$(printf '%s' "$_mcpout" | grep -c -i "hermes")" "0"
 t "the connection NAMES the credential rather than carrying one" \
   "$(grep -c 'Bearer \${MENERIO_API_KEY}' "$_n/hub/.mcp.json")" "1"
 # python3, then python. Git Bash on Windows ships the launcher as `python` only, and this
@@ -1041,6 +1048,45 @@ rm -rf "$_l/home"
 HOME="$_l/home" kb_install_hub_tools "$_l/hub" "$_l/kit" >/dev/null 2>&1
 t "a kit that ships no due.js gets no hub-due, and says nothing about it" \
   "$([ -f "$_l/home/.local/bin/hub-due" ] && echo yes || echo no)" "no"
+
+# hub-menerio-connect and hub-search (2026-09-20). The kit ships each WITH its launcher,
+# so installing them is the copy loop's job and the case is that they arrive runnable.
+# An older kit has neither: one line each, only for a kit that has the notebook programs
+# at all, and never an error.
+_lk() { git -C "$_l/kit" add -A >/dev/null 2>&1; git -C "$_l/kit" -c user.email=t@t -c user.name=t commit -q -m "$1" >/dev/null 2>&1; }
+printf '#!/bin/sh\necho connect-ran "$@"\n' > "$_l/kit/tools/hub-menerio-connect"
+printf '#!/bin/sh\necho search-ran "$@"\n'  > "$_l/kit/tools/hub-search"
+_lk "the two new ones"
+rm -rf "$_l/home"
+out="$(HOME="$_l/home" kb_install_hub_tools "$_l/hub" "$_l/kit" 2>&1)"
+t "hub-menerio-connect is installed and runs" \
+  "$("$_l/home/.local/bin/hub-menerio-connect" --check 2>/dev/null)" "connect-ran --check"
+t "hub-search is installed and runs" \
+  "$("$_l/home/.local/bin/hub-search" words 2>/dev/null)" "search-ran words"
+t "and a kit that has both hears nothing about either" \
+  "$(printf '%s' "$out" | grep -c 'does not have')" "0"
+rm -f "$_l/kit/tools/hub-menerio-connect" "$_l/kit/tools/hub-search"
+printf '// mc\n' > "$_l/kit/tools/menerio-connect.js"
+_lk "program without a launcher"
+rm -rf "$_l/home"
+HOME="$_l/home" kb_install_hub_tools "$_l/hub" "$_l/kit" >/dev/null 2>&1
+t "a program shipped without its launcher is given one" \
+  "$(grep -c 'dirname "\$0")/menerio-connect.js' "$_l/home/.local/bin/hub-menerio-connect" 2>/dev/null)" "1"
+rm -f "$_l/kit/tools/menerio-connect.js"
+_lk "older kit, no notebook programs"
+rm -rf "$_l/home"
+out="$(HOME="$_l/home" kb_install_hub_tools "$_l/hub" "$_l/kit" 2>&1; echo "rc=$?")"
+t "an older kit with no notebook programs hears nothing about Menerio" \
+  "$(printf '%s' "$out" | grep -c -e 'hub-menerio-connect' -e 'hub-search')" "0"
+printf '#!/bin/sh\nexit 0\n' > "$_l/kit/tools/hub-notebook-sync"
+_lk "older kit, with the notebook programs"
+rm -rf "$_l/home"
+out="$(HOME="$_l/home" kb_install_hub_tools "$_l/hub" "$_l/kit" 2>&1; echo "rc=$?")"
+t "an older book kit is told in one line each that the two are not in it yet" \
+  "$(printf '%s' "$out" | grep -c 'does not have hub-.* yet, so it was skipped')" "2"
+t "and that is not an error" "$(printf '%s' "$out" | grep -c '^rc=0')" "1"
+t "and nothing half-made is left on the PATH" \
+  "$([ -e "$_l/home/.local/bin/hub-menerio-connect" ] || [ -e "$_l/home/.local/bin/hub-search" ] && echo yes || echo no)" "no"
 rm -rf "$_l"
 
 rm -rf "$_f"
@@ -1890,6 +1936,7 @@ _bpre_home="${_bsrc%%$_bneedle*}"
 t "and kb_find_hub really does read HUB_DIR before the usual homes" \
   "$([ ${#_bpre_env} -lt ${#_bpre_home} ] && echo yes || echo no)" "yes"
 
+
 # THE LIST THAT STOPPED EVERY RUN. setup-hub.sh checks that the library it loaded has
 # every function it is about to call. From 2026-09-03 that list carried a backslash
 # followed by the LETTER n where a line break belonged, which bash reads as the word
@@ -1905,6 +1952,139 @@ t "every function setup-hub.sh insists on is one the library really has" "$_noma
 t "and that list is not empty, so the case above is looking at something" \
   "$([ "$#" -gt 10 ] && echo yes || echo no)" "yes"
 set --
+
+# ---------------------------------------------------------------------------
+# CONNECT MENERIO ONCE, AND EVERY ASSISTANT ON THIS COMPUTER HAS IT (2026-09-20).
+#
+# Before this, the connect step stored the key, wrote .mcp.json for Claude Code, and
+# printed a `hermes mcp add` command for the reader to type. Codex got nothing. The work
+# now belongs to the kit's hub-menerio-connect, and what is tested here is everything
+# the installer owns around it: that it is installed, that it is called on every road
+# (a key just pasted, a hub connected already), that it is told which hub, that its
+# report reaches the reader, and that an older kit without it still leaves Claude Code
+# connected. The program itself is a stand-in, because the kit's own suite tests the
+# real one. These are the bash twins of the cases in windows/test-windows.ps1.
+# ---------------------------------------------------------------------------
+echo
+echo "== connect Menerio once: every assistant, and a way back in"
+_m="$(mktemp -d)"
+mkdir -p "$_m/home/.hub" "$_m/home/.local/bin" "$_m/hub/secrets"
+_mstub() {   # _mstub <exit code>: a stand-in that reports, and writes down how it was called
+  cat > "$_m/home/.local/bin/hub-menerio-connect" <<STUB
+#!/bin/sh
+printf 'args=%s\n' "\$*" > "$_m/called.txt"
+printf 'cwd=%s\n' "\$(pwd -P)" >> "$_m/called.txt"
+printf 'hubdir=%s\n' "\${HUB_DIR:-}" >> "$_m/called.txt"
+[ -f "$_m/hub/secrets/hub-secrets.env.age" ] && printf 'store=yes\n' >> "$_m/called.txt"
+echo "Claude Code: connected"
+echo "Hermes: connected"
+echo "Codex: not on this computer"
+exit $1
+STUB
+  chmod +x "$_m/home/.local/bin/hub-menerio-connect"
+}
+_mphys="$(cd "$_m/hub" && pwd -P)"
+
+# An older kit: no such program. Claude Code still gets its file, one line says what is
+# missing, and nobody is sent off to type a Hermes command.
+out="$( ( HOME="$_m/home"; kb_notebook_state() { printf connected; }
+          kb_connect_assistants "$_m/hub" ) 2>&1 )"
+t "an older kit with no connect program still leaves Claude Code its file" \
+  "$([ -f "$_m/hub/.mcp.json" ] && echo yes || echo no)" "yes"
+t "and says in one line that Hermes and Codex come with the next kit" \
+  "$(printf '%s' "$out" | grep -c 'cannot connect Hermes and Codex for you yet')" "1"
+t "and never sends the reader off to type a Hermes command" \
+  "$(printf '%s' "$out" | grep -c 'hermes mcp')" "0"
+rm -f "$_m/hub/.mcp.json"
+
+# The program is there and the hub is connected: it runs, and its words reach the reader.
+_mstub 0
+out="$( ( HOME="$_m/home"; kb_notebook_state() { printf connected; }
+          kb_connect_assistants "$_m/hub" ) 2>&1 )"
+t "the connect program's report reaches the reader, one line for each assistant" \
+  "$(printf '%s' "$out" | grep -c -e 'Claude Code: connected' -e 'Hermes: connected' -e 'Codex: not on this computer')" "3"
+t "it is told which hub with --hub" \
+  "$(grep -c -- "^args=--hub " "$_m/called.txt")" "1"
+t "and it starts inside that hub" \
+  "$(sed -n 's/^cwd=//p' "$_m/called.txt")" "$_mphys"
+t "and HUB_DIR names that hub too, because device.env may name another one" \
+  "$([ -n "$(sed -n 's/^hubdir=//p' "$_m/called.txt")" ] && echo yes || echo no)" "yes"
+t "a program that reported and wrote no file still leaves Claude Code the floor" \
+  "$([ -f "$_m/hub/.mcp.json" ] && echo yes || echo no)" "yes"
+
+# A program that stops early must be heard, and must never stop the install.
+_mstub 3
+out="$( ( HOME="$_m/home"; kb_notebook_state() { printf connected; }
+          kb_connect_assistants "$_m/hub"; echo "rc=$?" ) 2>&1 )"
+t "a connect program that stops early is reported" \
+  "$(printf '%s' "$out" | grep -c 'stopped early')" "1"
+t "and the install carries on" "$(printf '%s' "$out" | grep -c '^rc=0')" "1"
+
+# No key on this computer: the program has nothing to read, so it is not run at all.
+rm -f "$_m/called.txt"; _mstub 0
+( HOME="$_m/home"; kb_notebook_state() { printf none; }; kb_connect_assistants "$_m/hub" ) >/dev/null 2>&1
+t "a hub with no key on this computer does not run the connect program" \
+  "$([ -f "$_m/called.txt" ] && echo ran || echo no)" "no"
+
+# The starter ships {"mcpServers": {}}. "Already there, left as you have it" over that
+# file meant a connected reader whose Claude Code had no connection at all.
+printf '{\n  "mcpServers": {}\n}\n' > "$_m/hub/.mcp.json"
+kb_write_mcp_config "$_m/hub" >/dev/null 2>&1
+t "the starter's empty .mcp.json is filled in, not left empty" \
+  "$(grep -c 'mcp.menerio.com' "$_m/hub/.mcp.json")" "1"
+printf '{"mcpServers": {"mine": {"url": "https://example.invalid"}}}\n' > "$_m/hub/.mcp.json"
+kb_write_mcp_config "$_m/hub" >/dev/null 2>&1
+t "one that names a server of the reader's own is still never touched" \
+  "$(grep -c 'mcp.menerio.com' "$_m/hub/.mcp.json")" "0"
+rm -f "$_m/hub/.mcp.json"
+
+# The whole step, both roads, with the real lock where age is installed.
+if command -v age >/dev/null 2>&1 && command -v age-keygen >/dev/null 2>&1; then
+  rm -f "$_m/called.txt"; _mstub 0
+  : > "$_m/cron.txt"
+  printf '#!/bin/sh\ncase "$1" in -l) cat "%s" ;; -) cat > "%s" ;; esac\n' "$_m/cron.txt" "$_m/cron.txt" > "$_m/fakecrontab"
+  chmod +x "$_m/fakecrontab"
+  out="$( ( HOME="$_m/home"; export HOME; kb_stdin_is_tty(){ false; }; kb_can_open_tty(){ false; }; KB_TTY=""
+            KB_CRONTAB="$_m/fakecrontab" KB_NOTEBOOK_TOKEN="test-token-not-a-real-one-0123456789" \
+              kb_connect_notebook "$_m/hub" ) 2>&1 )"
+  t "a key just pasted: the connect program runs, and only after the key is in the store" \
+    "$(grep -c '^store=yes' "$_m/called.txt" 2>/dev/null)" "1"
+  t "and the reader sees its report in the same run" \
+    "$(printf '%s' "$out" | grep -c 'Hermes: connected')" "1"
+  t "the key itself is never printed by the installer" \
+    "$(printf '%s' "$out" | grep -c 'test-token-not-a-real-one')" "0"
+  rm -f "$_m/called.txt"
+  out="$( ( HOME="$_m/home"; export HOME; kb_stdin_is_tty(){ false; }; kb_can_open_tty(){ false; }; KB_TTY=""
+            KB_CRONTAB="$_m/fakecrontab" kb_connect_notebook "$_m/hub" ) 2>&1 )"
+  t "a hub connected already: a re-run connects the assistants again, asking nothing" \
+    "$([ -f "$_m/called.txt" ] && printf '%s' "$out" | grep -c 'already connected')" "1"
+else
+  echo "  skip  the whole connect step on both roads (age is not on this computer)"
+fi
+
+# The program that locks the key is fetched when it is needed, and only then.
+t "age that is already here is not fetched again" \
+  "$( ( kb_have_age() { return 0; }; kb_install_one() { echo FETCHED; }; kb_ensure_age; echo "rc=$?" ) 2>&1 )" "rc=0"
+t "a missing age is fetched, at the moment a key needs locking" \
+  "$( ( kb_have_age() { return 1; }; kb_install_one() { echo "FETCHED $1"; }; KB_AGE= KB_AGE_KEYGEN= kb_ensure_age; echo "rc=$?" ) 2>&1 | tr '\n' ' ')" "FETCHED age rc=1 "
+t "a stand-in named by KB_AGE is never 'fixed' by installing the real one" \
+  "$( ( kb_have_age() { return 1; }; kb_install_one() { echo FETCHED; }; KB_AGE=/nonexistent/age kb_ensure_age; echo "rc=$?" ) 2>&1 )" "rc=1"
+
+# THE SAME QUESTION ON BOTH PLATFORMS. lib.sh said Menerio from 2026-09-05 while
+# join.ps1 still asked about "a notebook". The two texts are compared, not eyeballed.
+_q_sh="$(sed -n 's/^ *kb_tell "\(.*\)"$/\1/p' lib.sh | sed -n '/^Menerio is optional/,/^A free account is enough/p')"
+_q_ps="$(tr -d '\r' < join.ps1 | sed -n 's/^ *Write-Host "\(.*\)"$/\1/p' | sed -n '/^Menerio is optional/,/^A free account is enough/p')"
+t "the Menerio question has five lines"  "$(printf '%s\n' "$_q_sh" | grep -c .)" "5"
+t "and Windows asks it in the same words" "$_q_ps" "$_q_sh"
+t "it says where a free account is made" \
+  "$(printf '%s' "$_q_sh" | grep -c 'https://menerio.com/auth?tab=signup')" "1"
+t "both platforms ask 'Connect Menerio now?'" \
+  "$(cat lib.sh join.ps1 | grep -c 'Connect Menerio now?')" "2"
+t "and Windows no longer asks about 'a notebook'" \
+  "$(grep -c 'Connect a notebook now' join.ps1)" "0"
+t "the answer is still no unless the reader says yes" \
+  "$(grep -c 'ask_yes "Connect Menerio now?" "n"' lib.sh)" "1"
+rm -rf "$_m"
 
 echo
 echo "  $pass passed, $fail failed"

@@ -105,6 +105,7 @@ foreach ($fn in 'Find-KitHub', 'Test-KitHub', 'Update-KitHub', 'Join-KitMemory',
                  'Get-KitNotebookState', 'Unlock-KitHubKey', 'Protect-KitHubKey',
                  'Save-KitNotebookToken', 'Write-KitMcpConfig', 'Install-KitNotebookSync',
                  'Set-KitNotebookEnv', 'Connect-KitNotebook', 'Test-KitInteractive',
+                 'Install-KitAge', 'Connect-KitAssistants',
                  'Set-KitPromptSources', 'Write-KitSyncReport', 'Get-KitHome',
                  'Write-KitExpiryRecord', 'Write-KitDueFolder', 'Get-KitRoomTwin') {
     Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
@@ -809,15 +810,20 @@ Check "Claude Code is given an .mcp.json, and it is valid JSON" {
 # Not "the assistant": Hermes never reads a folder .mcp.json, checked in its source. A
 # kit that says otherwise is telling a reader their hub carries configuration it does
 # not carry, which is the exact shape of the workspace line this batch already removed.
-Check "the file says plainly that Hermes does not read it, and names what does tell Hermes" {
+#
+# Until 2026-09-20 the file and the installer both went on to tell the reader to run
+# `hermes mcp add` by hand. hub-menerio-connect does that now, from the same stored key,
+# so the file names THAT and nobody is handed a command to type.
+Check "the file says plainly that Hermes and Codex do not read it, and names the program that connects them" {
     Invoke-NotebookCase {
         param($h)
         $hub = New-NotebookHub 'nb6b'
         $out = (Write-KitMcpConfig -Hub $hub 3>&1 6>&1 | Out-String)
         $j = Get-Content (Join-Path $hub '.mcp.json') -Raw
-        $j.Contains('Hermes does not read it') -and $j.Contains('hermes mcp add') -and
+        $j.Contains('Hermes and Codex do not read this file') -and $j.Contains('hub-menerio-connect') -and
+            -not $j.Contains('hermes mcp') -and
             -not $j.Contains('tells your assistant') -and
-            $out.Contains('for Claude Code') -and $out.Contains('Hermes does not read that file')
+            $out.Contains('for Claude Code') -and -not ($out -match '(?i)hermes')
     }
 }
 Check "the connection NAMES the credential rather than carrying one" {
@@ -1369,6 +1375,277 @@ Check "a kit that ships no due.js gets no hub-due, and says nothing about it" {
         Install-KitHubTools -Hub (New-NotebookHub 'launch-hub3') -ToolsRepo $kit 3>&1 4>&1 6>&1 | Out-Null
         -not (Test-Path (Join-Path $h '.local\bin\hub-due.cmd'))
     }
+}
+
+Write-Host ""
+Write-Host "-- connect Menerio once: every assistant, and a way back in"
+#
+# Twins of the block with the same name in test.sh. Before 2026-09-20 the connect step
+# stored the key, wrote .mcp.json for Claude Code, and printed a `hermes mcp add` command
+# for the reader to type. Codex got nothing. The work now belongs to the kit's
+# hub-menerio-connect, and what is tested here is everything the installer owns around it.
+# The program itself is a stand-in, because the kit's own suite tests the real one.
+function New-MenerioKit {
+    <# A committed kit whose tools folder holds exactly the named files. #>
+    param([string]$Name, [hashtable]$Files)
+    $kit = New-TestDir $Name
+    New-Item -ItemType Directory -Force (Join-Path $kit 'tools') | Out-Null
+    foreach ($k in $Files.Keys) {
+        [System.IO.File]::WriteAllText((Join-Path $kit "tools\$k"), ($Files[$k] -replace "`r`n", "`n"))
+    }
+    git -C $kit init -q 2>&1 | Out-Null
+    git -C $kit add -A 2>&1 | Out-Null
+    git -C $kit -c user.email='t@t' -c user.name='t' commit -q -m tools 2>&1 | Out-Null
+    return $kit
+}
+function Install-MenerioKit {
+    <#  Install-KitHubTools, with BOTH copies of PATH put straight back around it.
+
+        Every case in this file has a fresh temporary home, and every install does two
+        things to PATH. It prepends its bin folder to the persisted user PATH (see
+        $UserPath0 at the top). And Update-KitPath rebuilds THIS PROCESS's PATH as
+        machine + user + whatever it already was, so inside one long run the process copy
+        grows by the whole registry PATH at every install. The five cases below were the
+        ones that carried it past the 32,767 characters Windows allows a variable:
+        "Environment variable name or value is too long", in cases that had nothing to do
+        with PATH. A real install calls it a handful of times and is nowhere near.
+
+        So the process copy goes in de-duplicated, which loses nothing and is short, and
+        comes out exactly as it was, so the cases after these see what they always saw. #>
+    param([string]$Hub, [string]$Kit)
+    $procPath0 = $env:Path
+    try {
+        $env:Path = (@($procPath0 -split ';' | Where-Object { $_ } | Select-Object -Unique) -join ';')
+        [Environment]::SetEnvironmentVariable('Path', $UserPath0, 'User')
+        Install-KitHubTools -Hub $Hub -ToolsRepo $Kit 3>&1 4>&1 6>&1 | Out-String
+    } finally {
+        $env:Path = $procPath0
+        try { [Environment]::SetEnvironmentVariable('Path', $UserPath0, 'User') } catch { }
+    }
+}
+function New-ConnectStub {
+    <# A stand-in hub-menerio-connect.cmd that reports, and writes down how it was called. #>
+    param([string]$HomeDir, [int]$ExitCode = 0)
+    $bin = Join-Path $HomeDir '.local\bin'
+    New-Item -ItemType Directory -Force $bin | Out-Null
+    $seen = Join-Path $HomeDir 'called.txt'
+    @('@echo off',
+      ">`"$seen`" echo args=%*",
+      ">>`"$seen`" echo cwd=%CD%",
+      ">>`"$seen`" echo hubdir=%HUB_DIR%",
+      'echo Claude Code: connected',
+      'echo Hermes: connected',
+      'echo Codex: not on this computer',
+      'echo a line on stderr 1>&2',
+      "exit /b $ExitCode") | Set-Content -Path (Join-Path $bin 'hub-menerio-connect.cmd') -Encoding ascii
+    return $seen
+}
+
+Check "a launcher that says 'exec node' becomes a .cmd that starts that program with node" {
+    Invoke-NotebookCase {
+        param($h)
+        $kit = New-MenerioKit 'mc-kit1' @{
+            'hub-menerio-connect' = "#!/bin/sh`nexec node `"`$(dirname `"`$0`")/menerio-connect.js`" `"`$@`"`n"
+            'menerio-connect.js'  = "console.log('ran ' + process.argv.slice(2).join(' '))`n"
+            'hub-search'          = "#!/bin/sh`nexec node `"`$(dirname `"`$0`")/hub-search-impl.js`" `"`$@`"`n"
+            'hub-search-impl.js'  = "// s`n"
+        }
+        $out = Install-MenerioKit -Hub (New-NotebookHub 'mc-hub1') -Kit $kit
+        $bin = Join-Path $h '.local\bin'
+        $c = Get-Content (Join-Path $bin 'hub-menerio-connect.cmd') -Raw
+        $s = Get-Content (Join-Path $bin 'hub-search.cmd') -Raw
+        # And it really starts, where there is a node to start it with: a .cmd that reads
+        # correctly and does nothing when typed is the failure hub-check-keys once had.
+        # Run with the short PATH too (see Install-MenerioKit): cmd.exe cannot find node on a
+        # PATH of thirty thousand characters, and answers nothing at all.
+        $ran = 'ran --check'
+        if (Get-Command node -ErrorAction SilentlyContinue) {
+            $procPath0 = $env:Path
+            try {
+                $env:Path = (@($procPath0 -split ';' | Where-Object { $_ } | Select-Object -Unique) -join ';')
+                $ran = (& (Join-Path $bin 'hub-menerio-connect.cmd') --check 2>$null | Out-String).Trim()
+            } finally { $env:Path = $procPath0 }
+        }
+        $c.Contains('node "%~dp0menerio-connect.js" %*') -and
+            $s.Contains('node "%~dp0hub-search-impl.js" %*') -and
+            ($ran -eq 'ran --check') -and
+            -not $out.Contains('does not have')
+    }
+}
+Check "a launcher that is a real shell program goes to Git Bash, never to the bash on PATH" {
+    Invoke-NotebookCase {
+        param($h)
+        $kit = New-MenerioKit 'mc-kit2' @{ 'hub-menerio-connect' = "#!/bin/sh`necho hello`n" }
+        [void](Install-MenerioKit -Hub (New-NotebookHub 'mc-hub2') -Kit $kit)
+        $c = Get-Content (Join-Path $h '.local\bin\hub-menerio-connect.cmd') -Raw
+        $c.Contains((Get-KitGitBash)) -and $c.Contains('%~dp0hub-menerio-connect')
+    }
+}
+Check "a program shipped without its launcher is given one" {
+    Invoke-NotebookCase {
+        param($h)
+        $kit = New-MenerioKit 'mc-kit3' @{ 'menerio-connect.js' = "// mc`n" }
+        [void](Install-MenerioKit -Hub (New-NotebookHub 'mc-hub3') -Kit $kit)
+        (Get-Content (Join-Path $h '.local\bin\hub-menerio-connect.cmd') -Raw).Contains('node "%~dp0menerio-connect.js" %*')
+    }
+}
+Check "an older book kit is told in one line each that the two are not in it yet, and carries on" {
+    Invoke-NotebookCase {
+        param($h)
+        $kit = New-MenerioKit 'mc-kit4' @{ 'hub-notebook-sync' = "#!/bin/sh`nexit 0`n"; 'due.js' = "// due`n" }
+        $out = Install-MenerioKit -Hub (New-NotebookHub 'mc-hub4') -Kit $kit
+        $bin = Join-Path $h '.local\bin'
+        (([regex]::Matches($out, 'does not have hub-[a-z-]+ yet, so it was skipped')).Count -eq 2) -and
+            (Test-Path (Join-Path $bin 'hub-due.cmd')) -and
+            -not (Test-Path (Join-Path $bin 'hub-menerio-connect.cmd')) -and
+            -not (Test-Path (Join-Path $bin 'hub-search.cmd'))
+    }
+}
+Check "a kit with no notebook programs hears nothing about Menerio" {
+    Invoke-NotebookCase {
+        param($h)
+        $kit = New-MenerioKit 'mc-kit5' @{ 'due.js' = "// due`n" }
+        $out = Install-MenerioKit -Hub (New-NotebookHub 'mc-hub5') -Kit $kit
+        -not ($out -match 'hub-menerio-connect|hub-search')
+    }
+}
+
+Check "an older kit with no connect program still leaves Claude Code its file, and says what is missing" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'mc-hub6'
+        function Get-KitNotebookState { 'connected' }
+        $out = Connect-KitAssistants -Hub $hub 3>&1 4>&1 6>&1 | Out-String
+        (Test-Path (Join-Path $hub '.mcp.json')) -and
+            $out.Contains('cannot connect Hermes and Codex for you yet') -and
+            -not ($out -match 'hermes mcp')
+    }
+}
+Check "the connect program runs, is told which hub three ways, and its report reaches the reader" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'mc-hub7'
+        $seen = New-ConnectStub -HomeDir $h
+        function Get-KitNotebookState { 'connected' }
+        $hubDir0 = $env:HUB_DIR
+        $out = Connect-KitAssistants -Hub $hub 3>&1 4>&1 6>&1 | Out-String
+        $called = Get-Content $seen -Raw
+        $out.Contains('Claude Code: connected') -and $out.Contains('Hermes: connected') -and
+            $out.Contains('Codex: not on this computer') -and
+            $called.Contains("args=--hub $hub") -and $called.Contains("cwd=$hub") -and
+            $called.Contains("hubdir=$hub") -and
+            ($env:HUB_DIR -eq $hubDir0) -and
+            (Test-Path (Join-Path $hub '.mcp.json'))
+    }
+}
+Check "a line on stderr cannot end the install, even under 'Stop', which is how setup-hub.ps1 runs" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'mc-hub8'
+        [void](New-ConnectStub -HomeDir $h)
+        function Get-KitNotebookState { 'connected' }
+        $eap = $ErrorActionPreference
+        $ErrorActionPreference = 'Stop'
+        try { $out = Connect-KitAssistants -Hub $hub 3>&1 4>&1 6>&1 | Out-String; $after = $ErrorActionPreference }
+        finally { $ErrorActionPreference = $eap }
+        $out.Contains('Hermes: connected') -and ($after -eq 'Stop')
+    }
+}
+Check "a connect program that stops early is reported, and the install carries on" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'mc-hub9'
+        [void](New-ConnectStub -HomeDir $h -ExitCode 3)
+        function Get-KitNotebookState { 'connected' }
+        $out = Connect-KitAssistants -Hub $hub 3>&1 4>&1 6>&1 | Out-String
+        $out.Contains('stopped early')
+    }
+}
+Check "a hub with no key on this PC does not run the connect program" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'mc-hub10'
+        $seen = New-ConnectStub -HomeDir $h
+        function Get-KitNotebookState { 'none' }
+        Connect-KitAssistants -Hub $hub 3>&1 4>&1 6>&1 | Out-Null
+        -not (Test-Path $seen)
+    }
+}
+Check "the starter's empty .mcp.json is filled in, and one naming the reader's own server is never touched" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'mc-hub11'
+        $f = Join-Path $hub '.mcp.json'
+        Set-KbTextFile -Path $f -Lines @('{', '  "mcpServers": {}', '}')
+        Write-KitMcpConfig -Hub $hub 3>&1 6>&1 | Out-Null
+        $filled = (Get-Content $f -Raw).Contains('mcp.menerio.com')
+        Set-KbTextFile -Path $f -Lines @('{"mcpServers": {"mine": {"url": "https://example.invalid"}}}')
+        Write-KitMcpConfig -Hub $hub 3>&1 6>&1 | Out-Null
+        $filled -and -not (Get-Content $f -Raw).Contains('mcp.menerio.com')
+    }
+}
+
+if ((Get-Command age -ErrorAction SilentlyContinue) -and (Get-Command age-keygen -ErrorAction SilentlyContinue)) {
+    Check "a key just pasted, then a re-run: the connect program runs both times, after the key is stored" {
+        # Set-KitNotebookEnv and Protect-KitHubKey are stood in for ON PURPOSE. The first
+        # writes every credential in the store into the REAL Windows account's environment,
+        # which no fake home can redirect, so an unguarded case here would have replaced
+        # the author's own MENERIO_API_KEY with a test string. The second waits for a
+        # passphrase at a terminal. The last line proves the real variable never moved.
+        Invoke-NotebookCase {
+            param($h)
+            $hub = New-NotebookHub 'mc-hub12'
+            $env:HUB_AGE_KEY = Join-Path $h '.hub\age-key.txt'
+            $seen = New-ConnectStub -HomeDir $h
+            $real0 = [Environment]::GetEnvironmentVariable('MENERIO_API_KEY', 'User')
+            function Set-KitNotebookEnv { param($Hub) }
+            function Protect-KitHubKey { param($Hub) $false }
+            function Install-KitNotebookSync { param($Hub) }
+            $out1 = Connect-KitNotebook -Hub $hub -Token 'test-token-not-a-real-one-0123456789' 3>&1 4>&1 6>&1 | Out-String
+            $ran1 = (Test-Path $seen) -and (Test-Path (Join-Path $hub 'secrets\hub-secrets.env.age'))
+            Remove-Item $seen -ErrorAction SilentlyContinue
+            $out2 = Connect-KitNotebook -Hub $hub 3>&1 4>&1 6>&1 | Out-String
+            $ran1 -and $out1.Contains('Hermes: connected') -and
+                -not $out1.Contains('test-token-not-a-real-one') -and
+                (Test-Path $seen) -and $out2.Contains('already connected') -and
+                ([Environment]::GetEnvironmentVariable('MENERIO_API_KEY', 'User') -eq $real0)
+        }
+    }
+} else {
+    Write-Host "  skip  the whole connect step on both roads (age is not on this PC)"
+}
+
+Check "age that is already here is not fetched again" {
+    function Test-KitAge { $true }
+    function Install-KitWingetPackage { throw 'must not fetch' }
+    (Install-KitAge) -eq $true
+}
+Check "a missing age is fetched, at the moment a key needs locking" {
+    $script:fetched = ''
+    function Test-KitAge { $false }
+    function Install-KitWingetPackage { param($Id, $Command, $Human) $script:fetched = $Id; $false }
+    $a0 = $env:KB_AGE; $k0 = $env:KB_AGE_KEYGEN
+    try { $env:KB_AGE = $null; $env:KB_AGE_KEYGEN = $null; $r = Install-KitAge }
+    finally { $env:KB_AGE = $a0; $env:KB_AGE_KEYGEN = $k0 }
+    ($r -eq $false) -and ($script:fetched -eq 'FiloSottile.age')
+}
+Check "a stand-in named by KB_AGE is never 'fixed' by installing the real one" {
+    function Test-KitAge { $false }
+    function Install-KitWingetPackage { throw 'must not fetch' }
+    $a0 = $env:KB_AGE
+    try { $env:KB_AGE = 'C:\nonexistent\age.exe'; (Install-KitAge) -eq $false }
+    finally { $env:KB_AGE = $a0 }
+}
+
+$JoinSrc = Get-Content (Join-Path $PSScriptRoot '..\join.ps1') -Raw
+Check "the Menerio question is asked in the new words, and no longer about 'a notebook'" {
+    $JoinSrc.Contains('Menerio is optional. Everything in this book works on plain files without it.') -and
+        $JoinSrc.Contains('A free account is enough to try it: https://menerio.com/auth?tab=signup') -and
+        $JoinSrc.Contains('Read-Host "Connect Menerio now? (y/N)"') -and
+        -not $JoinSrc.Contains('Connect a notebook now')
+}
+Check "and the installer no longer prints a Hermes command for the reader to type" {
+    -not ($JoinSrc -match 'Write-Host\s+"[^"]*hermes mcp')
 }
 
 Write-Host ""

@@ -843,6 +843,51 @@ function Install-KitHubTools {
                 Set-Content -Path (Join-Path $bin ($shellCmd + '.cmd')) -Encoding ascii
         }
 
+        # THE TWO THAT ARRIVED WITH "CONNECT MENERIO ONCE" (2026-09-20). hub-menerio-connect
+        # hands the one stored key to every assistant on this PC, and hub-search searches the
+        # hub. The kit ships each of them WITH a launcher, and that launcher is a shell file,
+        # which Windows cannot run. So the .cmd is worked out from the launcher's own words:
+        # when it says `exec node "$(dirname "$0")/<program>"`, the .cmd starts that program
+        # with node directly, the way every other .cmd in this folder does. Anything else is
+        # a real shell program and goes to Git Bash, like hub-run above. Reading the launcher
+        # instead of guessing the program's name means the kit can rename the program and
+        # this file does not have to hear about it.
+        #
+        # AN OLDER COPY OF THE KIT HAS NEITHER, and that is not an error: one line says so
+        # and the run goes on. The line is only printed for a kit that ships the notebook
+        # programs, so every other product using this file hears nothing about a service it
+        # never offered. The bash twin carries the same two names and the same rule.
+        foreach ($pair in @(
+            @{ src = 'menerio-connect.js'; cmd = 'hub-menerio-connect' },
+            @{ src = 'search.js';          cmd = 'hub-search'          }
+        )) {
+            $shipped = Join-Path $bin $pair.cmd
+            $cmdFile = Join-Path $bin ($pair.cmd + '.cmd')
+            $runLine = $null
+            if (Test-Path $shipped) {
+                $text = ''
+                try { $text = [string](Get-Content -LiteralPath $shipped -Raw -ErrorAction Stop) } catch { }
+                if ($text -match 'exec\s+(node|python3?)\s+"\$\(dirname "\$0"\)/([^"]+)"') {
+                    $prog = $Matches[2]
+                    if ($Matches[1] -eq 'node') { $runLine = "node `"%~dp0$prog`" %*" }
+                    else {
+                        $py = Get-KitPython
+                        if ($py) { $runLine = "`"$py`" `"%~dp0$prog`" %*" }
+                        else { Write-KbWarn "commands: $($pair.cmd) needs Python and this PC has none, so it was installed and will not run yet. Install Python and run this again." }
+                    }
+                } elseif ($gitBash) {
+                    $runLine = "`"$gitBash`" `"%~dp0$($pair.cmd)`" %*"
+                } else {
+                    Write-Warning "$($pair.cmd) was installed but Windows cannot run it without the bash that comes with Git. Install Git and run this again."
+                }
+            } elseif (Test-Path (Join-Path $bin $pair.src)) {
+                $runLine = "node `"%~dp0$($pair.src)`" %*"
+            } elseif (Test-Path (Join-Path $bin 'hub-notebook-sync')) {
+                Write-Host "   commands: this copy of the kit does not have $($pair.cmd) yet, so it was skipped. Run this again after the kit is updated."
+            }
+            if ($runLine) { @('@echo off', $runLine) | Set-Content -Path $cmdFile -Encoding ascii }
+        }
+
         # The rules compiler, which a reader types by hand rather than the schedule
         # running it. It was a Python program until 2026-08-21 and the book printed it as
         # a path inside the hub, which is a folder this installer deliberately keeps free
@@ -1320,6 +1365,24 @@ function Test-KitAge {
     [bool](Get-Command (Get-KitAge) -ErrorAction SilentlyContinue) -and
     [bool](Get-Command (Get-KitAgeKeygen) -ErrorAction SilentlyContinue)
 }
+function Install-KitAge {
+    <#  Fetch the one program the locked store needs, at the moment it is needed. The
+        Windows twin of kb_ensure_age in lib.sh.
+
+        WHY HERE AND NOT IN Install-KitPrereqs. Most readers never connect Menerio, and a
+        program that locks credentials has no business on the PC of somebody who has
+        none. So it is fetched only after a reader has said yes, pasted a key, or opened
+        a folder that already carries one. Before 2026-09-20 nothing fetched it at all: a
+        reader said yes, pasted the key, and was told to go and install a program and
+        start again, which is exactly the errand an installer exists to run.
+
+        A stand-in named by KB_AGE is never "fixed" by installing the real one, so the
+        test suite still never reaches winget. #>
+    if (Test-KitAge) { return $true }
+    if ($env:KB_AGE -or $env:KB_AGE_KEYGEN) { return $false }
+    [void](Install-KitWingetPackage -Id 'FiloSottile.age' -Command 'age' -Human 'age (the small program that locks your key)')
+    return (Test-KitAge)
+}
 function Get-KitHubKeyPath {
     if ($env:HUB_AGE_KEY) { return $env:HUB_AGE_KEY }
     return (Join-Path (Get-KitHome) '.hub\age-key.txt')
@@ -1730,36 +1793,48 @@ function Write-KitDueFolder {
 }
 
 function Write-KitMcpConfig {
-    <#  The file that tells CLAUDE CODE where your notebook is, and nothing else.
+    <#  The file that tells CLAUDE CODE where Menerio is, and nothing else.
 
         It used to say "your assistant", which was an over-claim the moment the book
         stopped being a Claude Code book. Hermes never reads a folder .mcp.json:
-        checked in the Hermes source, there is not one reference to it. So a hub does
-        NOT carry its own MCP configuration and this installer must not imply that it
-        does. Hermes keeps its own, and the commands are `hermes mcp add`,
-        `hermes mcp catalog` and `hermes mcp install <name>`, all three confirmed
-        against the binary before being printed.
+        checked in the Hermes source, there is not one reference to it. Codex does not
+        read it either. So a hub does NOT carry the other assistants' configuration and
+        this file must not imply that it does.
 
-        The file stays, because Chapter 5 keeps Claude Code in VS Code as the
-        developer path and this is how that path finds the notebook. It NAMES the
-        credential rather than carrying it, so it holds no secret and is safe to keep
-        in the folder. Never overwrites one you already have. #>
+        IT ALSO USED TO END BY TELLING THE READER TO RUN `hermes mcp add` BY HAND. That
+        was the honest sentence while nothing else existed, and it was the opposite of
+        what the owner asked for on 2026-09-20: "I connect Menerio ONCE and every way I
+        use the hub is connected." The kit's hub-menerio-connect now gives Hermes and
+        Codex the same connection from the same stored key, and Connect-KitAssistants
+        below runs it. So this function is only the floor: what Claude Code gets when the
+        kit on this PC is too old to have that program.
+
+        The file NAMES the credential rather than carrying it, so it holds no secret and
+        is safe to keep in the folder. Never overwrites one you wrote. The ONE file it
+        does replace is the starter's own empty one, {"mcpServers": {}}, because every
+        hub made from the starter has it, and "already there, left as you have it" over
+        an empty file meant a connected reader whose Claude Code had no connection. #>
     param([Parameter(Mandatory)][string]$Hub)
     $f = Join-Path $Hub '.mcp.json'
-    if (Test-Path $f) { Write-KbOk "notebook: .mcp.json is already there, left as you have it"; return }
+    if (Test-Path $f) {
+        $bare = ''
+        try { $bare = ([string](Get-Content -LiteralPath $f -Raw -ErrorAction Stop)) -replace '\s', '' } catch { }
+        if ($bare -ne '{"mcpServers":{}}') {
+            Write-KbOk "notebook: .mcp.json is already there, left as you have it"
+            return
+        }
+    }
     $lines = @(
         '{',
         '  "_comment": [',
-        '    "THIS FILE IS READ BY CLAUDE CODE, AND BY NOTHING ELSE IN THIS BOOK.",',
-        '    "Hermes does not read it. Checked in the Hermes source: there is not one reference",',
-        '    "to a folder .mcp.json anywhere in it. Hermes keeps its own connections, and you",',
-        '    "add one with `hermes mcp add`, or pick from `hermes mcp catalog` and install it",',
-        '    "with `hermes mcp install <name>`.",',
-        '    "What it does do, for Claude Code: it says where your notebook is, and it NAMES the",',
+        '    "THIS FILE IS READ BY CLAUDE CODE. It says where Menerio is, and it NAMES the",',
         '    "credential rather than carrying it. ${MENERIO_API_KEY} is read from this computer''s",',
         '    "environment when Claude Code starts, so this file holds no secret and is safe to",',
         '    "keep in the folder. The value itself lives locked in secrets/, and travels with the",',
         '    "folder to every computer you own.",',
+        '    "Hermes and Codex do not read this file. They keep their own settings, and",',
+        '    "`hub-menerio-connect` gives them the same connection from the same stored key.",',
+        '    "The installer runs it for you. Run it again yourself after you add an assistant.",',
         '    "Delete this file if you do not use Claude Code. Nothing else in the book needs it."',
         '  ],',
         '  "mcpServers": {',
@@ -1776,8 +1851,69 @@ function Write-KitMcpConfig {
     )
     Set-KbTextFile -Path $f -Lines $lines
     Write-KbOk "notebook: wrote $f for Claude Code, and it names your credential instead of carrying it."
-    Write-Host "   notebook: Hermes does not read that file. To give Hermes the same notebook:"
-    Write-Host "     hermes mcp add    (or: hermes mcp catalog, then hermes mcp install <name>)"
+}
+
+function Connect-KitAssistants {
+    <#  Connect Menerio ONCE, and every assistant on this PC has it. The Windows twin of
+        kb_connect_assistants in lib.sh.
+
+        WHY THIS EXISTS. Until 2026-09-20 the connect step stored the key, wrote
+        .mcp.json for Claude Code, and then printed a command for the reader to type so
+        Hermes had it too. Codex was not mentioned at all. Three assistants, three
+        separate connections, and only one of them made by the installer. The owner's
+        words: "I do not want to connect everything individually."
+
+        The work is done by hub-menerio-connect, which lives in the kit beside the other
+        programs. It reads the key from the locked store in the hub, MERGES the
+        connection into .mcp.json (so a file that already names other servers keeps
+        them), writes Hermes' own settings and Codex's own settings, and prints one line
+        for each. That report is shown to the reader exactly as it comes, because it says
+        what really happened on THIS PC, and a sentence written here could only say what
+        was hoped for.
+
+        It is told where the hub is three ways (--hub, HUB_DIR, and the folder it starts
+        in), because a hub sitting beside another one is NOT the hub in device.env, and a
+        connection written into the wrong hub reads exactly like one that worked.
+
+        AN OLDER KIT HAS NO SUCH PROGRAM. Then Claude Code still gets its file, the way
+        it always did, and one line says what is missing and how to get it.
+
+        The error preference is lowered around the call for the reason Invoke-KitGit
+        gives: setup-hub.ps1 runs with 'Stop', and a program that writes one ordinary
+        line to stderr would otherwise end the whole install. #>
+    param([Parameter(Mandatory)][string]$Hub)
+    $tool = Join-Path (Get-KitHome) '.local\bin\hub-menerio-connect.cmd'
+    $connected = ((Get-KitNotebookState -Hub $Hub) -eq 'connected')
+    if (-not $connected -or -not (Test-Path $tool)) {
+        Write-KitMcpConfig -Hub $Hub
+        if ($connected) {
+            Write-Host "   Menerio: this copy of the kit cannot connect Hermes and Codex for you yet. Run this installer again after the kit is updated, and it will."
+        }
+        return
+    }
+
+    Write-Host "   Menerio: giving every assistant on this PC the same connection"
+    $eap = $ErrorActionPreference
+    $hubDir0 = $env:HUB_DIR
+    $ErrorActionPreference = 'Continue'
+    $env:HUB_DIR = $Hub
+    $rc = 1
+    Push-Location -LiteralPath $Hub
+    try {
+        & $tool --hub $Hub 2>&1 | ForEach-Object { Write-Host "   $_" }
+        $rc = $LASTEXITCODE
+    } catch {
+        Write-Host "   $($_.Exception.Message)"
+    } finally {
+        Pop-Location
+        $env:HUB_DIR = $hubDir0
+        $ErrorActionPreference = $eap
+    }
+    if ($rc -ne 0) {
+        Write-KbWarn "Menerio: hub-menerio-connect stopped early, so an assistant may be missing the connection. Read the lines above, then run it again: hub-menerio-connect"
+    }
+    # The floor, for a program that reported and still left Claude Code without a file.
+    if (-not (Test-Path (Join-Path $Hub '.mcp.json'))) { Write-KitMcpConfig -Hub $Hub }
 }
 
 function Install-KitNotebookSync {
@@ -1897,7 +2033,7 @@ function Connect-KitNotebook {
     $state = Get-KitNotebookState -Hub $Hub
     switch ($state) {
         'connected' { Write-KbOk "notebook: already connected on this computer" }
-        'sealed'    { [void](Unlock-KitHubKey -Hub $Hub) }
+        'sealed'    { [void](Install-KitAge); [void](Unlock-KitHubKey -Hub $Hub) }
         'locked-out' {
             Write-KbWarn "notebook: that folder already carries credentials, and this PC cannot open them. Nothing was changed. Copy .hub\age-key.txt from the computer that can open it, or seal it there so a passphrase is enough here."
             return
@@ -1906,28 +2042,39 @@ function Connect-KitNotebook {
             if (-not $Token) { $Token = $env:KB_NOTEBOOK_TOKEN }
             if (-not $Token) {
                 if (-not (Test-KitInteractive)) { return }   # a one-line install stays a one-line install
+                # THE SAME WORDS AS THE BASH TWIN, line for line. They drifted once: lib.sh
+                # said Menerio from 2026-09-05 while this side still asked about "a
+                # notebook", so two readers of one book were offered two differently named
+                # things. test.sh compares the two texts now.
                 Write-Host ""
-                Write-Host "A notebook is optional. Everything in this book works on plain files without one."
-                Write-Host "It adds one thing: searching your hub by MEANING instead of by exact word."
-                Write-Host "It needs a free account at menerio.com, and the book has a whole chapter on it later."
-                $yn = Read-Host "Connect a notebook now? (y/N)"
+                Write-Host "Menerio is optional. Everything in this book works on plain files without it."
+                Write-Host "It is the author's online notebook. Connect it once, and every assistant that"
+                Write-Host "opens this hub can save notes there and find them again. Your whole hub also"
+                Write-Host "becomes searchable by meaning, not only by exact word."
+                Write-Host "A free account is enough to try it: https://menerio.com/auth?tab=signup"
+                $yn = Read-Host "Connect Menerio now? (y/N)"
                 if ($yn -notmatch '^[Yy]') {
-                    Write-KbOk "notebook: not connected, which is a complete way to own a hub. Run this again whenever you change your mind."
+                    Write-KbOk "Menerio: not connected, which is a complete way to own a hub. Run this installer again whenever you change your mind."
                     return
                 }
                 Write-Host "In Menerio: Settings, then API Keys, then Generate new API key. Leave every box ticked (that is the default)."
                 $Token = Read-Host "Paste that key here"
             }
             if (-not $Token) { Write-KbOk "notebook: nothing pasted, so nothing was connected."; return }
+            [void](Install-KitAge)   # the store below says what to do if this could not fetch it
             if (-not (Save-KitNotebookToken -Hub $Hub -Token $Token)) { return }
             [void](Protect-KitHubKey -Hub $Hub)
         }
     }
-    Write-KitMcpConfig -Hub $Hub
     Write-KitExpiryRecord -Hub $Hub
     Write-KitDueFolder -Hub $Hub
     Install-KitNotebookSync -Hub $Hub
     Set-KitNotebookEnv -Hub $Hub
+    # LAST, because it reads the key the lines above stored and exposed. It runs on every
+    # road into this function: a key pasted a moment ago, a hub that was connected
+    # already, and a second PC that has just typed its passphrase. So a re-run of the
+    # installer is also how an assistant installed later gets the connection.
+    Connect-KitAssistants -Hub $Hub
 }
 
 # =============================================================================

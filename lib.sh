@@ -2110,6 +2110,27 @@ kb_install_hub_tools() {
     chmod +x "$bindir/$lcmd" 2>/dev/null || true
   done
 
+  # THE TWO THAT ARRIVED WITH "CONNECT MENERIO ONCE" (2026-09-20). hub-menerio-connect hands
+  # the one stored key to every assistant on this computer, and hub-search searches the hub.
+  # The kit ships each of them WITH its launcher, so the copy loop above has normally put
+  # them here already and there is nothing left to write. The launcher is only written here
+  # when a kit ships the program without one.
+  #
+  # AN OLDER COPY OF THE KIT HAS NEITHER, and that is not an error: one line says so and the
+  # run goes on. The line is only printed for a kit that ships the notebook programs, so
+  # every other product using this file still hears nothing about a service it never offered.
+  for pair in "menerio-connect.js:hub-menerio-connect" "search.js:hub-search"; do
+    lsrc="${pair%%:*}"; lcmd="${pair##*:}"
+    [ -f "$bindir/$lcmd" ] && continue
+    if [ -f "$bindir/$lsrc" ]; then
+      printf '#!/bin/sh\nexec node "$(dirname "$0")/%s" "$@"\n' "$lsrc" > "$bindir/$lcmd"
+      chmod +x "$bindir/$lcmd" 2>/dev/null || true
+      continue
+    fi
+    [ -f "$bindir/hub-notebook-sync" ] || continue
+    log "commands: this copy of the kit does not have $lcmd yet, so it was skipped. Run this again after the kit is updated."
+  done
+
   # Where the hub is, recorded once, so a job started by the schedule with almost no
   # environment never has to guess. The programs read this file already.
   kb_record_hub_dir "$hub"
@@ -2499,6 +2520,25 @@ kb_have_age()   { command -v "$(kb_age)" >/dev/null 2>&1 && command -v "$(kb_age
 
 kb_hub_key_path() { printf '%s' "${HUB_AGE_KEY:-$HOME/.hub/age-key.txt}"; }
 
+# kb_ensure_age
+# Fetch the one program the locked store needs, at the moment it is needed.
+#
+# WHY HERE AND NOT IN kb_install_prereqs. Most readers never connect Menerio, and a
+# program that locks credentials has no business on the computer of somebody who has
+# none. So it is fetched only after a reader has said yes, pasted a key, or opened a
+# folder that already carries one. Before 2026-09-20 nothing fetched it at all: a reader
+# said yes, pasted the key, and was told to go and install a program and start again,
+# which is exactly the errand an installer exists to run.
+#
+# A stand-in named by KB_AGE is never "fixed" by installing the real one, so the test
+# suite still never reaches a package manager.
+kb_ensure_age() {
+  kb_have_age && return 0
+  [ -z "${KB_AGE:-}${KB_AGE_KEYGEN:-}" ] || return 1
+  kb_install_one age age age "age (the small program that locks your key)" || true
+  kb_have_age
+}
+
 # kb_notebook_state <hub> -> connected | sealed | locked-out | none
 #   connected   this computer can already open the credentials in that folder
 #   sealed      the folder carries them, and the key to them, waiting for a passphrase
@@ -2868,38 +2908,46 @@ DUEEOF
 }
 
 # kb_write_mcp_config <hub>
-# The file that tells CLAUDE CODE where your notebook is, and nothing else.
+# The file that tells CLAUDE CODE where Menerio is, and nothing else.
 #
 # IT USED TO SAY "your assistant", which was an over-claim the moment the book stopped
 # being a Claude Code book. Hermes never reads a folder .mcp.json: checked in the
-# Hermes source, there is not one reference to it. So a hub does NOT carry its own MCP
-# configuration, and this installer must not imply that it does. Hermes keeps its own,
-# and the commands are `hermes mcp add`, `hermes mcp catalog` and
-# `hermes mcp install <name>`, all three confirmed against the binary before being
-# printed here.
+# Hermes source, there is not one reference to it. Codex does not read it either. So a
+# hub does NOT carry the other assistants' configuration, and this file must not imply
+# that it does.
 #
-# The file stays, because Chapter 5 keeps Claude Code in VS Code as the developer path
-# and this is how that path finds the notebook. It NAMES the credential rather than
-# carrying it, so it is safe to keep in the folder and to push.
-# Never overwrites one you already have.
+# IT ALSO USED TO END BY TELLING THE READER TO RUN `hermes mcp add` BY HAND. That was the
+# honest sentence while nothing else existed, and it was the opposite of what the owner
+# asked for on 2026-09-20: "I connect Menerio ONCE and every way I use the hub is
+# connected." The kit's hub-menerio-connect now gives Hermes and Codex the same
+# connection from the same stored key, and kb_connect_assistants below runs it. So this
+# function is only the floor: what Claude Code gets when the kit on this computer is too
+# old to have that program.
+#
+# The file NAMES the credential rather than carrying it, so it is safe to keep in the
+# folder and to push. Never overwrites one you wrote. The ONE file it does replace is the
+# starter's own empty one, {"mcpServers": {}}, because every hub made from the starter
+# has it, and "already there, left as you have it" over an empty file meant a connected
+# reader whose Claude Code had no connection at all.
 kb_write_mcp_config() {
   local hub="${1:-}" f
   [ -n "$hub" ] || return 0
   f="$hub/.mcp.json"
-  [ -f "$f" ] && { ok "notebook: .mcp.json is already there, left as you have it"; return 0; }
+  if [ -f "$f" ] && [ "$(tr -d ' \t\r\n' < "$f" 2>/dev/null)" != '{"mcpServers":{}}' ]; then
+    ok "notebook: .mcp.json is already there, left as you have it"
+    return 0
+  fi
   cat > "$f" <<'JSONEOF'
 {
   "_comment": [
-    "THIS FILE IS READ BY CLAUDE CODE, AND BY NOTHING ELSE IN THIS BOOK.",
-    "Hermes does not read it. Checked in the Hermes source: there is not one reference",
-    "to a folder .mcp.json anywhere in it. Hermes keeps its own connections, and you",
-    "add one with `hermes mcp add`, or pick from `hermes mcp catalog` and install it",
-    "with `hermes mcp install <name>`.",
-    "What it does do, for Claude Code: it says where your notebook is, and it NAMES the",
+    "THIS FILE IS READ BY CLAUDE CODE. It says where Menerio is, and it NAMES the",
     "credential rather than carrying it. ${MENERIO_API_KEY} is read from this computer's",
     "environment when Claude Code starts, so this file holds no secret and is safe to",
     "keep in the folder. The value itself lives locked in secrets/, and travels with the",
     "folder to every computer you own.",
+    "Hermes and Codex do not read this file. They keep their own settings, and",
+    "`hub-menerio-connect` gives them the same connection from the same stored key.",
+    "The installer runs it for you. Run it again yourself after you add an assistant.",
     "Delete this file if you do not use Claude Code. Nothing else in the book needs it."
   ],
   "mcpServers": {
@@ -2915,8 +2963,54 @@ kb_write_mcp_config() {
 }
 JSONEOF
   ok "notebook: wrote $f for Claude Code, and it names your credential instead of carrying it."
-  log "notebook: Hermes does not read that file. To give Hermes the same notebook:
-   hermes mcp add    (or: hermes mcp catalog, then hermes mcp install <name>)"
+}
+
+# kb_connect_assistants <hub>
+# Connect Menerio ONCE, and every assistant on this computer has it.
+#
+# WHY THIS EXISTS. Until 2026-09-20 the connect step stored the key, wrote .mcp.json for
+# Claude Code, and then printed a command for the reader to type so Hermes had it too.
+# Codex was not mentioned at all. Three assistants, three separate connections, and only
+# one of them made by the installer. The owner's words: "I do not want to connect
+# everything individually."
+#
+# The work is done by hub-menerio-connect, which lives in the kit beside the other
+# programs. It reads the key from the locked store in the hub, MERGES the connection
+# into .mcp.json (so a file that already names other servers keeps them), writes Hermes'
+# own settings and Codex's own settings, and prints one line for each. That report is
+# shown to the reader exactly as it comes, because it says what really happened on THIS
+# computer, and a sentence written here could only say what was hoped for.
+#
+# It is told where the hub is three ways (--hub, HUB_DIR, and the folder it starts in),
+# because a hub sitting beside another one is NOT the hub in ~/.hub/device.env, and a
+# connection written into the wrong hub reads exactly like one that worked.
+#
+# AN OLDER KIT HAS NO SUCH PROGRAM. Then Claude Code still gets its file, the way it
+# always did, and one line says what is missing and how to get it.
+kb_connect_assistants() {
+  local hub="${1:-}" tool out rc
+  [ -n "$hub" ] || return 0
+  tool="$HOME/.local/bin/hub-menerio-connect"
+  if [ "$(kb_notebook_state "$hub")" != "connected" ] || [ ! -f "$tool" ]; then
+    kb_write_mcp_config "$hub"
+    if [ ! -f "$tool" ] && [ "$(kb_notebook_state "$hub")" = "connected" ]; then
+      log "Menerio: this copy of the kit cannot connect Hermes and Codex for you yet. Run this installer again after the kit is updated, and it will."
+    fi
+    return 0
+  fi
+
+  log "Menerio: giving every assistant on this computer the same connection"
+  # Its stdin is /dev/null on purpose. Piped from curl, THIS SCRIPT is what is arriving on
+  # stdin, and a program that reads one line of it eats the rest of the install.
+  [ -x "$tool" ] || chmod +x "$tool" 2>/dev/null || true
+  out="$(cd "$hub" 2>/dev/null && HUB_DIR="$hub" "$tool" --hub "$hub" 2>&1 </dev/null)"; rc=$?
+  [ -z "$out" ] || printf '%s\n' "$out" | sed 's/^/   /'
+  if [ "$rc" -ne 0 ]; then
+    warn "Menerio: hub-menerio-connect stopped early, so an assistant may be missing the connection. Read the lines above, then run it again: hub-menerio-connect"
+  fi
+  # The floor, for a program that reported and still left Claude Code without a file.
+  [ -f "$hub/.mcp.json" ] || kb_write_mcp_config "$hub"
+  return 0
 }
 
 # kb_install_notebook_sync <hub>
@@ -2990,6 +3084,7 @@ kb_connect_notebook() {
     connected)
       ok "notebook: already connected on this computer" ;;
     sealed)
+      kb_ensure_age || true
       kb_unseal_hub_key "$hub" || true ;;
     locked-out)
       warn "notebook: that folder already carries credentials, and this computer cannot open them. Nothing was changed. Copy ~/.hub/age-key.txt from the computer that can open it, or seal it there so a passphrase is enough here."
@@ -2998,24 +3093,34 @@ kb_connect_notebook() {
       token="${KB_NOTEBOOK_TOKEN:-}"
       if [ -z "$token" ]; then
         have_tty || return 0        # a one-line install stays a one-line install
+        # THE SAME WORDS AS THE WINDOWS TWIN, line for line. They drifted once: this side
+        # said Menerio from 2026-09-05 while Windows still asked about "a notebook", so
+        # two readers of one book were offered two differently named things.
         kb_tell ""
-        kb_tell "Menerio is optional: an AI notebook that lets you search your hub by meaning instead of by exact word."
-        kb_tell "Everything in this book works on plain files without it."
-        kb_tell "It needs a free account at menerio.com."
+        kb_tell "Menerio is optional. Everything in this book works on plain files without it."
+        kb_tell "It is the author's online notebook. Connect it once, and every assistant that"
+        kb_tell "opens this hub can save notes there and find them again. Your whole hub also"
+        kb_tell "becomes searchable by meaning, not only by exact word."
+        kb_tell "A free account is enough to try it: https://menerio.com/auth?tab=signup"
         ask_yes "Connect Menerio now?" "n" || { ok "Menerio: not connected, which is a complete way to own a hub. Run this installer again whenever you change your mind."; return 0; }
         kb_tell "In Menerio: Settings, then API Keys, then Generate new API key. Leave every box ticked (that is the default)."
         token="$(ask "Paste that key here")"
       fi
       [ -n "$token" ] || { ok "notebook: nothing pasted, so nothing was connected."; return 0; }
+      kb_ensure_age || true       # the store below says what to do if this could not fetch it
       kb_store_notebook_token "$hub" "$token" || return 0
       kb_seal_hub_key "$hub" || true ;;
   esac
 
-  kb_write_mcp_config "$hub"
   kb_seed_expiry_record "$hub"
   kb_seed_due_folder "$hub"
   kb_install_notebook_sync "$hub"
   kb_persist_notebook_env "$hub"
+  # LAST, because it reads the key the lines above stored and exposed. It runs on every
+  # road into this function: a key pasted a moment ago, a hub that was connected already,
+  # and a second computer that has just typed its passphrase. So a re-run of the installer
+  # is also how an assistant installed later gets the connection.
+  kb_connect_assistants "$hub"
   return 0
 }
 
