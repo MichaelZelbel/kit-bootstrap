@@ -3049,60 +3049,220 @@ kb_connect_assistants() {
   return 0
 }
 
+# =============================================================================
+# THE NOTEBOOK AND THE COPY OF YOUR HUB ARE TWO CHOICES, NOT ONE (2026-09-21)
+#
+# Two readers who had never seen the book were given the Menerio chapter cold, and both
+# refused to connect. Their reason was the same: connecting quietly started copying the
+# whole hub into an online account, and their hubs hold client notes and patient notes.
+# They were right. "Let my assistant keep notes online" and "put a copy of every file I
+# own online" are different decisions, and the installer had made the second one for
+# them under the name of the first.
+#
+# So the copy is its own question, asked after the notebook is connected, and its answer
+# is no unless the reader says yes. The answer is a fact about ONE computer, so it lives
+# in ~/.hub/device.env beside HUB_DIR, as HUB_NOTEBOOK_MIRROR=1 or =0. The kit's hourly
+# runner reads that line, and neither sends nor fetches anything unless it says 1.
+#
+# A NO MEANS NOTHING MOVES, IN EITHER DIRECTION (second round of readers, 2026-09-21).
+# The first version of this kept bringing the reader's people and facts DOWN into world/
+# after a no, on the grounds that coming down sends nothing anywhere. The readers did not
+# see it that way, and they were right again: "no" to a background copy means no
+# background traffic with that account at all. The runner's DOWN half follows the same
+# line as its UP half.
+#
+# THE JOB IS STILL INSTALLED ON A NO, because copying is not all it does: it keeps the
+# folder fresh from its own repository and hands a replaced key to Hermes. After a no it
+# is never described as Menerio copying, because it is not.
+#
+# The Windows twins are Get-KitNotebookMirror, Set-KitNotebookMirror,
+# Test-KitNotebookRunnerAsks and Select-KitNotebookMirror.
+# =============================================================================
+
+# kb_device_env_set <NAME> <value>
+# One line in ~/.hub/device.env: replaced when it is there, added when it is not, every
+# other line kept, the file made when there is none.
+kb_device_env_set() {
+  local name="${1:-}" value="${2:-}" f="$HOME/.hub/device.env" tmp
+  [ -n "$name" ] || return 1
+  mkdir -p "$HOME/.hub"
+  if [ -f "$f" ] && grep -q "^[[:space:]]*$name=" "$f" 2>/dev/null; then
+    tmp="$f.tmp.$$"
+    sed "s|^[[:space:]]*$name=.*|$name=$value|" "$f" > "$tmp" && mv "$tmp" "$f"
+  else
+    printf '%s=%s\n' "$name" "$value" >> "$f"
+  fi
+}
+
+# kb_notebook_mirror -> 1 | 0 | (nothing: this computer has never been asked)
+kb_notebook_mirror() {
+  local v
+  v="$(sed -n 's/^[[:space:]]*HUB_NOTEBOOK_MIRROR=//p' "$HOME/.hub/device.env" 2>/dev/null | tail -1 | tr -d ' \r')"
+  case "$v" in 1|0) printf '%s' "$v" ;; esac
+}
+
+# kb_notebook_runner_asks
+# Does the notebook job on this computer read HUB_NOTEBOOK_MIRROR before it sends
+# anything? A copy of the kit from before 2026-09-21 does not: its job copies the hub
+# up every hour whatever device.env says. A "no" that the job ignores is worse than no
+# question at all, so kb_install_notebook_sync refuses to schedule such a job on a no.
+kb_notebook_runner_asks() {
+  grep -q 'HUB_NOTEBOOK_MIRROR' "$HOME/.local/bin/hub-notebook-sync" 2>/dev/null
+}
+
+# kb_notebook_job_is_here
+# Is the hourly notebook job already in this account's schedule?
+kb_notebook_job_is_here() {
+  local cron="${KB_CRONTAB:-crontab}"
+  command -v "$cron" >/dev/null 2>&1 || return 1
+  case "$("$cron" -l 2>/dev/null || true)" in *hub-notebook-sync*) return 0 ;; esac
+  return 1
+}
+
+# kb_choose_notebook_mirror <hub>
+# The second question. Asked once for each computer, after the notebook is connected.
+#
+#   KB_NOTEBOOK_MIRROR=yes|no   answers it without asking, and always wins
+#   a line already in device.env  is the answer, and nobody is asked again,
+#                                 EXCEPT under --only menerio, which asks again with the
+#                                 old answer as the default, so a mind can be changed
+#   the hourly job already here, and no line
+#                                 this computer WAS copying, since before there was a
+#                                 question. It is written down as 1 and one line says
+#                                 so: turning a reader's search off without a word, on
+#                                 an update, would be its own kind of surprise
+#   no keyboard and no answer     no, and nothing is written, so the question is still
+#                                 there to be asked on the day somebody is
+kb_choose_notebook_mirror() {
+  local hub="${1:-}" cur default="n" answer=""
+  [ "$(kb_notebook_state "$hub")" = "connected" ] || return 0
+  cur="$(kb_notebook_mirror)"
+
+  case "${KB_NOTEBOOK_MIRROR:-}" in
+    [Yy]*|1) answer=1 ;;
+    [Nn]*|0) answer=0 ;;
+  esac
+  if [ -z "$answer" ]; then
+    if [ -n "$cur" ] && [ "${KB_ONLY_MENERIO:-0}" != "1" ]; then return 0; fi
+    if [ -z "$cur" ] && kb_notebook_job_is_here; then
+      kb_device_env_set HUB_NOTEBOOK_MIRROR 1
+      log "notebook: this computer was already copying your hub's files to Menerio for search, so that stays on. To turn it off, run the Menerio step again."
+      return 0
+    fi
+    have_tty || return 0
+    [ "$cur" = "1" ] && default="y"
+    # THE SAME WORDS AS THE WINDOWS TWIN, line for line. test.sh compares the two.
+    kb_tell ""
+    kb_tell "One more choice. Menerio can keep a copy of your hub's text files, so your assistant"
+    kb_tell "can search them by meaning and not only by exact word. The copy holds everything in"
+    kb_tell "your hub except dev/ and your locked keys. In return, the people and facts Menerio"
+    kb_tell "holds for you are copied into your hub's world/ folder as a safety copy. Say yes only"
+    kb_tell "if you are happy for your hub's files to be in your Menerio account. Your notebook"
+    kb_tell "works either way."
+    if ask_yes "Copy your hub's files to Menerio for search?" "$default"; then answer=1; else answer=0; fi
+  fi
+
+  kb_device_env_set HUB_NOTEBOOK_MIRROR "$answer"
+  if [ "$answer" = "1" ]; then
+    ok "notebook: your hub's files are copied to Menerio when your hub saves a version and once an hour. The people and facts Menerio holds for you come down into world/ once an hour. To stop both, run the Menerio step again and say no."
+  else
+    ok "notebook: nothing is copied in either direction. Your hub's files stay on this computer, and nothing is sent to Menerio or fetched from it in the background. Your assistant still saves and finds notes there when you ask it to."
+  fi
+  return 0
+}
+
 # kb_install_notebook_sync <hub>
-# On save, plus an hourly catch-up. Both are quiet and cost nothing when no notebook is
+# On save, plus an hourly job. Both are quiet and cost nothing when no notebook is
 # connected, which is why they can be installed for every reader rather than only for
 # the ones who connect one.
+#
+# WHAT THE JOB DOES DEPENDS ON THE READER'S ANSWER, and every line printed here has to be
+# true for the answer they gave. It copies between the hub and Menerio, in both
+# directions, only when HUB_NOTEBOOK_MIRROR=1. Without that it keeps the folder fresh from
+# its repository and hands a replaced key to Hermes, and that is all. Before
+# 2026-09-21 these lines said "your hub now updates the notebook the moment you save a
+# change" to everybody, which after a "no" is the exact sentence that lost two readers.
+#
+# AND A NO HAS TO BE A NO. A job from an older copy of the kit never reads the setting and
+# copies the hub up regardless. On anything but a yes, such a job is not scheduled, and
+# one this installer scheduled earlier is taken out again, with a line that says so. The
+# reader goes without the fresh folder until the kit is updated, which is a small loss
+# and the honest one.
 kb_install_notebook_sync() {
-  local hub="${1:-}" cron cur runner hook
+  local hub="${1:-}" cron cur runner hook what
   [ -n "$hub" ] || return 0
   runner="$HOME/.local/bin/hub-notebook-sync"
   [ -f "$runner" ] || return 0
+  hook="$hub/.git/hooks/post-commit"
+  cron="${KB_CRONTAB:-crontab}"
+
+  if [ "$(kb_notebook_mirror)" = "1" ]; then
+    what="a small job copies your hub's files up to Menerio and brings your people and facts down into world/. It also keeps this folder fresh from its repository."
+  else
+    what="a small job keeps this folder fresh from its repository and hands a replaced key to Hermes. It copies nothing to Menerio and fetches nothing from it."
+    if ! kb_notebook_runner_asks; then
+      # Only what this installer wrote is taken out: its own hook, known by its first
+      # comment line, and its own line in the schedule.
+      if [ -f "$hook" ] && grep -q '(Teach It Once)' "$hook" 2>/dev/null && grep -q 'hub-notebook-sync' "$hook" 2>/dev/null; then
+        rm -f "$hook"
+      fi
+      if ! kb_beside && command -v "$cron" >/dev/null 2>&1; then
+        cur="$("$cron" -l 2>/dev/null || true)"
+        case "$cur" in *hub-notebook-sync*)
+          printf '%s\n' "$cur" | grep -v -e 'hub-notebook-sync' -e '# Keep your notebook current' -e '# The hub job, for whatever changed' | "$cron" - 2>/dev/null || true ;;
+        esac
+      fi
+      log "hub job: the job in this copy of the kit always copies your hub's files to Menerio, and you have not said yes to that. So it is not scheduled on this computer. Run this again after the kit is updated."
+      return 0
+    fi
+  fi
+
+  # Said once, before the two places it runs from, so neither of those lines has to repeat it.
+  ok "hub job: $what"
 
   # 1. On save. A saved change is the folder's own definition of "this is real", and it
   #    is what every routine in the book already ends with.
   if [ -d "$hub/.git" ]; then
-    hook="$hub/.git/hooks/post-commit"
     if [ -f "$hook" ] && ! grep -q 'hub-notebook-sync' "$hook" 2>/dev/null; then
-      ok "notebook: you already have a post-commit hook, so I left it alone. To update the notebook on save too, add this line to it: \"$runner\" >/dev/null 2>&1 &"
+      ok "hub job: you already have a post-commit hook, so I left it alone. To run the job on save too, add this line to it: \"$runner\" >/dev/null 2>&1 &"
     elif [ ! -f "$hook" ]; then
       mkdir -p "$hub/.git/hooks"
       # Never blocks and never fails the save: a hook that breaks committing is worse
       # than no hook at all.
       {
         printf '#!/bin/sh\n'
-        printf '# Keep your notebook current the moment you save (Teach It Once).\n'
-        printf '# Never blocks, never fails the save, and does nothing at all if you have no notebook.\n'
+        printf '# Run the hub job the moment you save (Teach It Once).\n'
+        printf '# Never blocks and never fails the save. It copies to Menerio only if you said yes:\n'
+        printf '# that is the line HUB_NOTEBOOK_MIRROR in ~/.hub/device.env.\n'
         printf '"%s" >/dev/null 2>&1 &\n' "$runner"
         printf 'exit 0\n'
       } > "$hook"
       chmod +x "$hook" 2>/dev/null || true
-      ok "notebook: your hub now updates the notebook the moment you save a change"
+      ok "hub job: it now runs the moment you save a change"
     fi
   fi
 
-  # 2. The hourly catch-up. A hub sitting beside another one stops here: the hook above
+  # 2. The hourly job. A hub sitting beside another one stops here: the hook above
   #    is inside this folder and is its own, but the cron line is one line for the whole
   #    account.
   if kb_beside; then
-    ok "notebook: left the hourly catch-up where it is. This hub sits beside the one this computer works from."
+    ok "hub job: left the hourly job where it is. This hub sits beside the one this computer works from."
     return 0
   fi
 
-  # 2. The hourly catch-up, for whatever happened while the computer was asleep. Hourly
+  # 2. The hourly job, for whatever happened while the computer was asleep. Hourly
   #    rather than at a fixed hour, because a fixed time in the small hours is right for
   #    a server and wrong for a laptop, which is shut.
-  cron="${KB_CRONTAB:-crontab}"
   command -v "$cron" >/dev/null 2>&1 || return 0
   cur="$("$cron" -l 2>/dev/null || true)"
-  case "$cur" in *hub-notebook-sync*) ok "notebook: the hourly catch-up is already on this computer"; return 0 ;; esac
+  case "$cur" in *hub-notebook-sync*) ok "hub job: it already runs once an hour on this computer"; return 0 ;; esac
   if { [ -n "$cur" ] && printf '%s\n' "$cur"
-       printf '%s\n' "# Keep your notebook current, for whatever changed while this computer was asleep."
+       printf '%s\n' "# The hub job, for whatever changed while this computer was asleep (Teach It Once)."
        printf '37 * * * * "%s" >> "%s/.hub/notebook-sync.log" 2>&1\n' "$runner" "$HOME"
      } | "$cron" - 2>/dev/null; then
-    ok "notebook: this computer will also catch up once an hour"
+    ok "hub job: it also runs once an hour, for what changed while this computer was asleep"
   else
-    warn "notebook: I could not add the hourly job to this computer's schedule. Your notebook still updates when you save."
+    warn "hub job: I could not add the hourly job to this computer's schedule. The job still runs when you save a change."
   fi
 }
 
@@ -3135,8 +3295,9 @@ kb_connect_notebook() {
         kb_tell ""
         kb_tell "Menerio is optional. Everything in this book works on plain files without it."
         kb_tell "It is the author's online notebook. Connect it once, and every assistant that"
-        kb_tell "opens this hub can save notes there and find them again. Your whole hub also"
-        kb_tell "becomes searchable by meaning, not only by exact word."
+        kb_tell "opens this hub can save notes there and find them again. Connecting sends none"
+        kb_tell "of your hub's files anywhere. Copying them for search is a second question, asked"
+        kb_tell "after this one, and its answer is no unless you say yes."
         kb_tell "A free account is enough to try it: https://menerio.com/auth?tab=signup"
         ask_yes "Connect Menerio now?" "n" || { ok "Menerio: not connected, which is a complete way to own a hub. Run this installer again whenever you change your mind."; return 0; }
         kb_tell "In Menerio: Settings, then API Keys, then Generate new API key. Leave every box ticked (that is the default)."
@@ -3150,13 +3311,17 @@ kb_connect_notebook() {
 
   kb_seed_expiry_record "$hub"
   kb_seed_due_folder "$hub"
-  kb_install_notebook_sync "$hub"
   kb_persist_notebook_env "$hub"
-  # LAST, because it reads the key the lines above stored and exposed. It runs on every
+  # AFTER the key is stored and exposed, because it reads that key. It runs on every
   # road into this function: a key pasted a moment ago, a hub that was connected already,
   # and a second computer that has just typed its passphrase. So a re-run of the installer
   # is also how an assistant installed later gets the connection.
   kb_connect_assistants "$hub"
+  # The second choice, and only then the job that acts on it. In this order on purpose:
+  # the job's lines say what it will do on THIS computer, so the answer has to exist
+  # first, and a hub whose copy was never agreed to is never scheduled as if it had been.
+  kb_choose_notebook_mirror "$hub"
+  kb_install_notebook_sync "$hub"
   return 0
 }
 
@@ -3203,7 +3368,9 @@ kb_only_menerio() {
     kb_copy_starter_hub "$hub" "$repo" "${KB_STARTER_PATH:-starter-hub}" >/dev/null 2>&1 || true
   fi
   KB_MENERIO_PROBLEM=0
-  KB_NOTEBOOK="" kb_connect_notebook "$hub"
+  # KB_ONLY_MENERIO is how the question about the copy knows a reader came back on purpose:
+  # it is asked again, with the old answer as the default. A full install asks it once.
+  KB_NOTEBOOK="" KB_ONLY_MENERIO=1 kb_connect_notebook "$hub"
   if [ "$(kb_notebook_state "$hub"):${KB_MENERIO_PROBLEM:-0}" = "connected:1" ] && have_tty; then
     kb_tell ""
     kb_tell "If the problem above is the key, you can store a new one now. It replaces the old one."

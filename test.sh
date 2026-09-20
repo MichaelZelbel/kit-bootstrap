@@ -40,6 +40,8 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_unseal_hub_key kb_seal_hub_key kb_store_notebook_token kb_write_mcp_config \
          kb_install_notebook_sync kb_persist_notebook_env kb_connect_notebook \
          kb_ensure_age kb_connect_assistants kb_only_menerio \
+         kb_device_env_set kb_notebook_mirror kb_notebook_runner_asks kb_notebook_job_is_here \
+         kb_choose_notebook_mirror \
          kb_seed_expiry_record kb_seed_due_folder \
          kb_json_str kb_count_recipes kb_skills_room kb_point_at_room \
          kb_hermes_skills_dir kb_wire_skills kb_hermes_bin kb_hermes_here \
@@ -825,7 +827,9 @@ FAKE
 chmod +x "$_n/fakecrontab"
 t "no sync program on this computer means nothing is scheduled and nothing is said" \
   "$(KB_CRONTAB="$_n/fakecrontab" kb_install_notebook_sync "$_n/hub" 2>&1)" ""
-printf '#!/bin/sh\nexit 0\n' > "$_n/home/.local/bin/hub-notebook-sync"
+# A runner that reads the reader's answer, like the kit's own since 2026-09-21. One that
+# does not is never scheduled without a yes, and has its own cases further down.
+printf '#!/bin/sh\n# reads HUB_NOTEBOOK_MIRROR\nexit 0\n' > "$_n/home/.local/bin/hub-notebook-sync"
 chmod +x "$_n/home/.local/bin/hub-notebook-sync"
 git -C "$_n/hub" init -q 2>/dev/null
 ( KB_CRONTAB="$_n/fakecrontab" kb_install_notebook_sync "$_n/hub" ) >/dev/null 2>&1
@@ -1922,7 +1926,7 @@ t "and the same call without beside does schedule one" \
 # The save hook lives INSIDE this hub, so beside still gets its own. The hourly cron
 # line does not, so beside adds none.
 : > "$_bcron"
-printf '#!/bin/sh\nexit 0\n' > "$_bh/.local/bin/hub-notebook-sync"
+printf '#!/bin/sh\n# reads HUB_NOTEBOOK_MIRROR\nexit 0\n' > "$_bh/.local/bin/hub-notebook-sync"
 chmod +x "$_bh/.local/bin/hub-notebook-sync"
 git -C "$_bd/two" init -q >/dev/null 2>&1
 ( HOME="$_bh" KB_BESIDE=1 KB_CRONTAB="$_bd/fakecrontab" kb_install_notebook_sync "$_bd/two" ) >/dev/null 2>&1
@@ -2165,7 +2169,9 @@ t "an unknown step is refused by name on both front doors" \
 # join.ps1 still asked about "a notebook". The two texts are compared, not eyeballed.
 _q_sh="$(sed -n 's/^ *kb_tell "\(.*\)"$/\1/p' lib.sh | sed -n '/^Menerio is optional/,/^A free account is enough/p')"
 _q_ps="$(tr -d '\r' < join.ps1 | sed -n 's/^ *Write-Host "\(.*\)"$/\1/p' | sed -n '/^Menerio is optional/,/^A free account is enough/p')"
-t "the Menerio question has five lines"  "$(printf '%s\n' "$_q_sh" | grep -c .)" "5"
+t "the Menerio question has six lines"   "$(printf '%s\n' "$_q_sh" | grep -c .)" "6"
+t "and it says that connecting sends none of the hub's files anywhere" \
+  "$(printf '%s' "$_q_sh" | tr '\n' ' ' | grep -c "Connecting sends none of your hub's files anywhere")" "1"
 t "and Windows asks it in the same words" "$_q_ps" "$_q_sh"
 t "it says where a free account is made" \
   "$(printf '%s' "$_q_sh" | grep -c 'https://menerio.com/auth?tab=signup')" "1"
@@ -2176,6 +2182,151 @@ t "and Windows no longer asks about 'a notebook'" \
 t "the answer is still no unless the reader says yes" \
   "$(grep -c 'ask_yes "Connect Menerio now?" "n"' lib.sh)" "1"
 rm -rf "$_m"
+
+# ---------------------------------------------------------------------------
+# THE NOTEBOOK AND THE COPY OF YOUR HUB ARE TWO CHOICES (2026-09-21).
+#
+# Two readers given the Menerio chapter cold both refused to connect, for one reason:
+# connecting quietly started copying the whole hub, client notes and patient notes
+# included, into an online account. So the copy is its own question with "no" as its
+# answer, recorded per computer as HUB_NOTEBOOK_MIRROR in ~/.hub/device.env. The bash
+# twins of the block with the same name in windows/test-windows.ps1.
+# ---------------------------------------------------------------------------
+echo
+echo "== the copy of the hub is its own choice"
+_c="$(mktemp -d)"
+mkdir -p "$_c/home/.hub" "$_c/home/.local/bin" "$_c/hub/secrets"
+git -C "$_c/hub" init -q 2>/dev/null
+: > "$_c/cron.txt"
+printf '#!/bin/sh\ncase "$1" in -l) cat "%s" ;; -) cat > "%s" ;; esac\n' "$_c/cron.txt" "$_c/cron.txt" > "$_c/fakecrontab"
+chmod +x "$_c/fakecrontab"
+_new_runner() { printf '#!/bin/sh\n# reads HUB_NOTEBOOK_MIRROR from device.env before it sends anything\nexit 0\n' > "$_c/home/.local/bin/hub-notebook-sync"; }
+_old_runner() { printf '#!/bin/sh\n# an older job: it copies the hub up whatever anybody said\nexit 0\n' > "$_c/home/.local/bin/hub-notebook-sync"; }
+_line() { sed -n 's/^HUB_NOTEBOOK_MIRROR=//p' "$_c/home/.hub/device.env" 2>/dev/null | tr '\n' ','; }
+# _choose <tty yes|no> <typed answer> [VAR=value ...]: run the question in a sandbox home
+_choose() {
+  local tty="$1" typed="$2"; shift 2
+  ( HOME="$_c/home"; export HOME; KB_CRONTAB="$_c/fakecrontab"; KB_NOTEBOOK_MIRROR=""; KB_ONLY_MENERIO=0
+    for kv in "$@"; do eval "$kv"; done
+    kb_notebook_state() { printf connected; }
+    have_tty() { [ "$tty" = yes ]; }
+    kb_tell() { printf 'TELL %s\n' "$*"; }
+    ask_yes() { printf 'ASKED %s default=%s\n' "$1" "$2"; case "${typed:-$2}" in y*) return 0 ;; *) return 1 ;; esac; }
+    kb_choose_notebook_mirror "$_c/hub" ) 2>&1
+}
+
+printf 'HUB_DIR=/somewhere/hub\nHUB_TOOLS_REPO=kit\n' > "$_c/home/.hub/device.env"
+out="$(_choose yes "")"
+t "the copy is asked about in its own question" \
+  "$(printf '%s' "$out" | grep -c "ASKED Copy your hub's files to Menerio for search? default=n")" "1"
+t "pressing Enter means no, and the no is written down for this computer" "$(_line)" "0,"
+t "every other line of device.env is kept" \
+  "$(grep -c -e '^HUB_DIR=/somewhere/hub$' -e '^HUB_TOOLS_REPO=kit$' "$_c/home/.hub/device.env")" "2"
+t "after a no the reader is told nothing moves in either direction, and nothing runs in the background" \
+  "$(printf '%s' "$out" | grep -c "nothing is copied in either direction.*nothing is sent to Menerio or fetched from it in the background")" "1"
+t "and what follows a no never mentions a safety copy coming down"   "$(printf '%s
+' "$out" | grep 'ok:' | grep -c 'safety copy')" "0"
+out="$(_choose yes y)"
+t "once answered, a full install never asks again" "$(printf '%s' "$out" | grep -c ASKED)" "0"
+out="$(_choose yes y KB_ONLY_MENERIO=1)"
+t "the Menerio step asks again, with the old answer as the default" \
+  "$(printf '%s' "$out" | grep -c 'ASKED .* default=n')" "1"
+t "after a yes: up when the hub saves a version and once an hour, and the safety copy down once an hour" \
+  "$(printf '%s' "$out" | grep -c "copied to Menerio when your hub saves a version and once an hour. The people and facts Menerio holds for you come down into world/ once an hour")" "1"
+t "a yes replaces the line and leaves exactly one" "$(_line)" "1,"
+out="$(_choose yes "" KB_ONLY_MENERIO=1)"
+t "and after a yes the default is yes, so Enter keeps it" \
+  "$(printf '%s' "$out" | grep -c 'ASKED .* default=y'):$(_line)" "1:1,"
+out="$(_choose no "" KB_NOTEBOOK_MIRROR=no)"
+t "KB_NOTEBOOK_MIRROR=no answers it with nobody at the keyboard, asking nothing" \
+  "$(printf '%s' "$out" | grep -c ASKED):$(_line)" "0:0,"
+_choose no "" KB_NOTEBOOK_MIRROR=yes >/dev/null
+t "and KB_NOTEBOOK_MIRROR=yes turns it on" "$(_line)" "1,"
+rm -f "$_c/home/.hub/device.env"
+out="$(_choose no "")"
+t "no keyboard and no answer means no, and nothing is written, so it can still be asked" \
+  "$(printf '%s' "$out" | grep -c ASKED):$([ -f "$_c/home/.hub/device.env" ] && echo written || echo nothing)" "0:nothing"
+_choose yes "" >/dev/null
+t "device.env is made when there is none" "$(_line)" "0,"
+out="$( ( HOME="$_c/home"; kb_notebook_state() { printf none; }; have_tty() { return 0; }
+          ask_yes() { echo ASKED; }; rm -f "$_c/home/.hub/device.env"; kb_choose_notebook_mirror "$_c/hub" ) 2>&1 )"
+t "a hub with no notebook is never asked about a copy" "$out" ""
+
+# THE MIGRATION. A computer that has the hourly job from before there was a question WAS
+# copying. It is written down as 1 without asking, and one line says so.
+rm -f "$_c/home/.hub/device.env"
+printf '37 * * * * "/x/.local/bin/hub-notebook-sync" >> "/x/.hub/notebook-sync.log" 2>&1\n' > "$_c/cron.txt"
+out="$(_choose yes "")"
+t "a computer that was already copying is written down as 1, without being asked" \
+  "$(printf '%s' "$out" | grep -c ASKED):$(_line)" "0:1,"
+t "and one line says so, and says how to turn it off" \
+  "$(printf '%s' "$out" | grep -c 'was already copying your hub.s files to Menerio for search, so that stays on')" "1"
+: > "$_c/cron.txt"
+
+# WHAT THE JOB'S LINES SAY HAS TO BE TRUE FOR THE ANSWER GIVEN.
+_sync() { ( HOME="$_c/home"; export HOME; KB_CRONTAB="$_c/fakecrontab" kb_install_notebook_sync "$_c/hub" ) 2>&1; }
+_new_runner
+printf 'HUB_NOTEBOOK_MIRROR=0\n' > "$_c/home/.hub/device.env"
+out="$(_sync)"
+t "after a no, the job is still installed, because copying is not all it does" \
+  "$(grep -c hub-notebook-sync "$_c/cron.txt"):$(grep -c hub-notebook-sync "$_c/hub/.git/hooks/post-commit")" "1:1"
+t "and its line says it copies nothing to Menerio and fetches nothing from it" \
+  "$(printf '%s' "$out" | grep -c "It copies nothing to Menerio and fetches nothing from it")" "1"
+t "and after a no, nothing describes the job as Menerio copying, in either direction" \
+  "$(printf '%s' "$out" | grep -c -e 'updates the notebook' -e 'copies your hub' -e 'safety copy' -e 'down into world')" "0"
+printf 'HUB_NOTEBOOK_MIRROR=1\n' > "$_c/home/.hub/device.env"
+out="$(_sync)"
+t "after a yes, the line says the files go up and the people and facts come down" \
+  "$(printf '%s' "$out" | grep -c "copies your hub's files up to Menerio and brings your people and facts down into world/")" "1"
+
+# A NO HAS TO BE A NO. An older job never reads the setting and copies the hub regardless.
+_old_runner
+printf 'HUB_NOTEBOOK_MIRROR=0\n' > "$_c/home/.hub/device.env"
+printf 'BEFORE=keep\n' >> "$_c/cron.txt"
+out="$(_sync)"
+t "an older job that always copies is taken OUT of the schedule after a no" \
+  "$(grep -c hub-notebook-sync "$_c/cron.txt")" "0"
+t "and so is the save hook this installer wrote" \
+  "$([ -e "$_c/hub/.git/hooks/post-commit" ] && echo there || echo gone)" "gone"
+t "the rest of the schedule is kept" "$(grep -c 'BEFORE=keep' "$_c/cron.txt")" "1"
+t "and the reader is told why, and what brings it back" \
+  "$(printf '%s' "$out" | grep -c 'always copies your hub.s files to Menerio, and you have not said yes to that')" "1"
+rm -f "$_c/home/.hub/device.env"
+_sync >/dev/null
+t "a computer nobody has asked yet is treated as a no, never as a yes" \
+  "$(grep -c hub-notebook-sync "$_c/cron.txt")" "0"
+printf '#!/bin/sh\n# mine\n' > "$_c/hub/.git/hooks/post-commit"
+printf 'HUB_NOTEBOOK_MIRROR=0\n' > "$_c/home/.hub/device.env"
+_sync >/dev/null
+t "a hook the reader wrote is never removed" "$(grep -c '# mine' "$_c/hub/.git/hooks/post-commit")" "1"
+rm -f "$_c/hub/.git/hooks/post-commit"
+printf 'HUB_NOTEBOOK_MIRROR=1\n' > "$_c/home/.hub/device.env"
+_sync >/dev/null
+t "after a yes the older job is scheduled as it always was" "$(grep -c hub-notebook-sync "$_c/cron.txt")" "1"
+
+# THE SAME WORDS ON BOTH PLATFORMS, compared and not eyeballed.
+_words() { sed -n "s/^ *$2 \"\\(.*\\)\"\$/\\1/p" "$1" | tr -d '\r' | sed -n "/^$3/,/$4/p"; }
+t "the copy question has six lines" \
+  "$(_words lib.sh kb_tell 'One more choice' '^works either way' | grep -c .)" "6"
+t "and it is the agreed text, word for word, covering both directions" \
+  "$(_words lib.sh kb_tell 'One more choice' '^works either way' | tr '\n' ' ')" \
+  "One more choice. Menerio can keep a copy of your hub's text files, so your assistant can search them by meaning and not only by exact word. The copy holds everything in your hub except dev/ and your locked keys. In return, the people and facts Menerio holds for you are copied into your hub's world/ folder as a safety copy. Say yes only if you are happy for your hub's files to be in your Menerio account. Your notebook works either way. "
+t "and Windows asks it in the same words" \
+  "$(_words join.ps1 Write-Host 'One more choice' '^works either way')" \
+  "$(_words lib.sh kb_tell 'One more choice' '^works either way')"
+t "both platforms ask the copy question with no as the answer" \
+  "$(grep -c "ask_yes \"Copy your hub's files to Menerio for search?\" \"\$default\"" lib.sh):$(grep -c "Read-Host \"Copy your hub's files to Menerio for search? (y/N)\"" join.ps1)" "1:1"
+for _w in "nothing is copied in either direction. Your hub's files stay on this computer, and nothing is sent to Menerio or fetched from it in the background." \
+          "your hub's files are copied to Menerio when your hub saves a version and once an hour. The people and facts Menerio holds for you come down into world/ once an hour." \
+          "was already copying your hub's files to Menerio for search, so that stays on. To turn it off, run the Menerio step again." \
+          "It copies nothing to Menerio and fetches nothing from it." \
+          "copies your hub's files up to Menerio and brings your people and facts down into world/." \
+          "always copies your hub's files to Menerio, and you have not said yes to that."; do
+  t "both platforms say: ${_w%% *} ... ${_w##* }" "$(grep -cF "$_w" lib.sh):$(grep -cF "$_w" join.ps1)" "1:1"
+done
+t "the first question no longer promises that the whole hub becomes searchable" \
+  "$(cat lib.sh join.ps1 | grep -c 'Your whole hub also')" "0"
+rm -rf "$_c"
 
 echo
 echo "  $pass passed, $fail failed"

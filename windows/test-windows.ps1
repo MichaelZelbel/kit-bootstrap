@@ -106,6 +106,8 @@ foreach ($fn in 'Find-KitHub', 'Test-KitHub', 'Update-KitHub', 'Join-KitMemory',
                  'Save-KitNotebookToken', 'Write-KitMcpConfig', 'Install-KitNotebookSync',
                  'Set-KitNotebookEnv', 'Connect-KitNotebook', 'Test-KitInteractive',
                  'Install-KitAge', 'Connect-KitAssistants', 'Connect-KitMenerioOnly',
+                 'Set-KitDeviceEnvValue', 'Get-KitNotebookMirror', 'Test-KitNotebookRunnerAsks',
+                 'Test-KitNotebookJobHere', 'Select-KitNotebookMirror',
                  'Set-KitPromptSources', 'Write-KitSyncReport', 'Get-KitHome',
                  'Write-KitExpiryRecord', 'Write-KitDueFolder', 'Get-KitRoomTwin') {
     Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
@@ -532,8 +534,8 @@ function New-TestKit {
     Set-Content (Join-Path $Path 'tools\prompt-harvest.js')   'console.log(1)'
     Set-Content (Join-Path $Path 'tools\compile-rules.js')    'console.log(1)'
     Set-Content (Join-Path $Path 'tools\hub-prompt-archive')  'print(1)'
-    Set-Content (Join-Path $Path 'tools\hub-notebook-sync')   "#!/bin/sh`nexit 0"
-    Set-Content (Join-Path $Path 'tools\hub-notebook-env')    "#!/bin/sh`nexit 0"
+    Set-Content (Join-Path $Path 'tools\hub-notebook-sync')   "#!/bin/sh`n# reads HUB_NOTEBOOK_MIRROR`nexit 0"
+    Set-Content (Join-Path $Path 'tools\hub-notebook-env')    "#!/bin/sh`n# reads HUB_NOTEBOOK_MIRROR`nexit 0"
     Set-Content (Join-Path $Path 'tools\README.md')           '# not a program'
     git -C $Path init -q
     git -C $Path add -A 2>&1 | Out-Null
@@ -893,7 +895,7 @@ Check "a change that is saved updates the notebook, and the hook cannot fail the
         param($h)
         $hub = New-NotebookHub 'nb10'
         git -C $hub init -q
-        Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`nexit 0"
+        Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`n# reads HUB_NOTEBOOK_MIRROR`nexit 0"
         try {
             Install-KitNotebookSync -Hub $hub -TaskName $NotebookTask | Out-Null
             $hook = Join-Path $hub '.git\hooks\post-commit'
@@ -909,7 +911,7 @@ Check "running the installer twice does not stack up two hourly jobs" {
         param($h)
         $hub = New-NotebookHub 'nb11'
         git -C $hub init -q
-        Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`nexit 0"
+        Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`n# reads HUB_NOTEBOOK_MIRROR`nexit 0"
         try {
             Install-KitNotebookSync -Hub $hub -TaskName $NotebookTask | Out-Null
             Install-KitNotebookSync -Hub $hub -TaskName $NotebookTask | Out-Null
@@ -924,7 +926,7 @@ Check "an hourly job for a hub that moved is re-pointed at this hub (D-179)" {
         param($h)
         $old = New-NotebookHub 'nb-old'; $new = New-NotebookHub 'nb-new'
         git -C $old init -q; git -C $new init -q
-        Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`nexit 0"
+        Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`n# reads HUB_NOTEBOOK_MIRROR`nexit 0"
         try {
             Install-KitNotebookSync -Hub $old -TaskName $NotebookTask | Out-Null
             Install-KitNotebookSync -Hub $new -TaskName $NotebookTask | Out-Null
@@ -945,7 +947,7 @@ Check "the hourly job never opens a terminal window at the reader" {
         param($h)
         $hub = New-NotebookHub 'nb14'
         git -C $hub init -q
-        Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`nexit 0"
+        Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`n# reads HUB_NOTEBOOK_MIRROR`nexit 0"
         try {
             Install-KitNotebookSync -Hub $hub -TaskName $NotebookTask | Out-Null
             if (-not (Get-KitGitBash)) { return $true }  # nothing to schedule without Git Bash
@@ -964,7 +966,7 @@ Check "an hourly job from before that fix is replaced, not left flashing" {
         param($h)
         $hub = New-NotebookHub 'nb15'
         git -C $hub init -q
-        Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`nexit 0"
+        Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`n# reads HUB_NOTEBOOK_MIRROR`nexit 0"
         try {
             $bash = Get-KitGitBash
             if (-not $bash) { return $true }
@@ -986,7 +988,7 @@ Check "a hook the reader wrote themselves is left exactly as it was" {
         git -C $hub init -q
         New-Item -ItemType Directory -Force (Join-Path $hub '.git\hooks') | Out-Null
         Set-Content (Join-Path $hub '.git\hooks\post-commit') "#!/bin/sh`n# someone elses hook"
-        Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`nexit 0"
+        Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`n# reads HUB_NOTEBOOK_MIRROR`nexit 0"
         try {
             Install-KitNotebookSync -Hub $hub -TaskName $NotebookTask | Out-Null
             (Get-Content (Join-Path $hub '.git\hooks\post-commit') -Raw).Contains('someone elses hook')
@@ -1672,6 +1674,11 @@ if ((Get-Command age -ErrorAction SilentlyContinue) -and (Get-Command age-keygen
             function Set-KitNotebookEnv { param($Hub) }
             function Protect-KitHubKey { param($Hub) $false }
             function Install-KitNotebookSync { param($Hub) }
+            # The two questions are answered here and have their own cases further down. The
+            # task name is a made-up one, so "was this PC already copying" never looks at
+            # the real task on the PC running the suite.
+            function Test-KitNotebookJobHere { $false }
+            function Test-KitInteractive { $false }
             $out1 = Connect-KitNotebook -Hub $hub -Token 'test-token-not-a-real-one-0123456789' 3>&1 4>&1 6>&1 | Out-String
             $ran1 = (Test-Path $seen) -and (Test-Path (Join-Path $hub 'secrets\hub-secrets.env.age'))
             Remove-Item $seen -ErrorAction SilentlyContinue
@@ -1756,6 +1763,173 @@ Check "-Only survives the library load, which wipes it the same way it wiped -Hu
     $load    = [regex]::Match($SetupSrcM, '(?m)^\. \$Join -AsLibrary').Index
     $restore = $SetupSrcM.IndexOf('$Only = $WantOnly')
     ($save -gt 0) -and ($save -lt $load) -and ($load -lt $restore)
+}
+
+Write-Host ""
+Write-Host "-- the copy of the hub is its own choice"
+#
+# Twins of the block with the same name in test.sh. Two readers given the Menerio chapter
+# cold both refused to connect, for one reason: connecting quietly started copying the whole
+# hub, client notes and patient notes included, into an online account. So the copy is its
+# own question with "no" as its answer, recorded per PC as HUB_NOTEBOOK_MIRROR in
+# ~\.hub\device.env.
+#
+# KB_NOTEBOOK_TASK names a task that does not exist for every case here. Without it the
+# "was this PC already copying" check would look at the REAL 'Hub notebook sync' task, and
+# the author's PC has one, so the cases would pass or fail by whose PC they ran on.
+$MirrorTask = 'Hub notebook sync TEST ' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+function Invoke-MirrorCase([scriptblock]$Body) {
+    $t0 = $env:KB_NOTEBOOK_TASK; $m0 = $env:KB_NOTEBOOK_MIRROR; $o0 = $env:KB_ONLY_MENERIO; $p0 = $env:KB_NOTEBOOK_PASSPHRASE
+    try {
+        $env:KB_NOTEBOOK_TASK = $MirrorTask; $env:KB_NOTEBOOK_MIRROR = $null; $env:KB_ONLY_MENERIO = $null; $env:KB_NOTEBOOK_PASSPHRASE = $null
+        Invoke-NotebookCase $Body
+    } finally {
+        Unregister-ScheduledTask -TaskName $MirrorTask -Confirm:$false -ErrorAction SilentlyContinue
+        $env:KB_NOTEBOOK_TASK = $t0; $env:KB_NOTEBOOK_MIRROR = $m0; $env:KB_ONLY_MENERIO = $o0; $env:KB_NOTEBOOK_PASSPHRASE = $p0
+    }
+}
+function Get-MirrorLines([string]$HomeDir) {
+    $f = Join-Path $HomeDir '.hub\device.env'
+    if (-not (Test-Path $f)) { return '' }
+    return (@(Get-Content $f | Where-Object { $_ -match '^HUB_NOTEBOOK_MIRROR=' }) -join ',')
+}
+$NewRunner = "#!/bin/sh`n# reads HUB_NOTEBOOK_MIRROR from device.env before it sends anything`nexit 0"
+$OldRunner = "#!/bin/sh`n# an older job: it copies the hub up whatever anybody said`nexit 0"
+
+Check "the copy is its own question, Enter means no, and the no is written down beside the other lines" {
+    Invoke-MirrorCase {
+        param($h)
+        Set-Content (Join-Path $h '.hub\device.env') @('HUB_DIR=C:\somewhere\hub', 'HUB_TOOLS_REPO=kit')
+        $script:asked = @()
+        function Get-KitNotebookState { 'connected' }
+        function Test-KitInteractive { $true }
+        function Read-Host { param($Prompt) $script:asked += $Prompt; '' }
+        $out = (Select-KitNotebookMirror -Hub (New-NotebookHub 'mir1') 3>&1 4>&1 6>&1 | Out-String) -replace '\s+', ' '
+        $kept = @(Get-Content (Join-Path $h '.hub\device.env') | Where-Object { $_ -eq 'HUB_DIR=C:\somewhere\hub' -or $_ -eq 'HUB_TOOLS_REPO=kit' }).Count
+        (($script:asked -join '|') -eq "Copy your hub's files to Menerio for search? (y/N)") -and
+            ((Get-MirrorLines $h) -eq 'HUB_NOTEBOOK_MIRROR=0') -and ($kept -eq 2) -and
+            $out.Contains('nothing is copied in either direction') -and
+            $out.Contains('nothing is sent to Menerio or fetched from it in the background') -and
+            -not ($out.Substring($out.IndexOf('ok: notebook:')).Contains('safety copy'))   # the question names it, the answer must not
+    }
+}
+Check "once answered a full install never asks again, and the Menerio step asks with the old answer as the default" {
+    Invoke-MirrorCase {
+        param($h)
+        Set-Content (Join-Path $h '.hub\device.env') @('HUB_NOTEBOOK_MIRROR=0')
+        $script:asked = @()
+        function Get-KitNotebookState { 'connected' }
+        function Test-KitInteractive { $true }
+        function Read-Host { param($Prompt) $script:asked += $Prompt; 'y' }
+        $hub = New-NotebookHub 'mir2'
+        Select-KitNotebookMirror -Hub $hub 3>&1 4>&1 6>&1 | Out-Null
+        $quiet = ($script:asked.Count -eq 0) -and ((Get-MirrorLines $h) -eq 'HUB_NOTEBOOK_MIRROR=0')
+        $env:KB_ONLY_MENERIO = '1'
+        $yesOut = (Select-KitNotebookMirror -Hub $hub 3>&1 4>&1 6>&1 | Out-String) -replace '\s+', ' '
+        $first = ($script:asked[-1] -like '*(y/N)') -and ((Get-MirrorLines $h) -eq 'HUB_NOTEBOOK_MIRROR=1') -and
+                 $yesOut.Contains('copied to Menerio when your hub saves a version and once an hour. The people and facts Menerio holds for you come down into world/ once an hour')
+        function Read-Host { param($Prompt) $script:asked += $Prompt; '' }
+        Select-KitNotebookMirror -Hub $hub 3>&1 4>&1 6>&1 | Out-Null
+        $quiet -and $first -and ($script:asked[-1] -like '*(Y/n)') -and ((Get-MirrorLines $h) -eq 'HUB_NOTEBOOK_MIRROR=1')
+    }
+}
+Check "KB_NOTEBOOK_MIRROR answers it with nobody at the keyboard, and with no answer nothing is written" {
+    Invoke-MirrorCase {
+        param($h)
+        function Get-KitNotebookState { 'connected' }
+        function Test-KitInteractive { $false }
+        function Read-Host { throw 'must not ask' }
+        $hub = New-NotebookHub 'mir3'
+        Select-KitNotebookMirror -Hub $hub 3>&1 4>&1 6>&1 | Out-Null
+        $nothing = -not (Test-Path (Join-Path $h '.hub\device.env'))
+        $env:KB_NOTEBOOK_MIRROR = 'yes'
+        Select-KitNotebookMirror -Hub $hub 3>&1 4>&1 6>&1 | Out-Null
+        $yes = (Get-MirrorLines $h) -eq 'HUB_NOTEBOOK_MIRROR=1'
+        $env:KB_NOTEBOOK_MIRROR = 'no'
+        Select-KitNotebookMirror -Hub $hub 3>&1 4>&1 6>&1 | Out-Null
+        $nothing -and $yes -and ((Get-MirrorLines $h) -eq 'HUB_NOTEBOOK_MIRROR=0')
+    }
+}
+Check "a hub with no notebook is never asked about a copy" {
+    Invoke-MirrorCase {
+        param($h)
+        function Get-KitNotebookState { 'none' }
+        function Test-KitInteractive { $true }
+        function Read-Host { throw 'must not ask' }
+        $out = Select-KitNotebookMirror -Hub (New-NotebookHub 'mir4') 3>&1 4>&1 6>&1 | Out-String
+        ($out.Trim() -eq '') -and -not (Test-Path (Join-Path $h '.hub\device.env'))
+    }
+}
+Check "THE MIGRATION: a PC that was already copying is written down as 1 without being asked, and one line says so" {
+    Invoke-MirrorCase {
+        param($h)
+        function Get-KitNotebookState { 'connected' }
+        function Test-KitNotebookJobHere { $true }
+        function Test-KitInteractive { $true }
+        function Read-Host { throw 'must not ask' }
+        $out = (Select-KitNotebookMirror -Hub (New-NotebookHub 'mir5') 3>&1 4>&1 6>&1 | Out-String) -replace '\s+', ' '
+        ((Get-MirrorLines $h) -eq 'HUB_NOTEBOOK_MIRROR=1') -and
+            $out.Contains("was already copying your hub's files to Menerio for search, so that stays on")
+    }
+}
+Check "and 'already copying' means the hourly task really is registered, by the name a test can change" {
+    Invoke-MirrorCase {
+        param($h)
+        $before = Test-KitNotebookJobHere
+        $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c exit 0'
+        $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddYears(5)
+        Register-ScheduledTask -TaskName $MirrorTask -Action $action -Trigger $trigger -Force | Out-Null
+        (-not $before) -and (Test-KitNotebookJobHere)
+    }
+}
+
+Check "after a no the job is still installed, and nothing describes it as Menerio copying, in either direction" {
+    Invoke-MirrorCase {
+        param($h)
+        $hub = New-NotebookHub 'mir6'
+        git -C $hub init -q 2>&1 | Out-Null
+        [System.IO.File]::WriteAllText((Join-Path $h '.local\bin\hub-notebook-sync'), $NewRunner)
+        Set-Content (Join-Path $h '.hub\device.env') @('HUB_NOTEBOOK_MIRROR=0')
+        # Out-String folds a long line at the width of the window, so the fold is taken out again
+        # before a sentence is looked for. Without it this case passes or fails by window size.
+        $out = (Install-KitNotebookSync -Hub $hub 3>&1 4>&1 6>&1 | Out-String) -replace '\s+', ' '
+        $no = (Test-Path (Join-Path $hub '.git\hooks\post-commit')) -and [bool](Get-ScheduledTask -TaskName $MirrorTask -ErrorAction SilentlyContinue) -and
+              $out.Contains('It copies nothing to Menerio and fetches nothing from it') -and
+              -not ($out -match '(?i)updates the notebook|copies your hub|safety copy|down into world')
+        Set-Content (Join-Path $h '.hub\device.env') @('HUB_NOTEBOOK_MIRROR=1')
+        $out2 = (Install-KitNotebookSync -Hub $hub 3>&1 4>&1 6>&1 | Out-String) -replace '\s+', ' '
+        $no -and $out2.Contains("copies your hub's files up to Menerio and brings your people and facts down into world/")
+    }
+}
+Check "A NO HAS TO BE A NO: an older job that always copies is taken out, a reader's own hook is not" {
+    Invoke-MirrorCase {
+        param($h)
+        $hub = New-NotebookHub 'mir7'
+        git -C $hub init -q 2>&1 | Out-Null
+        $runner = Join-Path $h '.local\bin\hub-notebook-sync'
+        $hook = Join-Path $hub '.git\hooks\post-commit'
+        # First a yes with the older job: scheduled as it always was.
+        [System.IO.File]::WriteAllText($runner, $OldRunner)
+        Set-Content (Join-Path $h '.hub\device.env') @('HUB_NOTEBOOK_MIRROR=1')
+        Install-KitNotebookSync -Hub $hub 3>&1 4>&1 6>&1 | Out-Null
+        $was = (Test-Path $hook) -and [bool](Get-ScheduledTask -TaskName $MirrorTask -ErrorAction SilentlyContinue)
+        # Then the reader says no.
+        Set-Content (Join-Path $h '.hub\device.env') @('HUB_NOTEBOOK_MIRROR=0')
+        $out = (Install-KitNotebookSync -Hub $hub 3>&1 4>&1 6>&1 | Out-String) -replace '\s+', ' '
+        $gone = -not (Test-Path $hook) -and -not (Get-ScheduledTask -TaskName $MirrorTask -ErrorAction SilentlyContinue)
+        # A computer nobody has asked yet is a no as well, and a hook the reader wrote stays.
+        Remove-Item (Join-Path $h '.hub\device.env') -Force
+        New-Item -ItemType Directory -Force (Split-Path $hook) | Out-Null
+        Set-Content $hook "#!/bin/sh`n# mine"
+        Install-KitNotebookSync -Hub $hub 3>&1 4>&1 6>&1 | Out-Null
+        $was -and $gone -and $out.Contains("always copies your hub's files to Menerio, and you have not said yes to that") -and
+            (Get-Content $hook -Raw).Contains('# mine') -and -not (Get-ScheduledTask -TaskName $MirrorTask -ErrorAction SilentlyContinue)
+    }
+}
+
+Check "the first question no longer promises that the whole hub becomes searchable" {
+    $src = Get-Content (Join-Path $PSScriptRoot '..\join.ps1') -Raw
+    -not $src.Contains('Your whole hub also') -and $src.Contains('Copying them for search is a second question')
 }
 
 Write-Host ""
@@ -2628,7 +2802,7 @@ Check "beside still gives THIS hub its own save hook, because that lives inside 
             param($h)
             $hub = New-TestDir 'beside-nb-hub'
             git -C $hub init -q
-            Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`nexit 0"
+            Set-Content (Join-Path $h '.local\bin\hub-notebook-sync') "#!/bin/sh`n# reads HUB_NOTEBOOK_MIRROR`nexit 0"
             $env:KB_BESIDE = '1'
             Install-KitNotebookSync -Hub $hub -TaskName $task | Out-Null
             $hook = Join-Path $hub '.git\hooks\post-commit'
@@ -2655,8 +2829,8 @@ Check "beside leaves Hermes pointing where it was, and says so" {
 # refactor that drops one of them puts the collision back without failing anything above.
 $SetupSrc = Get-Content (Join-Path $PSScriptRoot 'setup-hub.ps1') -Raw
 Check "the installer takes -Beside" { $SetupSrc -match '\[switch\]\$Beside' }
-Check "the missing-code canary is the newest function, Connect-KitMenerioOnly" {
-    $SetupSrc -match "Get-Command Connect-KitMenerioOnly -ErrorAction SilentlyContinue"
+Check "the missing-code canary is the newest function, Select-KitNotebookMirror" {
+    $SetupSrc -match "Get-Command Select-KitNotebookMirror -ErrorAction SilentlyContinue"
 }
 Check "the HUB_DIR user variable is written only when this hub is the one in charge" {
     $SetupSrc -match "if \(-not \(Test-KitBeside\)\) \{[^}]*SetEnvironmentVariable\('HUB_DIR'"

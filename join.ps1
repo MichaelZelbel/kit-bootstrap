@@ -1930,9 +1930,152 @@ function Connect-KitAssistants {
     if (-not (Test-Path (Join-Path $Hub '.mcp.json'))) { Write-KitMcpConfig -Hub $Hub }
 }
 
+# =============================================================================
+# THE NOTEBOOK AND THE COPY OF YOUR HUB ARE TWO CHOICES, NOT ONE (2026-09-21)
+#
+# The Windows twins of kb_device_env_set, kb_notebook_mirror, kb_notebook_runner_asks,
+# kb_notebook_job_is_here and kb_choose_notebook_mirror in lib.sh,
+# and they exist for the same reason. Two readers who had never seen the book were given
+# the Menerio chapter cold, and both refused to connect: connecting quietly started
+# copying the whole hub into an online account, and their hubs hold client notes and
+# patient notes. "Let my assistant keep notes online" and "put a copy of every file I own
+# online" are different decisions, and the installer had made the second one for them
+# under the name of the first.
+#
+# So the copy is its own question, asked after the notebook is connected, and its answer
+# is no unless the reader says yes. The answer is a fact about ONE computer, so it lives
+# in ~\.hub\device.env beside HUB_DIR, as HUB_NOTEBOOK_MIRROR=1 or =0. The kit's hourly
+# runner reads that line, and neither sends nor fetches anything unless it says 1.
+#
+# A NO MEANS NOTHING MOVES, IN EITHER DIRECTION (second round of readers, 2026-09-21).
+# The first version of this kept bringing the reader's people and facts DOWN into world\
+# after a no, on the grounds that coming down sends nothing anywhere. The readers did not
+# see it that way, and they were right again: "no" to a background copy means no
+# background traffic with that account at all. The runner's DOWN half follows the same
+# line as its UP half.
+#
+# THE JOB IS STILL INSTALLED ON A NO, because copying is not all it does: it keeps the
+# folder fresh from its own repository and hands a replaced key to Hermes. After a no it
+# is never described as Menerio copying, because it is not.
+#
+# KB_NOTEBOOK_TASK names the scheduled task, for the reason KB_CRONTAB exists in lib.sh:
+# a name compiled into the code is a task no test can safely look at, and the author's
+# own PC has the real one.
+# =============================================================================
+
+function Get-KitNotebookTaskName { if ($env:KB_NOTEBOOK_TASK) { return $env:KB_NOTEBOOK_TASK } return 'Hub notebook sync' }
+
+function Set-KitDeviceEnvValue {
+    <#  One line in ~\.hub\device.env: replaced when it is there, added when it is not,
+        every other line kept, the file made when there is none. #>
+    param([Parameter(Mandatory)][string]$Name, [AllowEmptyString()][string]$Value = '')
+    $dir = Join-Path (Get-KitHome) '.hub'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $f = Join-Path $dir 'device.env'
+    $lines = @()
+    if (Test-Path $f) { $lines = @(Get-Content $f) }
+    $found = $false
+    $pattern = '^\s*' + [regex]::Escape($Name) + '='
+    $lines = @($lines | ForEach-Object {
+        if ($_ -match $pattern) { $found = $true; "$Name=$Value" } else { $_ }
+    })
+    if (-not $found) { $lines += "$Name=$Value" }
+    Set-Content -Path $f -Value $lines -Encoding ascii
+}
+
+function Get-KitNotebookMirror {
+    <#  '1', '0', or $null when this PC has never been asked. #>
+    $v = Get-KitDeviceEnvValue 'HUB_NOTEBOOK_MIRROR'
+    if ($v -eq '1' -or $v -eq '0') { return $v }
+    return $null
+}
+
+function Test-KitNotebookRunnerAsks {
+    <#  Does the notebook job on this PC read HUB_NOTEBOOK_MIRROR before it sends anything?
+        A copy of the kit from before 2026-09-21 does not: its job copies the hub up every
+        hour whatever device.env says. A "no" that the job ignores is worse than no
+        question at all, so Install-KitNotebookSync refuses to schedule such a job on a no. #>
+    $runner = Join-Path (Get-KitHome) '.local\bin\hub-notebook-sync'
+    if (-not (Test-Path $runner)) { return $false }
+    return [bool](Select-String -Path $runner -Pattern 'HUB_NOTEBOOK_MIRROR' -SimpleMatch -Quiet -ErrorAction SilentlyContinue)
+}
+
+function Test-KitNotebookJobHere {
+    <#  Is the hourly notebook job already registered for this account? #>
+    return [bool](Get-ScheduledTask -TaskName (Get-KitNotebookTaskName) -ErrorAction SilentlyContinue)
+}
+
+function Select-KitNotebookMirror {
+    <#  The second question. Asked once for each PC, after the notebook is connected.
+
+          KB_NOTEBOOK_MIRROR=yes|no    answers it without asking, and always wins
+          a line already in device.env is the answer, and nobody is asked again, EXCEPT
+                                       under -Only menerio, which asks again with the old
+                                       answer as the default, so a mind can be changed
+          the hourly job already here, and no line
+                                       this PC WAS copying, since before there was a
+                                       question. It is written down as 1 and one line says
+                                       so: turning a reader's search off without a word, on
+                                       an update, would be its own kind of surprise
+          no keyboard and no answer    no, and nothing is written, so the question is still
+                                       there to be asked on the day somebody is #>
+    param([Parameter(Mandatory)][string]$Hub)
+    if ((Get-KitNotebookState -Hub $Hub) -ne 'connected') { return }
+    $cur = Get-KitNotebookMirror
+    $answer = $null
+    if ($env:KB_NOTEBOOK_MIRROR -match '^([Yy]|1$)') { $answer = '1' }
+    elseif ($env:KB_NOTEBOOK_MIRROR -match '^([Nn]|0$)') { $answer = '0' }
+
+    if ($null -eq $answer) {
+        if ($cur -and $env:KB_ONLY_MENERIO -ne '1') { return }
+        if (-not $cur -and (Test-KitNotebookJobHere)) {
+            Set-KitDeviceEnvValue -Name 'HUB_NOTEBOOK_MIRROR' -Value '1'
+            Write-Host "   notebook: this computer was already copying your hub's files to Menerio for search, so that stays on. To turn it off, run the Menerio step again."
+            return
+        }
+        if (-not (Test-KitInteractive)) { return }
+        # THE SAME WORDS AS THE BASH TWIN, line for line. test.sh compares the two.
+        Write-Host ""
+        Write-Host "One more choice. Menerio can keep a copy of your hub's text files, so your assistant"
+        Write-Host "can search them by meaning and not only by exact word. The copy holds everything in"
+        Write-Host "your hub except dev/ and your locked keys. In return, the people and facts Menerio"
+        Write-Host "holds for you are copied into your hub's world/ folder as a safety copy. Say yes only"
+        Write-Host "if you are happy for your hub's files to be in your Menerio account. Your notebook"
+        Write-Host "works either way."
+        if ($cur -eq '1') {
+            $yn = Read-Host "Copy your hub's files to Menerio for search? (Y/n)"
+            $answer = if ($yn -match '^[Nn]') { '0' } else { '1' }
+        } else {
+            $yn = Read-Host "Copy your hub's files to Menerio for search? (y/N)"
+            $answer = if ($yn -match '^[Yy]') { '1' } else { '0' }
+        }
+    }
+
+    Set-KitDeviceEnvValue -Name 'HUB_NOTEBOOK_MIRROR' -Value $answer
+    if ($answer -eq '1') {
+        Write-KbOk "notebook: your hub's files are copied to Menerio when your hub saves a version and once an hour. The people and facts Menerio holds for you come down into world/ once an hour. To stop both, run the Menerio step again and say no."
+    } else {
+        Write-KbOk "notebook: nothing is copied in either direction. Your hub's files stay on this computer, and nothing is sent to Menerio or fetched from it in the background. Your assistant still saves and finds notes there when you ask it to."
+    }
+}
+
 function Install-KitNotebookSync {
-    <#  On save, plus an hourly catch-up. Both are quiet and cost nothing when no
+    <#  On save, plus an hourly job. Both are quiet and cost nothing when no
         notebook is connected, which is why they are installed for every reader.
+
+        WHAT THE JOB DOES DEPENDS ON THE READER'S ANSWER, and every line printed here has
+        to be true for the answer they gave. It copies between the hub and Menerio, in
+        both directions, only when HUB_NOTEBOOK_MIRROR=1. Without that it keeps the folder
+        fresh from its repository and hands a replaced key to Hermes, and that is all.
+        Before 2026-09-21 these lines said "your hub now updates
+        the notebook the moment you save a change" to everybody, which after a "no" is
+        the exact sentence that lost two readers.
+
+        AND A NO HAS TO BE A NO. A notebook job from an older copy of the kit never reads
+        the setting and copies the hub up regardless. On anything but a yes, such a job is
+        not scheduled, and one this installer scheduled earlier is taken out again, with a
+        line that says so. The reader goes without the fresh folder until the kit is
+        updated, which is a small loss and the honest one.
 
         WHY A SCHEDULED TASK AND NOT cron: Windows has no cron. The book never
         mentioned Windows scheduling at all before 2026-08-16, which is how the
@@ -1940,11 +2083,33 @@ function Install-KitNotebookSync {
         nobody: there was no sentence anywhere saying a job should be there. #>
     param(
         [Parameter(Mandatory)][string]$Hub,
-        [string]$TaskName = 'Hub notebook sync'
+        [string]$TaskName = (Get-KitNotebookTaskName)
     )
     $bash = Get-KitGitBash
     $runner = Join-Path (Get-KitHome) '.local\bin\hub-notebook-sync'
     if (-not (Test-Path $runner)) { return }
+
+    if ((Get-KitNotebookMirror) -eq '1') {
+        $what = "a small job copies your hub's files up to Menerio and brings your people and facts down into world/. It also keeps this folder fresh from its repository."
+    } else {
+        $what = "a small job keeps this folder fresh from its repository and hands a replaced key to Hermes. It copies nothing to Menerio and fetches nothing from it."
+        if (-not (Test-KitNotebookRunnerAsks)) {
+            # Only what this installer wrote is taken out: its own hook, known by its first
+            # comment line, and its own scheduled task.
+            $ownHook = Join-Path $Hub '.git\hooks\post-commit'
+            if ((Test-Path $ownHook) -and (Select-String -Path $ownHook -Pattern '(Teach It Once)' -SimpleMatch -Quiet -ErrorAction SilentlyContinue) -and
+                (Select-String -Path $ownHook -Pattern 'hub-notebook-sync' -SimpleMatch -Quiet -ErrorAction SilentlyContinue)) {
+                Remove-Item $ownHook -Force -ErrorAction SilentlyContinue
+            }
+            if (-not (Test-KitBeside) -and (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)) {
+                Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+            }
+            Write-Host "   hub job: the job in this copy of the kit always copies your hub's files to Menerio, and you have not said yes to that. So it is not scheduled on this computer. Run this again after the kit is updated."
+            return
+        }
+    }
+    # Said once, before the two places it runs from, so neither of those lines has to repeat it.
+    Write-KbOk "hub job: $what"
 
     # 1. On save. Git for Windows runs hooks through its own sh, so the same tiny
     #    hook works on both sides. It never blocks and never fails the save.
@@ -1953,19 +2118,20 @@ function Install-KitNotebookSync {
     if (Test-Path (Join-Path $Hub '.git')) {
         if (Test-Path $hook) {
             if (-not (Select-String -Path $hook -Pattern 'hub-notebook-sync' -Quiet -ErrorAction SilentlyContinue)) {
-                Write-KbOk "notebook: you already have a post-commit hook, so I left it alone."
+                Write-KbOk "hub job: you already have a post-commit hook, so I left it alone."
             }
         } else {
             New-Item -ItemType Directory -Force $hookDir | Out-Null
             $posix = $runner -replace '\\', '/'
             Set-KbTextFile -Path $hook -Lines @(
                 '#!/bin/sh',
-                '# Keep your notebook current the moment you save (Teach It Once).',
-                '# Never blocks, never fails the save, and does nothing if you have no notebook.',
+                '# Run the hub job the moment you save (Teach It Once).',
+                '# Never blocks and never fails the save. It copies to Menerio only if you said yes:',
+                '# that is the line HUB_NOTEBOOK_MIRROR in ~/.hub/device.env.',
                 ('"' + $posix + '" >/dev/null 2>&1 &'),
                 'exit 0'
             )
-            Write-KbOk "notebook: your hub now updates the notebook the moment you save a change"
+            Write-KbOk "hub job: it now runs the moment you save a change"
         }
     }
 
@@ -1973,12 +2139,12 @@ function Install-KitNotebookSync {
     #    sitting beside another one stops here: the hook above is inside this folder and
     #    is its own, but the hourly job is one name for the whole account.
     if (Test-KitBeside) {
-        Write-KbOk "notebook: left the hourly catch-up where it is. This hub sits beside the one this computer works from."
+        Write-KbOk "hub job: left the hourly job where it is. This hub sits beside the one this computer works from."
         return
     }
     # 2. The hourly catch-up, for whatever happened while the PC was asleep.
     if (-not $bash) {
-        Write-KbWarn "notebook: I could not find Git Bash, so the hourly catch-up was not scheduled. Your notebook still updates when you save."
+        Write-KbWarn "hub job: I could not find Git Bash, so the hourly job was not scheduled. The job still runs when you save a change."
         return
     }
     # NEVER make bash.exe the task's own executable: the task then flashes a terminal
@@ -1989,12 +2155,12 @@ function Install-KitNotebookSync {
     $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     if ($existing -and $existing.Actions[0].Execute -match 'wscript') {
         if (Test-KitTaskPointsAt -Task $existing -Hub $Hub) {
-            Write-KbOk "notebook: the hourly catch-up is already on this PC"
+            Write-KbOk "hub job: it already runs once an hour on this computer"
             return
         }
-        Write-KbOk "notebook: the hourly catch-up ran in $($existing.Actions[0].WorkingDirectory), not in this hub. Re-pointing it."
+        Write-KbOk "hub job: the hourly job ran in $($existing.Actions[0].WorkingDirectory), not in this hub. Re-pointing it."
     } elseif ($existing) {
-        Write-KbOk "notebook: replacing the old hourly job, which opened a visible window every hour"
+        Write-KbOk "hub job: replacing the old hourly job, which opened a visible window every hour"
     }
     if ($existing) { Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false }
     try {
@@ -2007,10 +2173,10 @@ function Install-KitNotebookSync {
         $set     = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries `
                        -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
         Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $set `
-            -Description 'Keeps your notebook current with what changed in your hub (Teach It Once).' -Force | Out-Null
-        Write-KbOk "notebook: this PC will also catch up once an hour"
+            -Description 'The hub job: keeps this folder fresh, and copies to and from Menerio only if you said yes (Teach It Once).' -Force | Out-Null
+        Write-KbOk "hub job: it also runs once an hour, for what changed while this computer was asleep"
     } catch {
-        Write-KbWarn "notebook: I could not add the hourly job to this PC's schedule ($($_.Exception.Message)). Your notebook still updates when you save."
+        Write-KbWarn "hub job: I could not add the hourly job to this PC's schedule ($($_.Exception.Message)). The job still runs when you save a change."
     }
 }
 
@@ -2086,8 +2252,9 @@ function Connect-KitNotebook {
                 Write-Host ""
                 Write-Host "Menerio is optional. Everything in this book works on plain files without it."
                 Write-Host "It is the author's online notebook. Connect it once, and every assistant that"
-                Write-Host "opens this hub can save notes there and find them again. Your whole hub also"
-                Write-Host "becomes searchable by meaning, not only by exact word."
+                Write-Host "opens this hub can save notes there and find them again. Connecting sends none"
+                Write-Host "of your hub's files anywhere. Copying them for search is a second question, asked"
+                Write-Host "after this one, and its answer is no unless you say yes."
                 Write-Host "A free account is enough to try it: https://menerio.com/auth?tab=signup"
                 $yn = Read-Host "Connect Menerio now? (y/N)"
                 if ($yn -notmatch '^[Yy]') {
@@ -2105,13 +2272,17 @@ function Connect-KitNotebook {
     }
     Write-KitExpiryRecord -Hub $Hub
     Write-KitDueFolder -Hub $Hub
-    Install-KitNotebookSync -Hub $Hub
     Set-KitNotebookEnv -Hub $Hub
-    # LAST, because it reads the key the lines above stored and exposed. It runs on every
+    # AFTER the key is stored and exposed, because it reads that key. It runs on every
     # road into this function: a key pasted a moment ago, a hub that was connected
     # already, and a second PC that has just typed its passphrase. So a re-run of the
     # installer is also how an assistant installed later gets the connection.
     Connect-KitAssistants -Hub $Hub
+    # The second choice, and only then the job that acts on it. In this order on purpose:
+    # the job's lines say what it will do on THIS PC, so the answer has to exist first,
+    # and a hub whose copy was never agreed to is never scheduled as if it had been.
+    Select-KitNotebookMirror -Hub $Hub
+    Install-KitNotebookSync -Hub $Hub
 }
 
 function Connect-KitMenerioOnly {
@@ -2157,7 +2328,11 @@ function Connect-KitMenerioOnly {
     $skip0 = $env:KB_NOTEBOOK
     $env:KB_NOTEBOOK = $null
     $global:KbMenerioProblem = $false
-    try { Connect-KitNotebook -Hub $Hub -Token $Token } finally { $env:KB_NOTEBOOK = $skip0 }
+    # KB_ONLY_MENERIO is how the question about the copy knows a reader came back on purpose:
+    # it is asked again, with the old answer as the default. A full install asks it once.
+    $only0 = $env:KB_ONLY_MENERIO
+    $env:KB_ONLY_MENERIO = '1'
+    try { Connect-KitNotebook -Hub $Hub -Token $Token } finally { $env:KB_NOTEBOOK = $skip0; $env:KB_ONLY_MENERIO = $only0 }
     if (((Get-KitNotebookState -Hub $Hub) -eq 'connected') -and $global:KbMenerioProblem -and (Test-KitInteractive)) {
         Write-Host ""
         Write-Host "If the problem above is the key, you can store a new one now. It replaces the old one."

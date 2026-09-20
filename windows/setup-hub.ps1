@@ -171,7 +171,7 @@ if (-not $Join) {
 # copy inside the .exe when it is not there. The canary moves forward with the
 # code: it is the NEWEST function this file calls, or the check passes on a copy
 # that is missing everything added since.
-if (-not (Get-Command Connect-KitMenerioOnly -ErrorAction SilentlyContinue)) {
+if (-not (Get-Command Select-KitNotebookMirror -ErrorAction SilentlyContinue)) {
     if ($Join -ne $Bundled -and (Test-Path $Bundled)) {
         Write-Warning "the published install code is older than this installer, so I am using the copy that came with it."
         . $Bundled -AsLibrary
@@ -189,7 +189,8 @@ foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-
                  'Connect-KitSkills', 'Set-KitHermesHub', 'Set-KitHermesApprovals',
                  'Get-KitDefaultHubDir', 'Get-KitHubPathRefusal',
                  'Test-KitBeside', 'Test-KitSamePath',
-                 'Connect-KitAssistants', 'Connect-KitMenerioOnly') {
+                 'Connect-KitAssistants', 'Connect-KitMenerioOnly',
+                 'Select-KitNotebookMirror') {
     if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
         Stop-Setup "the install code on this PC is incomplete ($fn is missing). Download the newest installer from https://github.com/MichaelZelbel/kit-bootstrap/releases/latest and run that."
     }
