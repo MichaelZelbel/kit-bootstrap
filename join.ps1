@@ -2063,7 +2063,18 @@ function Connect-KitNotebook {
                     return
                 }
                 Write-Host "In Menerio: Settings, then API Keys, then Generate new API key. Leave every box ticked (that is the default)."
-                $Token = Read-Host "Paste that key here"
+                # Hidden input, for two reasons. A key is a password and should not sit on
+                # the screen; and windows\setup-hub.ps1 runs this under Start-Transcript,
+                # which writes everything typed at a plain Read-Host into
+                # %LOCALAPPDATA%\Hub\setup-log.txt. A SecureString is not transcribed.
+                # A test double may hand back a plain string, so both are accepted.
+                $typed = Read-Host "Paste that key here (it stays hidden), then press Enter" -AsSecureString
+                if ($typed -is [System.Security.SecureString]) {
+                    $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($typed)
+                    try { $Token = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
+                    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+                } else { $Token = [string]$typed }
+                if ($Token) { $Token = $Token.Trim() }
             }
             if (-not $Token) { Write-KbOk "notebook: nothing pasted, so nothing was connected."; return }
             [void](Install-KitAge)   # the store below says what to do if this could not fetch it

@@ -361,6 +361,29 @@ ask() {
   printf '%s' "${answer:-$default}"
 }
 
+# ask_secret "Question" -> like ask, but what is typed or pasted does not show. A key is a
+# password: it should not sit in the terminal's scrollback, where the next screenshot or
+# screen share finds it. Echo is switched off on the same channel kb_read uses and ALWAYS
+# switched back on, including when the read is interrupted. Where stty is missing or the
+# channel is not a terminal, this is plain ask: a visible prompt beats no prompt.
+ask_secret() {
+  local prompt="$1" answer="" tty_dev=""
+  have_tty || { printf ''; return 0; }
+  kb_resolve_tty
+  case "$KB_TTY" in device) tty_dev=/dev/tty ;; inherited) tty_dev=/dev/stdin ;; esac
+  kb_tell "$(printf "\033[1;34m[%s]\033[0m %s (it stays hidden), then press Enter: " "$KB_TAG" "$prompt")"
+  if [ -n "$tty_dev" ] && command -v stty >/dev/null 2>&1 && stty -echo < "$tty_dev" 2>/dev/null; then
+    trap 'stty echo < "'"$tty_dev"'" 2>/dev/null' INT TERM
+    kb_read answer
+    stty echo < "$tty_dev" 2>/dev/null
+    trap - INT TERM
+    kb_tell ""
+  else
+    kb_read answer
+  fi
+  printf '%s' "$answer"
+}
+
 # ask_yes "Question" "y" -> returns 0 for yes, 1 for no
 ask_yes() {
   local answer; answer="$(ask "$1 (y/n)" "${2:-y}")"
@@ -3104,7 +3127,7 @@ kb_connect_notebook() {
         kb_tell "A free account is enough to try it: https://menerio.com/auth?tab=signup"
         ask_yes "Connect Menerio now?" "n" || { ok "Menerio: not connected, which is a complete way to own a hub. Run this installer again whenever you change your mind."; return 0; }
         kb_tell "In Menerio: Settings, then API Keys, then Generate new API key. Leave every box ticked (that is the default)."
-        token="$(ask "Paste that key here")"
+        token="$(ask_secret "Paste that key here")"
       fi
       [ -n "$token" ] || { ok "notebook: nothing pasted, so nothing was connected."; return 0; }
       kb_ensure_age || true       # the store below says what to do if this could not fetch it
