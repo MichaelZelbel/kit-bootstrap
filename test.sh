@@ -2140,6 +2140,7 @@ t "a stand-in named by KB_AGE is never 'fixed' by installing the real one" \
 # THE WAY BACK IN. --only menerio runs the kit's programs and the connect step, and
 # nothing else, and it asks even when an install was told not to.
 out="$( ( kb_install_hub_tools() { echo "tools hub=$1 repo=$2"; }
+          kb_copy_starter_hub() { echo "recipes hub=$1 repo=$2 sub=$3" >&2; }
           kb_connect_notebook() { echo "connect hub=$1 skip=[${KB_NOTEBOOK:-}]"; }
           kb_notebook_state() { printf none; }
           kb_update_hub() { echo UPDATE; }; kb_install_prereqs() { echo PREREQS; }
@@ -2147,6 +2148,8 @@ out="$( ( kb_install_hub_tools() { echo "tools hub=$1 repo=$2"; }
           KB_NOTEBOOK=skip kb_only_menerio "$_m/hub" "kit-url" ) 2>&1 )"
 t "the single step installs the kit's programs first, then connects" \
   "$(printf '%s\n' "$out" | grep -e '^tools' -e '^connect' | tr '\n' '|')" "tools hub=$_m/hub repo=kit-url|connect hub=$_m/hub skip=[]|"
+t "and it tops up the recipes the kit ships, because \"make a note\" is one of them" \
+  "$(grep -c 'kb_copy_starter_hub "$hub" "$repo"' lib.sh)" "1"
 t "and runs none of the rest of the installer" \
   "$(printf '%s' "$out" | grep -c -e UPDATE -e PREREQS -e MEMORY -e HERMES)" "0"
 t "and says plainly when nothing was connected" \

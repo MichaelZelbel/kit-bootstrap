@@ -3195,6 +3195,13 @@ kb_only_menerio() {
   [ -n "$hub" ] || return 1
   say "Connecting Menerio to the hub at $hub"
   kb_install_hub_tools "$hub" "$repo"
+  # The recipes the kit ships are part of what the reader came back for. "Make a note" is
+  # the recipe keep-a-note, and a hub made before it shipped has no such folder: the first
+  # real run without it saved the note loose and answered "Noted." The starter copy never
+  # writes over anything the hub already has, so this only ever adds what is missing.
+  if [ -n "$repo" ]; then
+    kb_copy_starter_hub "$hub" "$repo" "${KB_STARTER_PATH:-starter-hub}" >/dev/null 2>&1 || true
+  fi
   KB_MENERIO_PROBLEM=0
   KB_NOTEBOOK="" kb_connect_notebook "$hub"
   if [ "$(kb_notebook_state "$hub"):${KB_MENERIO_PROBLEM:-0}" = "connected:1" ] && have_tty; then

@@ -2148,6 +2148,12 @@ function Connect-KitMenerioOnly {
     param([Parameter(Mandatory)][string]$Hub, [string]$ToolsRepo, [string]$Token)
     Write-KbSay "Connecting Menerio to the hub at $Hub"
     Install-KitHubTools -Hub $Hub -ToolsRepo $ToolsRepo
+    # The recipes the kit ships are part of what the reader came back for. "Make a note"
+    # is the recipe keep-a-note, and a hub made before it shipped has no such folder. The
+    # starter copy never writes over anything the hub already has. Twin of kb_only_menerio.
+    if ($ToolsRepo) {
+        try { [void](Copy-KitStarterHub -Path $Hub -StarterRepo $ToolsRepo -StarterPath 'starter-hub') } catch { }
+    }
     $skip0 = $env:KB_NOTEBOOK
     $env:KB_NOTEBOOK = $null
     $global:KbMenerioProblem = $false
