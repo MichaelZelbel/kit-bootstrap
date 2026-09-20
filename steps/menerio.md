@@ -87,11 +87,25 @@ To look without changing anything:
 hub-menerio-connect --check
 ```
 
-To write the connection again after they change their key or add an assistant:
+To connect an assistant they installed later, run it again with nothing after it. It
+leaves alone what is already connected:
 
 ```bash
-hub-menerio-connect --refresh
+hub-menerio-connect
 ```
+
+They never need `--refresh`. The hourly job runs it. It is silent, and it only gives
+Hermes the new key after the key in the hub has been replaced.
+
+## If it says Menerio refused the key
+
+> The notebook  failed: Menerio refused the key (401)
+
+The key is stored and every assistant is set up, and Menerio does not accept the key.
+The installer then ends with "your key is stored, and the check above found a problem".
+Most often the key was copied with a piece missing, or it was revoked. Make a new key in
+Menerio the same way, and store it by running the single step again. Do not ask them to
+show you the key to check it.
 
 ## If it says the kit is too old
 
