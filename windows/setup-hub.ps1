@@ -25,6 +25,10 @@
 #             For a work hub next to a personal one, for trying a hub before moving
 #             into it, and for a clean hub to record on a machine that carries a full
 #             one. See Test-KitBeside in join.ps1 for what it leaves alone and why.
+#
+#   -Only menerio   run ONE step and leave the rest of this PC alone: ask about Menerio,
+#             store the key, and give every assistant here the connection. For the
+#             reader who said no on the day. It needs a hub already on this PC.
 # =============================================================================
 param(
     [string]$Hub,
@@ -43,6 +47,8 @@ param(
     [switch]$SkipPrereqs,
     [switch]$NoPause,
     [switch]$Beside,
+    # One step instead of the whole install. 'menerio' is the only one so far.
+    [string]$Only,
     # Which kit-bootstrap tag or branch the shared install code comes from. The wizard
     # passes the tag this .exe was built from, so a reader runs exactly the code that
     # passed its runs, the same promise install-hub.sh has always made on macOS and Linux.
@@ -133,6 +139,8 @@ if (-not $KbBranch) { $KbBranch = if ($env:KB_BRANCH) { $env:KB_BRANCH } else { 
 # Saved here and put back after every load, rather than renaming the library's parameter,
 # because readers run join.ps1 directly too and -Hub means the same thing to them.
 $WantHub = $Hub
+# -Only is lost the same way and for the same reason: join.ps1 declares it too.
+$WantOnly = $Only
 
 $Bundled = Join-Path $PSScriptRoot 'join.ps1'
 $Join    = $null
@@ -163,7 +171,7 @@ if (-not $Join) {
 # copy inside the .exe when it is not there. The canary moves forward with the
 # code: it is the NEWEST function this file calls, or the check passes on a copy
 # that is missing everything added since.
-if (-not (Get-Command Test-KitBeside -ErrorAction SilentlyContinue)) {
+if (-not (Get-Command Connect-KitMenerioOnly -ErrorAction SilentlyContinue)) {
     if ($Join -ne $Bundled -and (Test-Path $Bundled)) {
         Write-Warning "the published install code is older than this installer, so I am using the copy that came with it."
         . $Bundled -AsLibrary
@@ -171,6 +179,7 @@ if (-not (Get-Command Test-KitBeside -ErrorAction SilentlyContinue)) {
 }
 # Both loads above are dot-sources, and both wiped it. See $WantHub.
 $Hub = $WantHub
+$Only = $WantOnly
 
 foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-KitHub',
                  'Join-KitMemory', 'Install-KitHubCli', 'Install-KitHubTools',
@@ -179,10 +188,38 @@ foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-
                  'Connect-KitNotebook', 'Write-KitMcpConfig', 'Install-KitNotebookSync',
                  'Connect-KitSkills', 'Set-KitHermesHub', 'Set-KitHermesApprovals',
                  'Get-KitDefaultHubDir', 'Get-KitHubPathRefusal',
-                 'Test-KitBeside', 'Test-KitSamePath') {
+                 'Test-KitBeside', 'Test-KitSamePath',
+                 'Connect-KitAssistants', 'Connect-KitMenerioOnly') {
     if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
         Stop-Setup "the install code on this PC is incomplete ($fn is missing). Download the newest installer from https://github.com/MichaelZelbel/kit-bootstrap/releases/latest and run that."
     }
+}
+
+# -----------------------------------------------------------------------------
+# 1b. One step only, when that is what was asked for.
+#
+# Sits BEFORE the prerequisites on purpose. A reader who comes back for Menerio has a
+# working hub already, and re-checking Git, Node and Hermes, pulling the folder and
+# re-running every wiring step is not what they came for. Connect-KitMenerioOnly in
+# join.ps1 says what the one step runs. It needs a hub to connect, so it never makes one.
+# -----------------------------------------------------------------------------
+if ($Only) {
+    if ($Only -ne 'menerio') { Stop-Setup "-Only knows one step so far, and it is: menerio. You typed: $Only" }
+    Update-KitPath
+    if ($Beside) { $env:KB_BESIDE = '1' }
+    $found = Find-KitHub -Hint $Hub
+    if (-not $found) {
+        Stop-Setup "there is no hub on this PC yet, so there is nothing to connect Menerio to. Run this without -Only first, and it will make one."
+    }
+    if ($Hub -and -not (Test-KitSamePath $found $Hub)) {
+        Stop-Setup "you asked for the hub at $Hub, and I could not find a hub there. This PC works from $found. Leave off -Hub to connect that one."
+    }
+    Connect-KitMenerioOnly -Hub $found -ToolsRepo $StarterRepo
+    Write-Host ""
+    Write-Host "  A record of this run is at $LogFile"
+    try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }
+    if (-not $NoPause) { Write-Host ""; Read-Host "  Press Enter to close" | Out-Null }
+    exit 0
 }
 
 # -----------------------------------------------------------------------------

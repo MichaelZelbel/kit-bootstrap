@@ -40,6 +40,10 @@
 #                           personal one, for trying a hub before moving into it, and
 #                           for a clean hub to record on a machine that carries a full
 #                           one. kb_beside in lib.sh lists what it leaves alone.
+#   --only menerio          run ONE step and leave the rest of this computer alone: ask
+#                           about Menerio, store the key, and give every assistant here
+#                           the connection. For the reader who said no on the day. It
+#                           needs a hub already on this computer.
 #
 # Safe to run as many times as you like. It never deletes a memory.
 # =============================================================================
@@ -66,6 +70,7 @@ SKIP_PREREQS=0
 SOURCES=""
 SOURCES_SET=0
 BESIDE=0
+ONLY=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -75,9 +80,11 @@ while [ $# -gt 0 ]; do
     --starter-path) STARTER_PATH="${2:-starter-hub}"; shift 2 ;;
     --skip-prereqs) SKIP_PREREQS=1;        shift ;;
     --beside)       BESIDE=1;              shift ;;
+    --only)         ONLY="${2:-}";         shift 2 ;;
+    --only=*)       ONLY="${1#--only=}";   shift ;;
     --sources)      SOURCES="${2:-}"; SOURCES_SET=1; shift 2 ;;
     --sources=*)    SOURCES="${1#--sources=}"; SOURCES_SET=1; shift ;;
-    -h|--help)      sed -n '2,44p' "$0" 2>/dev/null; exit 0 ;;
+    -h|--help)      sed -n '2,48p' "$0" 2>/dev/null; exit 0 ;;
     # A bare path, so `... | bash -s -- ~/hub` keeps working the way join.sh did.
     *)              [ -z "$HUB" ] && HUB="$1"; shift ;;
   esac
@@ -124,13 +131,33 @@ for fn in kb_install_prereqs kb_new_hub kb_copy_starter_hub kb_link_ai_memory kb
           kb_install_hub_tools kb_install_prompt_harvest kb_sync_report kb_write_prompt_sources \
           kb_update_hub kb_connect_notebook kb_wire_skills kb_point_hermes_at_hub \
           kb_hermes_approvals kb_refuse_hub_path kb_default_hub_dir \
-          kb_beside kb_same_path; do
+          kb_beside kb_same_path kb_only_menerio; do
   if ! command -v "$fn" >/dev/null 2>&1; then
     echo "[stop] the install code on this computer is incomplete ($fn is missing)." >&2
     echo "       Run the newest command from https://github.com/MichaelZelbel/kit-bootstrap" >&2
     exit 1
   fi
 done
+
+# -----------------------------------------------------------------------------
+# 1b. One step only, when that is what was asked for.
+#
+# Sits BEFORE the prerequisites on purpose. A reader who comes back for Menerio has a
+# working hub already, and re-checking Git, Node and Hermes, pulling the folder and
+# re-running every wiring step is not what they came for. kb_only_menerio in lib.sh
+# says what the one step runs. It needs a hub to connect, so it never makes one.
+# -----------------------------------------------------------------------------
+if [ -n "$ONLY" ]; then
+  [ "$ONLY" = "menerio" ] || die "--only knows one step so far, and it is: menerio. You typed: $ONLY"
+  if [ "$BESIDE" -eq 1 ]; then KB_BESIDE=1; export KB_BESIDE; fi
+  FOUND="$(kb_find_hub "$HUB" 2>/dev/null || true)"
+  [ -n "$FOUND" ] || die "there is no hub on this computer yet, so there is nothing to connect Menerio to. Run this without --only first, and it will make one."
+  if [ -n "$HUB" ] && ! kb_same_path "$FOUND" "$HUB"; then
+    die "you asked for the hub at $HUB, and I could not find a hub there. This computer works from $FOUND. Leave off --hub to connect that one."
+  fi
+  kb_only_menerio "$FOUND" "$STARTER_REPO"
+  exit 0
+fi
 
 say "Setting up your hub"
 

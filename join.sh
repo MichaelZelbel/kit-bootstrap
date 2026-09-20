@@ -19,6 +19,7 @@
 #   bash join.sh [path-to-your-hub-folder]      (default: ~/hub, or $HUB)
 #   bash join.sh --sources claude,codex         only these AI tools may be synced
 #   bash join.sh --sources ""                   sync nothing from this machine
+#   bash join.sh --only menerio                 just connect Menerio, change nothing else
 #
 # Piped from curl there is no keyboard to ask questions on, so this stays
 # non-interactive: it says plainly which AI tools it found and which it will
@@ -33,10 +34,13 @@ set -uo pipefail
 HUB_ARG=""
 SOURCES=""
 SOURCES_SET=0
+ONLY=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --sources)   SOURCES="${2:-}"; SOURCES_SET=1; shift 2 ;;
     --sources=*) SOURCES="${1#--sources=}"; SOURCES_SET=1; shift ;;
+    --only)      ONLY="${2:-}"; shift 2 ;;
+    --only=*)    ONLY="${1#--only=}"; shift ;;
     *)           [ -z "$HUB_ARG" ] && HUB_ARG="$1"; shift ;;
   esac
 done
@@ -67,6 +71,15 @@ I looked where you pointed me, at the folder your assistant's memory is linked t
 and in the usual places (~/hub, /root/hub, C:\\hub). If yours is somewhere else,
 pass the path: bash join.sh /path/to/your/hub
 If you have not got one yet, clone it first, then run this again."
+
+# One step only, when that is what was asked for. The same switch setup-hub.sh takes,
+# and kb_only_menerio in lib.sh says what the one step runs and why it exists.
+if [ -n "$ONLY" ]; then
+  [ "$ONLY" = "menerio" ] || die "--only knows one step so far, and it is: menerio. You typed: $ONLY"
+  command -v kb_only_menerio >/dev/null 2>&1 || die "the install code on this computer is older than this script, so it has no single Menerio step yet. Run the newest command from https://github.com/MichaelZelbel/kit-bootstrap"
+  kb_only_menerio "$HUB" "${KB_TOOLS_REPO:-}"
+  exit 0
+fi
 
 say "Joining this machine to the hub at $HUB"
 

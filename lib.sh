@@ -3124,6 +3124,39 @@ kb_connect_notebook() {
   return 0
 }
 
+# kb_only_menerio <hub> [<tools-repo>]
+# Just the Menerio step, for the reader who said no on the day and changed their mind.
+#
+# WHY IT EXISTS. "Run this installer again whenever you change your mind" was the only way
+# back in, and the installer is long: it pulls the hub, re-checks Git and Node,
+# re-links the memory, re-points Hermes, re-tests the safety rules. All of that is safe to
+# repeat and none of it is what the reader came back for. `--only menerio` on either front
+# door lands here and does the one thing.
+#
+# What it runs, and nothing else: the kit's programs (because the connecting, the hourly
+# catch-up and the credential line in the shell start-up are all programs from the kit,
+# and a hub made before they shipped has none of them), then the same connect step the
+# full installer runs. That step fetches `age` when it needs it, asks the question, stores
+# the key, exposes it, installs the catch-up, and connects every assistant.
+#
+# KB_NOTEBOOK=skip is ignored here on purpose. It means "do not ask me during an
+# install", and somebody who typed --only menerio has asked to be asked.
+#
+# On a hub that is already connected it asks nothing and runs the connecting again, which
+# is how an assistant installed last week gets the connection today.
+kb_only_menerio() {
+  local hub="${1:-}" repo="${2:-}"
+  [ -n "$hub" ] || return 1
+  say "Connecting Menerio to the hub at $hub"
+  kb_install_hub_tools "$hub" "$repo"
+  KB_NOTEBOOK="" kb_connect_notebook "$hub"
+  case "$(kb_notebook_state "$hub")" in
+    connected) ok "Menerio: connected. Open a new terminal, or start your assistant again, and it is there." ;;
+    *)         log "Menerio: not connected. Nothing else on this computer was changed." ;;
+  esac
+  return 0
+}
+
 # kb_persist_notebook_env <hub>
 # Put the notebook credential into this computer's environment at shell start-up.
 #

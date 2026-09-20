@@ -39,7 +39,7 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_age kb_age_keygen kb_have_age kb_hub_key_path kb_notebook_state \
          kb_unseal_hub_key kb_seal_hub_key kb_store_notebook_token kb_write_mcp_config \
          kb_install_notebook_sync kb_persist_notebook_env kb_connect_notebook \
-         kb_ensure_age kb_connect_assistants \
+         kb_ensure_age kb_connect_assistants kb_only_menerio \
          kb_seed_expiry_record kb_seed_due_folder \
          kb_json_str kb_count_recipes kb_skills_room kb_point_at_room \
          kb_hermes_skills_dir kb_wire_skills kb_hermes_bin kb_hermes_here \
@@ -2069,6 +2069,27 @@ t "a missing age is fetched, at the moment a key needs locking" \
   "$( ( kb_have_age() { return 1; }; kb_install_one() { echo "FETCHED $1"; }; KB_AGE= KB_AGE_KEYGEN= kb_ensure_age; echo "rc=$?" ) 2>&1 | tr '\n' ' ')" "FETCHED age rc=1 "
 t "a stand-in named by KB_AGE is never 'fixed' by installing the real one" \
   "$( ( kb_have_age() { return 1; }; kb_install_one() { echo FETCHED; }; KB_AGE=/nonexistent/age kb_ensure_age; echo "rc=$?" ) 2>&1 )" "rc=1"
+
+# THE WAY BACK IN. --only menerio runs the kit's programs and the connect step, and
+# nothing else, and it asks even when an install was told not to.
+out="$( ( kb_install_hub_tools() { echo "tools hub=$1 repo=$2"; }
+          kb_connect_notebook() { echo "connect hub=$1 skip=[${KB_NOTEBOOK:-}]"; }
+          kb_notebook_state() { printf none; }
+          kb_update_hub() { echo UPDATE; }; kb_install_prereqs() { echo PREREQS; }
+          kb_link_ai_memory() { echo MEMORY; }; kb_point_hermes_at_hub() { echo HERMES; }
+          KB_NOTEBOOK=skip kb_only_menerio "$_m/hub" "kit-url" ) 2>&1 )"
+t "the single step installs the kit's programs first, then connects" \
+  "$(printf '%s\n' "$out" | grep -e '^tools' -e '^connect' | tr '\n' '|')" "tools hub=$_m/hub repo=kit-url|connect hub=$_m/hub skip=[]|"
+t "and runs none of the rest of the installer" \
+  "$(printf '%s' "$out" | grep -c -e UPDATE -e PREREQS -e MEMORY -e HERMES)" "0"
+t "and says plainly when nothing was connected" \
+  "$(printf '%s' "$out" | grep -c 'not connected. Nothing else on this computer was changed')" "1"
+t "setup-hub.sh takes --only"  "$(grep -c -- '--only)         ONLY=' setup-hub.sh)" "1"
+t "and hands it to the single step before it checks a single prerequisite" \
+  "$(awk '/kb_only_menerio "\$FOUND"/{a=NR} /^\[ "\$SKIP_PREREQS" -eq 1 \] \|\| kb_install_prereqs/{b=NR} END{print (a>0 && b>0 && a<b) ? "yes" : "no"}' setup-hub.sh)" "yes"
+t "join.sh takes --only too"   "$(grep -c -- '--only)      ONLY=' join.sh)" "1"
+t "an unknown step is refused by name on both front doors" \
+  "$(cat setup-hub.sh join.sh | grep -c -- '--only knows one step so far')" "2"
 
 # THE SAME QUESTION ON BOTH PLATFORMS. lib.sh said Menerio from 2026-09-05 while
 # join.ps1 still asked about "a notebook". The two texts are compared, not eyeballed.

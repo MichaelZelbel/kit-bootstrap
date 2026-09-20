@@ -11,6 +11,7 @@
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File join.ps1 [C:\path\to\your\hub]
+#   powershell -ExecutionPolicy Bypass -File join.ps1 -Only menerio     just connect Menerio
 #
 # Or dot-source it to reuse the one function (this is how the hub's own device
 # bootstrap calls it, so the wiring lives in ONE place per D-092):
@@ -25,6 +26,10 @@ param(
     # '-' means none. The default '(auto)' means "no choice made this run": keep what
     # this device already has recorded, or every syncable tool found here.
     [string]$Sources = '(auto)',
+    # Run ONE step and leave the rest of this PC alone. The only step so far is
+    # 'menerio': ask about Menerio, store the key, give every assistant here the
+    # connection. Connect-KitMenerioOnly says what it runs and why it exists.
+    [string]$Only,
     [switch]$AsLibrary
 )
 
@@ -2077,6 +2082,40 @@ function Connect-KitNotebook {
     Connect-KitAssistants -Hub $Hub
 }
 
+function Connect-KitMenerioOnly {
+    <#  Just the Menerio step, for the reader who said no on the day and changed their
+        mind. The Windows twin of kb_only_menerio in lib.sh.
+
+        WHY IT EXISTS. "Run this installer again whenever you change your mind" was the
+        only way back in, and the installer is long: it pulls the hub, re-checks Git and
+        Node, re-links the memory, re-points Hermes, re-tests the safety rules. All of
+        that is safe to repeat and none of it is what the reader came back for.
+        `-Only menerio` on either front door lands here and does the one thing.
+
+        What it runs, and nothing else: the kit's programs (because the connecting and
+        the hourly catch-up are programs from the kit, and a hub made before they shipped
+        has none of them), then the same connect step the full installer runs. That step
+        fetches `age` when it needs it, asks the question, stores the key, exposes it,
+        installs the catch-up, and connects every assistant.
+
+        KB_NOTEBOOK=skip is ignored here on purpose. It means "do not ask me during an
+        install", and somebody who typed -Only menerio has asked to be asked.
+
+        On a hub that is already connected it asks nothing and runs the connecting again,
+        which is how an assistant installed last week gets the connection today. #>
+    param([Parameter(Mandatory)][string]$Hub, [string]$ToolsRepo, [string]$Token)
+    Write-KbSay "Connecting Menerio to the hub at $Hub"
+    Install-KitHubTools -Hub $Hub -ToolsRepo $ToolsRepo
+    $skip0 = $env:KB_NOTEBOOK
+    $env:KB_NOTEBOOK = $null
+    try { Connect-KitNotebook -Hub $Hub -Token $Token } finally { $env:KB_NOTEBOOK = $skip0 }
+    if ((Get-KitNotebookState -Hub $Hub) -eq 'connected') {
+        Write-KbOk "Menerio: connected. Open a new terminal, or start your assistant again, and it is there."
+    } else {
+        Write-Host "   Menerio: not connected. Nothing else on this PC was changed."
+    }
+}
+
 # =============================================================================
 # THE SKILLS ROOM, AND THE ONE RULE THAT KEEPS IT A SINGLE ROOM
 #
@@ -2762,6 +2801,16 @@ $Hub = Find-KitHub -Hint $Hub
 if (-not $Hub) {
     Write-Error "I could not find a hub on this machine. I looked where you pointed me, at the folder your assistant's memory is linked to, and in the usual places (C:\hub, $HOME\hub). If yours is somewhere else, pass the path: join.ps1 C:\path\to\your\hub . If you have not got one yet, clone it first, then run this again."
     exit 1
+}
+
+# One step only, when that is what was asked for.
+if ($Only) {
+    if ($Only -ne 'menerio') {
+        Write-Error "-Only knows one step so far, and it is: menerio. You typed: $Only"
+        exit 1
+    }
+    Connect-KitMenerioOnly -Hub $Hub -ToolsRepo $env:KB_TOOLS_REPO
+    exit 0
 }
 
 Write-KbSay "Joining this machine to the hub at $Hub"

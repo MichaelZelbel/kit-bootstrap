@@ -105,7 +105,7 @@ foreach ($fn in 'Find-KitHub', 'Test-KitHub', 'Update-KitHub', 'Join-KitMemory',
                  'Get-KitNotebookState', 'Unlock-KitHubKey', 'Protect-KitHubKey',
                  'Save-KitNotebookToken', 'Write-KitMcpConfig', 'Install-KitNotebookSync',
                  'Set-KitNotebookEnv', 'Connect-KitNotebook', 'Test-KitInteractive',
-                 'Install-KitAge', 'Connect-KitAssistants',
+                 'Install-KitAge', 'Connect-KitAssistants', 'Connect-KitMenerioOnly',
                  'Set-KitPromptSources', 'Write-KitSyncReport', 'Get-KitHome',
                  'Write-KitExpiryRecord', 'Write-KitDueFolder', 'Get-KitRoomTwin') {
     Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
@@ -1648,6 +1648,45 @@ Check "and the installer no longer prints a Hermes command for the reader to typ
     -not ($JoinSrc -match 'Write-Host\s+"[^"]*hermes mcp')
 }
 
+Check "THE WAY BACK IN: the single step installs the kit's programs, then connects, and nothing else" {
+    $script:steps = @()
+    function Install-KitHubTools { param($Hub, $ToolsRepo) $script:steps += "tools:$ToolsRepo" }
+    function Connect-KitNotebook { param($Hub, $Token) $script:steps += "connect:skip=[$($env:KB_NOTEBOOK)]" }
+    function Get-KitNotebookState { 'none' }
+    function Update-KitHub { $script:steps += 'UPDATE' }
+    function Install-KitPrereqs { $script:steps += 'PREREQS' }
+    function Join-KitMemory { $script:steps += 'MEMORY' }
+    function Set-KitHermesHub { $script:steps += 'HERMES' }
+    $s0 = $env:KB_NOTEBOOK
+    try {
+        $env:KB_NOTEBOOK = 'skip'
+        $out = Connect-KitMenerioOnly -Hub (New-TestDir 'only-hub') -ToolsRepo 'kit-url' 3>&1 4>&1 6>&1 | Out-String
+        $kept = ($env:KB_NOTEBOOK -eq 'skip')
+    } finally { $env:KB_NOTEBOOK = $s0 }
+    (($script:steps -join '|') -eq 'tools:kit-url|connect:skip=[]') -and $kept -and
+        $out.Contains('not connected. Nothing else on this PC was changed')
+}
+$SetupSrcM = Get-Content (Join-Path $PSScriptRoot 'setup-hub.ps1') -Raw
+Check "join.ps1 takes -Only, and refuses a step it does not know by name" {
+    ($JoinSrc -match '\[string\]\$Only') -and ($JoinSrc -match '-Only knows one step so far')
+}
+Check "setup-hub.ps1 takes -Only, and runs it before it checks a single prerequisite" {
+    $a = $SetupSrcM.IndexOf('Connect-KitMenerioOnly -Hub $found')
+    $b = $SetupSrcM.IndexOf('$missing = @(Install-KitPrereqs)')
+    ($SetupSrcM -match '\[string\]\$Only') -and ($a -gt 0) -and ($b -gt 0) -and ($a -lt $b)
+}
+Check "-Only survives the library load, which wipes it the same way it wiped -Hub" {
+    # join.ps1 declares $Only too, and dot-sourcing runs its param block in the caller's
+    # scope, so without the save and the restore -Only would always arrive empty and the
+    # whole installer would run instead. See $WantHub in setup-hub.ps1.
+    # The load is matched at the start of a line, because the comment above $WantHub
+    # quotes the same words and comes first.
+    $save    = $SetupSrcM.IndexOf('$WantOnly = $Only')
+    $load    = [regex]::Match($SetupSrcM, '(?m)^\. \$Join -AsLibrary').Index
+    $restore = $SetupSrcM.IndexOf('$Only = $WantOnly')
+    ($save -gt 0) -and ($save -lt $load) -and ($load -lt $restore)
+}
+
 Write-Host ""
 Write-Host "-- one skills room, and the installer proves it wired something"
 #
@@ -2545,8 +2584,8 @@ Check "beside leaves Hermes pointing where it was, and says so" {
 # refactor that drops one of them puts the collision back without failing anything above.
 $SetupSrc = Get-Content (Join-Path $PSScriptRoot 'setup-hub.ps1') -Raw
 Check "the installer takes -Beside" { $SetupSrc -match '\[switch\]\$Beside' }
-Check "the missing-code canary is the newest function, Test-KitBeside" {
-    $SetupSrc -match "Get-Command Test-KitBeside -ErrorAction SilentlyContinue"
+Check "the missing-code canary is the newest function, Connect-KitMenerioOnly" {
+    $SetupSrc -match "Get-Command Connect-KitMenerioOnly -ErrorAction SilentlyContinue"
 }
 Check "the HUB_DIR user variable is written only when this hub is the one in charge" {
     $SetupSrc -match "if \(-not \(Test-KitBeside\)\) \{[^}]*SetEnvironmentVariable\('HUB_DIR'"
