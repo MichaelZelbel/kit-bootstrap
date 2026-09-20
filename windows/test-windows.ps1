@@ -107,7 +107,7 @@ foreach ($fn in 'Find-KitHub', 'Test-KitHub', 'Update-KitHub', 'Join-KitMemory',
                  'Set-KitNotebookEnv', 'Connect-KitNotebook', 'Test-KitInteractive',
                  'Install-KitAge', 'Connect-KitAssistants', 'Connect-KitMenerioOnly',
                  'Set-KitDeviceEnvValue', 'Get-KitNotebookMirror', 'Test-KitNotebookRunnerAsks',
-                 'Test-KitNotebookJobHere', 'Select-KitNotebookMirror',
+                 'Test-KitNotebookJobHere', 'Select-KitNotebookMirror', 'Request-KitPassphrase',
                  'Set-KitPromptSources', 'Write-KitSyncReport', 'Get-KitHome',
                  'Write-KitExpiryRecord', 'Write-KitDueFolder', 'Get-KitRoomTwin') {
     Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
@@ -1677,6 +1677,7 @@ if ((Get-Command age -ErrorAction SilentlyContinue) -and (Get-Command age-keygen
             # The two questions are answered here and have their own cases further down. The
             # task name is a made-up one, so "was this PC already copying" never looks at
             # the real task on the PC running the suite.
+            function Request-KitPassphrase { param($Hub) }
             function Test-KitNotebookJobHere { $false }
             function Test-KitInteractive { $false }
             $out1 = Connect-KitNotebook -Hub $hub -Token 'test-token-not-a-real-one-0123456789' 3>&1 4>&1 6>&1 | Out-String
@@ -1766,13 +1767,13 @@ Check "-Only survives the library load, which wipes it the same way it wiped -Hu
 }
 
 Write-Host ""
-Write-Host "-- the copy of the hub is its own choice"
+Write-Host "-- the copy of the hub is its own choice, and so is the passphrase"
 #
 # Twins of the block with the same name in test.sh. Two readers given the Menerio chapter
 # cold both refused to connect, for one reason: connecting quietly started copying the whole
 # hub, client notes and patient notes included, into an online account. So the copy is its
 # own question with "no" as its answer, recorded per PC as HUB_NOTEBOOK_MIRROR in
-# ~\.hub\device.env.
+# ~\.hub\device.env, and the passphrase for a second computer is a question too.
 #
 # KB_NOTEBOOK_TASK names a task that does not exist for every case here. Without it the
 # "was this PC already copying" check would look at the REAL 'Hub notebook sync' task, and
@@ -1927,6 +1928,72 @@ Check "A NO HAS TO BE A NO: an older job that always copies is taken out, a read
     }
 }
 
+Check "the passphrase is a question, Enter means no, and a no says the key is stored for this computer" {
+    Invoke-MirrorCase {
+        param($h)
+        $hub = New-NotebookHub 'pass1'
+        $env:HUB_AGE_KEY = Join-Path $h '.hub\age-key.txt'
+        Set-Content $env:HUB_AGE_KEY 'x'
+        $script:asked = @(); $script:sealed = 0
+        function Test-KitInteractive { $true }
+        function Read-Host { param($Prompt) $script:asked += $Prompt; '' }
+        function Protect-KitHubKey { param($Hub) $script:sealed++; $true }
+        $out = (Request-KitPassphrase -Hub $hub 3>&1 4>&1 6>&1 | Out-String) -replace '\s+', ' '
+        $no = (($script:asked -join '|') -eq 'Set a passphrase for a second computer now? (y/N)') -and ($script:sealed -eq 0) -and
+              $out.Contains('your key is stored for this computer. For a second computer later, run the Menerio step again')
+        function Read-Host { param($Prompt) 'y' }
+        Request-KitPassphrase -Hub $hub 3>&1 4>&1 6>&1 | Out-Null
+        $no -and ($script:sealed -eq 1)
+    }
+}
+Check "nobody at the keyboard is a quiet no, and KB_NOTEBOOK_PASSPHRASE answers without asking, both ways" {
+    Invoke-MirrorCase {
+        param($h)
+        $hub = New-NotebookHub 'pass2'
+        $env:HUB_AGE_KEY = Join-Path $h '.hub\age-key.txt'
+        Set-Content $env:HUB_AGE_KEY 'x'
+        $script:sealed = 0
+        function Read-Host { throw 'must not ask' }
+        function Protect-KitHubKey { param($Hub) $script:sealed++; $true }
+        function Test-KitInteractive { $false }
+        $out = (Request-KitPassphrase -Hub $hub 3>&1 4>&1 6>&1 | Out-String) -replace '\s+', ' '
+        $quiet = ($script:sealed -eq 0) -and $out.Contains('stored for this computer') -and -not ($out -match 'WARNING')
+        function Test-KitInteractive { $true }
+        $env:KB_NOTEBOOK_PASSPHRASE = 'skip'
+        Request-KitPassphrase -Hub $hub 3>&1 4>&1 6>&1 | Out-Null
+        $skip = ($script:sealed -eq 0)
+        $env:KB_NOTEBOOK_PASSPHRASE = 'ask'
+        Request-KitPassphrase -Hub $hub 3>&1 4>&1 6>&1 | Out-Null
+        $ask = ($script:sealed -eq 1)
+        Set-Content (Join-Path $hub 'secrets\hub-key.age') 'x'
+        $script:sealed = 0
+        $done = (Request-KitPassphrase -Hub $hub 3>&1 4>&1 6>&1 | Out-String).Trim() -eq ''
+        $quiet -and $skip -and $ask -and $done -and ($script:sealed -eq 0)
+    }
+}
+Check "a connected hub with no passphrase is left in peace, and only the Menerio step offers one again" {
+    Invoke-MirrorCase {
+        param($h)
+        $script:steps = @()
+        function Get-KitNotebookState { 'connected' }
+        function Request-KitPassphrase { param($Hub) $script:steps += 'PASSPHRASE' }
+        function Write-KitExpiryRecord { param($Hub) }
+        function Write-KitDueFolder { param($Hub) }
+        function Set-KitNotebookEnv { param($Hub) }
+        function Connect-KitAssistants { param($Hub) $script:steps += 'ASSISTANTS' }
+        function Select-KitNotebookMirror { param($Hub) $script:steps += 'MIRROR' }
+        function Install-KitNotebookSync { param($Hub) $script:steps += 'JOB' }
+        function Install-KitHubTools { param($Hub, $ToolsRepo) }
+        function Copy-KitStarterHub { }
+        $hub = New-NotebookHub 'pass3'
+        Connect-KitNotebook -Hub $hub 3>&1 4>&1 6>&1 | Out-Null
+        $full = ($script:steps -join '|')
+        $script:steps = @()
+        Connect-KitMenerioOnly -Hub $hub 3>&1 4>&1 6>&1 | Out-Null
+        ($full -eq 'ASSISTANTS|MIRROR|JOB') -and (($script:steps -join '|') -eq 'PASSPHRASE|ASSISTANTS|MIRROR|JOB') -and
+            (-not $env:KB_ONLY_MENERIO)
+    }
+}
 Check "the first question no longer promises that the whole hub becomes searchable" {
     $src = Get-Content (Join-Path $PSScriptRoot '..\join.ps1') -Raw
     -not $src.Contains('Your whole hub also') -and $src.Contains('Copying them for search is a second question')

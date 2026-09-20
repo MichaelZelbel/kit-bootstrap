@@ -1934,7 +1934,7 @@ function Connect-KitAssistants {
 # THE NOTEBOOK AND THE COPY OF YOUR HUB ARE TWO CHOICES, NOT ONE (2026-09-21)
 #
 # The Windows twins of kb_device_env_set, kb_notebook_mirror, kb_notebook_runner_asks,
-# kb_notebook_job_is_here and kb_choose_notebook_mirror in lib.sh,
+# kb_notebook_job_is_here, kb_choose_notebook_mirror and kb_offer_passphrase in lib.sh,
 # and they exist for the same reason. Two readers who had never seen the book were given
 # the Menerio chapter cold, and both refused to connect: connecting quietly started
 # copying the whole hub into an online account, and their hubs hold client notes and
@@ -2057,6 +2057,41 @@ function Select-KitNotebookMirror {
     } else {
         Write-KbOk "notebook: nothing is copied in either direction. Your hub's files stay on this computer, and nothing is sent to Menerio or fetched from it in the background. Your assistant still saves and finds notes there when you ask it to."
     }
+}
+
+function Request-KitPassphrase {
+    <#  The passphrase, only when it is wanted.
+
+        WHY IT IS A QUESTION NOW. A first connect always ended in "Choose a passphrase",
+        which locks this PC's key into the hub folder so a SECOND computer can open it. A
+        reader with one computer who only wanted a notebook was walked through a second
+        secret, one chapter before the book itself calls that store optional. So it is
+        asked, the answer is no unless they say yes, and a no is a finished state: the key
+        is stored for this PC, Get-KitNotebookState answers 'connected', and no later run
+        warns about it.
+
+          KB_NOTEBOOK_PASSPHRASE=skip   no, without asking
+          KB_NOTEBOOK_PASSPHRASE=ask    yes, without asking: go straight to the passphrase
+
+        With nobody at the keyboard the answer is no. It used to be a yellow warning on
+        every unattended install, about a second computer most readers never have. #>
+    param([Parameter(Mandatory)][string]$Hub)
+    if (Test-Path (Join-Path $Hub 'secrets\hub-key.age')) { return }
+    if (-not (Test-Path (Get-KitHubKeyPath))) { return }
+    $want = $false
+    if ($env:KB_NOTEBOOK_PASSPHRASE -eq 'skip') { $want = $false }
+    elseif ($env:KB_NOTEBOOK_PASSPHRASE -eq 'ask') { $want = $true }
+    elseif (Test-KitInteractive) {
+        # THE SAME WORDS AS THE BASH TWIN, line for line. test.sh compares the two.
+        Write-Host ""
+        Write-Host "Will you use this hub on a second computer one day? If yes, you choose a passphrase"
+        Write-Host "now, and that passphrase is all you type there. If not, skip this. You can do it"
+        Write-Host "later by running this step again."
+        $yn = Read-Host "Set a passphrase for a second computer now? (y/N)"
+        $want = ($yn -match '^[Yy]')
+    }
+    if ($want) { [void](Protect-KitHubKey -Hub $Hub); return }
+    Write-KbOk "notebook: your key is stored for this computer. For a second computer later, run the Menerio step again and set a passphrase then."
 }
 
 function Install-KitNotebookSync {
@@ -2235,7 +2270,12 @@ function Connect-KitNotebook {
     if ($env:KB_NOTEBOOK -eq 'skip') { return }
     $state = Get-KitNotebookState -Hub $Hub
     switch ($state) {
-        'connected' { Write-KbOk "notebook: already connected on this computer" }
+        'connected' {
+            Write-KbOk "notebook: already connected on this computer"
+            # A connected hub with no passphrase is a finished state and is left in peace.
+            # Only the reader who came back for the Menerio step is offered it again.
+            if ($env:KB_ONLY_MENERIO -eq '1') { Request-KitPassphrase -Hub $Hub }
+        }
         'sealed'    { [void](Install-KitAge); [void](Unlock-KitHubKey -Hub $Hub) }
         'locked-out' {
             Write-KbWarn "notebook: that folder already carries credentials, and this PC cannot open them. Nothing was changed. Copy .hub\age-key.txt from the computer that can open it, or seal it there so a passphrase is enough here."
@@ -2267,7 +2307,7 @@ function Connect-KitNotebook {
             if (-not $Token) { Write-KbOk "notebook: nothing pasted, so nothing was connected."; return }
             [void](Install-KitAge)   # the store below says what to do if this could not fetch it
             if (-not (Save-KitNotebookToken -Hub $Hub -Token $Token)) { return }
-            [void](Protect-KitHubKey -Hub $Hub)
+            Request-KitPassphrase -Hub $Hub
         }
     }
     Write-KitExpiryRecord -Hub $Hub
@@ -2328,8 +2368,9 @@ function Connect-KitMenerioOnly {
     $skip0 = $env:KB_NOTEBOOK
     $env:KB_NOTEBOOK = $null
     $global:KbMenerioProblem = $false
-    # KB_ONLY_MENERIO is how the question about the copy knows a reader came back on purpose:
-    # it is asked again, with the old answer as the default. A full install asks it once.
+    # KB_ONLY_MENERIO is how the two questions know a reader came back on purpose: the copy
+    # of the hub is asked about again with the old answer as the default, and a hub with no
+    # passphrase is offered one again. A full install asks each of them once and no more.
     $only0 = $env:KB_ONLY_MENERIO
     $env:KB_ONLY_MENERIO = '1'
     try { Connect-KitNotebook -Hub $Hub -Token $Token } finally { $env:KB_NOTEBOOK = $skip0; $env:KB_ONLY_MENERIO = $only0 }

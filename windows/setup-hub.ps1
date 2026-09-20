@@ -190,7 +190,7 @@ foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-
                  'Get-KitDefaultHubDir', 'Get-KitHubPathRefusal',
                  'Test-KitBeside', 'Test-KitSamePath',
                  'Connect-KitAssistants', 'Connect-KitMenerioOnly',
-                 'Select-KitNotebookMirror') {
+                 'Select-KitNotebookMirror', 'Request-KitPassphrase') {
     if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
         Stop-Setup "the install code on this PC is incomplete ($fn is missing). Download the newest installer from https://github.com/MichaelZelbel/kit-bootstrap/releases/latest and run that."
     }

@@ -3076,7 +3076,7 @@ kb_connect_assistants() {
 # is never described as Menerio copying, because it is not.
 #
 # The Windows twins are Get-KitNotebookMirror, Set-KitNotebookMirror,
-# Test-KitNotebookRunnerAsks and Select-KitNotebookMirror.
+# Test-KitNotebookRunnerAsks, Select-KitNotebookMirror and Request-KitPassphrase.
 # =============================================================================
 
 # kb_device_env_set <NAME> <value>
@@ -3168,6 +3168,47 @@ kb_choose_notebook_mirror() {
   else
     ok "notebook: nothing is copied in either direction. Your hub's files stay on this computer, and nothing is sent to Menerio or fetched from it in the background. Your assistant still saves and finds notes there when you ask it to."
   fi
+  return 0
+}
+
+# kb_offer_passphrase <hub>
+# The passphrase, only when it is wanted.
+#
+# WHY IT IS A QUESTION NOW. A first connect always ended in "Choose a passphrase", which
+# locks this computer's key into the hub folder so a SECOND computer can open it. A reader
+# with one computer who only wanted a notebook was walked through a second secret, one
+# chapter before the book itself calls that store optional. So it is asked, the answer is
+# no unless they say yes, and a no is a finished state: the key is stored for this
+# computer, kb_notebook_state answers "connected", and no later run warns about it.
+#
+#   KB_NOTEBOOK_PASSPHRASE=skip   no, without asking
+#   KB_NOTEBOOK_PASSPHRASE=ask    yes, without asking: go straight to the passphrase
+#
+# With nobody at the keyboard the answer is no. It used to be a yellow warning on every
+# one-line install, about a second computer most readers never have.
+kb_offer_passphrase() {
+  local hub="${1:-}" want=""
+  [ -f "$hub/secrets/hub-key.age" ] && return 0
+  [ -r "$(kb_hub_key_path)" ] || return 0
+  case "${KB_NOTEBOOK_PASSPHRASE:-}" in
+    skip) want=no ;;
+    ask)  want=yes ;;
+    *)    if have_tty; then
+            # THE SAME WORDS AS THE WINDOWS TWIN, line for line. test.sh compares the two.
+            kb_tell ""
+            kb_tell "Will you use this hub on a second computer one day? If yes, you choose a passphrase"
+            kb_tell "now, and that passphrase is all you type there. If not, skip this. You can do it"
+            kb_tell "later by running this step again."
+            if ask_yes "Set a passphrase for a second computer now?" "n"; then want=yes; else want=no; fi
+          else
+            want=no
+          fi ;;
+  esac
+  if [ "$want" = "yes" ]; then
+    kb_seal_hub_key "$hub" || true
+    return 0
+  fi
+  ok "notebook: your key is stored for this computer. For a second computer later, run the Menerio step again and set a passphrase then."
   return 0
 }
 
@@ -3278,7 +3319,10 @@ kb_connect_notebook() {
 
   case "$state" in
     connected)
-      ok "notebook: already connected on this computer" ;;
+      ok "notebook: already connected on this computer"
+      # A connected hub with no passphrase is a finished state and is left in peace. Only
+      # the reader who came back for the Menerio step is offered it again.
+      if [ "${KB_ONLY_MENERIO:-0}" = "1" ]; then kb_offer_passphrase "$hub"; fi ;;
     sealed)
       kb_ensure_age || true
       kb_unseal_hub_key "$hub" || true ;;
@@ -3306,7 +3350,7 @@ kb_connect_notebook() {
       [ -n "$token" ] || { ok "notebook: nothing pasted, so nothing was connected."; return 0; }
       kb_ensure_age || true       # the store below says what to do if this could not fetch it
       kb_store_notebook_token "$hub" "$token" || return 0
-      kb_seal_hub_key "$hub" || true ;;
+      kb_offer_passphrase "$hub" ;;
   esac
 
   kb_seed_expiry_record "$hub"
@@ -3368,8 +3412,9 @@ kb_only_menerio() {
     kb_copy_starter_hub "$hub" "$repo" "${KB_STARTER_PATH:-starter-hub}" >/dev/null 2>&1 || true
   fi
   KB_MENERIO_PROBLEM=0
-  # KB_ONLY_MENERIO is how the question about the copy knows a reader came back on purpose:
-  # it is asked again, with the old answer as the default. A full install asks it once.
+  # KB_ONLY_MENERIO is how the two questions know a reader came back on purpose: the copy
+  # of the hub is asked about again with the old answer as the default, and a hub with no
+  # passphrase is offered one again. A full install asks each of them once and no more.
   KB_NOTEBOOK="" KB_ONLY_MENERIO=1 kb_connect_notebook "$hub"
   if [ "$(kb_notebook_state "$hub"):${KB_MENERIO_PROBLEM:-0}" = "connected:1" ] && have_tty; then
     kb_tell ""

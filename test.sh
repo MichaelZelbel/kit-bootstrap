@@ -41,7 +41,7 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_install_notebook_sync kb_persist_notebook_env kb_connect_notebook \
          kb_ensure_age kb_connect_assistants kb_only_menerio \
          kb_device_env_set kb_notebook_mirror kb_notebook_runner_asks kb_notebook_job_is_here \
-         kb_choose_notebook_mirror \
+         kb_choose_notebook_mirror kb_offer_passphrase \
          kb_seed_expiry_record kb_seed_due_folder \
          kb_json_str kb_count_recipes kb_skills_room kb_point_at_room \
          kb_hermes_skills_dir kb_wire_skills kb_hermes_bin kb_hermes_here \
@@ -2189,11 +2189,12 @@ rm -rf "$_m"
 # Two readers given the Menerio chapter cold both refused to connect, for one reason:
 # connecting quietly started copying the whole hub, client notes and patient notes
 # included, into an online account. So the copy is its own question with "no" as its
-# answer, recorded per computer as HUB_NOTEBOOK_MIRROR in ~/.hub/device.env. The bash
-# twins of the block with the same name in windows/test-windows.ps1.
+# answer, recorded per computer as HUB_NOTEBOOK_MIRROR in ~/.hub/device.env, and the
+# passphrase for a second computer is a question too. The bash twins of the block with
+# the same name in windows/test-windows.ps1.
 # ---------------------------------------------------------------------------
 echo
-echo "== the copy of the hub is its own choice"
+echo "== the copy of the hub is its own choice, and so is the passphrase"
 _c="$(mktemp -d)"
 mkdir -p "$_c/home/.hub" "$_c/home/.local/bin" "$_c/hub/secrets"
 git -C "$_c/hub" init -q 2>/dev/null
@@ -2304,6 +2305,58 @@ printf 'HUB_NOTEBOOK_MIRROR=1\n' > "$_c/home/.hub/device.env"
 _sync >/dev/null
 t "after a yes the older job is scheduled as it always was" "$(grep -c hub-notebook-sync "$_c/cron.txt")" "1"
 
+# THE PASSPHRASE, ONLY WHEN IT IS WANTED.
+# _pass <tty yes|no> <typed> [VAR=value ...]
+_pass() {
+  local tty="$1" typed="$2"; shift 2
+  ( HOME="$_c/home"; export HOME; KB_NOTEBOOK_PASSPHRASE=""
+    for kv in "$@"; do eval "$kv"; done
+    have_tty() { [ "$tty" = yes ]; }
+    kb_tell() { printf 'TELL %s\n' "$*"; }
+    ask_yes() { printf 'ASKED %s default=%s\n' "$1" "$2"; case "${typed:-$2}" in y*) return 0 ;; *) return 1 ;; esac; }
+    kb_seal_hub_key() { echo "SEALING $1"; }
+    kb_offer_passphrase "$_c/hub" ) 2>&1
+}
+: > "$_c/home/.hub/age-key.txt"
+out="$(_pass yes "")"
+t "a first connect asks whether a second computer is coming, and Enter means no" \
+  "$(printf '%s' "$out" | grep -c 'ASKED Set a passphrase for a second computer now? default=n')" "1"
+t "a no asks for no passphrase" "$(printf '%s' "$out" | grep -c SEALING)" "0"
+t "and says the key is stored for this computer, and how to add the passphrase later" \
+  "$(printf '%s' "$out" | grep -c 'your key is stored for this computer. For a second computer later, run the Menerio step again')" "1"
+t "a yes goes on to the passphrase" "$(_pass yes y | grep -c "SEALING $_c/hub")" "1"
+out="$(_pass no "")"
+t "with nobody at the keyboard it is a quiet no, where it used to be a yellow warning" \
+  "$(printf '%s' "$out" | grep -c -e ASKED -e SEALING -e warn):$(printf '%s' "$out" | grep -c 'stored for this computer')" "0:1"
+t "KB_NOTEBOOK_PASSPHRASE=skip says no without asking" \
+  "$(_pass yes y KB_NOTEBOOK_PASSPHRASE=skip | grep -c -e ASKED -e SEALING)" "0"
+t "KB_NOTEBOOK_PASSPHRASE=ask says yes without asking" \
+  "$(_pass no "" KB_NOTEBOOK_PASSPHRASE=ask | grep -e ASKED -e SEALING | tr '\n' '|')" "SEALING $_c/hub|"
+: > "$_c/hub/secrets/hub-key.age"
+t "a hub that already carries its passphrase is never asked again" "$(_pass yes y)" ""
+rm -f "$_c/hub/secrets/hub-key.age"
+
+# Where the two questions sit in the whole step: a connected hub with no passphrase is a
+# finished state, and only the reader who came back for the Menerio step is offered one.
+_step() {   # _step <only 0|1>
+  ( HOME="$_c/home"; export HOME
+    kb_notebook_state() { printf connected; }
+    kb_offer_passphrase() { echo PASSPHRASE; }; kb_seed_expiry_record() { :; }; kb_seed_due_folder() { :; }
+    kb_persist_notebook_env() { :; }; kb_connect_assistants() { echo ASSISTANTS; }
+    kb_choose_notebook_mirror() { echo MIRROR; }; kb_install_notebook_sync() { echo JOB; }
+    KB_NOTEBOOK="" KB_ONLY_MENERIO="$1" kb_connect_notebook "$_c/hub" ) 2>&1 | grep -e PASSPHRASE -e ASSISTANTS -e MIRROR -e JOB | tr '\n' '|'
+}
+t "a full install over a connected hub with no passphrase says nothing about one" \
+  "$(_step 0)" "ASSISTANTS|MIRROR|JOB|"
+t "the Menerio step offers it again, and the copy is asked about before the job is installed" \
+  "$(_step 1)" "PASSPHRASE|ASSISTANTS|MIRROR|JOB|"
+t "the Menerio step tells the connect step who is asking" \
+  "$( ( kb_install_hub_tools() { :; }; kb_copy_starter_hub() { :; }; kb_notebook_state() { printf none; }
+        kb_connect_notebook() { echo "only=${KB_ONLY_MENERIO:-0}"; }; kb_only_menerio "$_c/hub" "" ) 2>&1 | grep -c '^only=1$')" "1"
+t "an unsealed, connected hub is 'connected', which is a finished state and not a warning" \
+  "$( ( HOME="$_c/home"; kb_have_age() { return 0; }; kb_age() { printf true; }
+        : > "$_c/hub/secrets/hub-secrets.env.age"; kb_notebook_state "$_c/hub" ) )" "connected"
+
 # THE SAME WORDS ON BOTH PLATFORMS, compared and not eyeballed.
 _words() { sed -n "s/^ *$2 \"\\(.*\\)\"\$/\\1/p" "$1" | tr -d '\r' | sed -n "/^$3/,/$4/p"; }
 t "the copy question has six lines" \
@@ -2314,11 +2367,19 @@ t "and it is the agreed text, word for word, covering both directions" \
 t "and Windows asks it in the same words" \
   "$(_words join.ps1 Write-Host 'One more choice' '^works either way')" \
   "$(_words lib.sh kb_tell 'One more choice' '^works either way')"
+t "the passphrase question has three lines" \
+  "$(_words lib.sh kb_tell 'Will you use this hub on a second computer' 'later by running this step again' | grep -c .)" "3"
+t "and Windows asks that in the same words too" \
+  "$(_words join.ps1 Write-Host 'Will you use this hub on a second computer' 'later by running this step again')" \
+  "$(_words lib.sh kb_tell 'Will you use this hub on a second computer' 'later by running this step again')"
 t "both platforms ask the copy question with no as the answer" \
   "$(grep -c "ask_yes \"Copy your hub's files to Menerio for search?\" \"\$default\"" lib.sh):$(grep -c "Read-Host \"Copy your hub's files to Menerio for search? (y/N)\"" join.ps1)" "1:1"
+t "and the passphrase question too" \
+  "$(grep -c 'ask_yes "Set a passphrase for a second computer now?" "n"' lib.sh):$(grep -c 'Read-Host "Set a passphrase for a second computer now? (y/N)"' join.ps1)" "1:1"
 for _w in "nothing is copied in either direction. Your hub's files stay on this computer, and nothing is sent to Menerio or fetched from it in the background." \
           "your hub's files are copied to Menerio when your hub saves a version and once an hour. The people and facts Menerio holds for you come down into world/ once an hour." \
           "was already copying your hub's files to Menerio for search, so that stays on. To turn it off, run the Menerio step again." \
+          "your key is stored for this computer. For a second computer later, run the Menerio step again and set a passphrase then." \
           "It copies nothing to Menerio and fetches nothing from it." \
           "copies your hub's files up to Menerio and brings your people and facts down into world/." \
           "always copies your hub's files to Menerio, and you have not said yes to that."; do
