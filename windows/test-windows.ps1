@@ -2455,6 +2455,18 @@ Check "and the build reads git without git being able to kill it" {
     ($BuildSrc -match 'function git0') -and ($BuildSrc -notmatch '\(git rev-parse HEAD')
 }
 
+# THE REAL PATH, PUT BACK ONCE MORE, AND THIS TIME LAST. The restore further up was written
+# when it was the end of the file. Cases were added below it afterwards, and one of them
+# (the shim case, with its own shim-home) installs the hub commands, which prepends its bin
+# folder to the persisted user PATH. So every run since left exactly one dead
+# ...\kb-test-xxxxxxxx\shim-home\.local\bin behind for good: 16 of them were found on the
+# author's PC on 2026-09-20, which is the same slow road to "Environment variable name or
+# value is too long" that the note at the top of this file describes.
+try { [Environment]::SetEnvironmentVariable('Path', $UserPath0, 'User') } catch { }
+Check "THE SUITE LEFT THE REAL PATH AS IT FOUND IT: no temporary folder of this run is in it" {
+    -not ([Environment]::GetEnvironmentVariable('Path', 'User') -like "*$Root*")
+}
+
 Remove-Item $Root -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host ""
