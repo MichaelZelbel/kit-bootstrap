@@ -31,6 +31,7 @@ design and it stays. These are the steps that are the same for every product:
 | `steps/github-repo.md` | which repository holds their folder, or makes one |
 | `steps/llm-provider.md` | which LLM, and its key, without hardcoding the list |
 | `steps/telegram.md` | the bot token, then finds the chat id itself |
+| `steps/menerio.md` | whether to connect Menerio, then runs the one command that connects every assistant |
 
 Product-specific steps stay with the product. Only what is genuinely shared
 lives here.
@@ -151,6 +152,7 @@ Options, all optional, after `bash -s --`:
 | `--starter-repo <url>` | the product whose starter folder a brand-new hub begins as |
 | `--starter-path <name>` | the folder inside that repo (default `starter-hub`) |
 | `--skip-prereqs` | install nothing, just wire it up |
+| `--only menerio` | run the Menerio step and nothing else (see below) |
 
 A product points the last two at itself and ships a one-line wrapper under its own
 name, the same way the `.exe` does. `teach-it-once-kit/install-hub.sh` is that
@@ -161,6 +163,49 @@ and dies on anything else, which on a Mac is a wall, so `kb_install_one` picks a
 or brew by looking at the machine. Homebrew is deliberately **not** installed for
 them: it is a large change that asks for their password, so they get the one line
 and the reason instead of a surprise.
+
+## Menerio: connect it once, and every assistant has it
+
+Menerio is the author's online notebook, and it is optional. The installer asks
+about it once, with "no" as the answer unless the reader says yes.
+
+When the reader says yes, the installer stores the pasted key as `MENERIO_API_KEY`
+in the locked store inside the hub (`secrets/hub-secrets.env.age`), makes it
+available to programs on the computer, installs the hourly catch-up, and then runs
+the kit's `hub-menerio-connect`. That program reads the key from the store and
+gives Claude Code, Hermes and Codex the same connection. Its one line for each
+assistant is shown to the reader as it comes. Nobody is told to run
+`hermes mcp add` by hand any more.
+
+It runs on every road into the step: a key pasted a moment ago, a hub that was
+connected already, and a second computer that has just typed its passphrase. So
+running the installer again is also how an assistant installed later gets the
+connection. A kit too old to have `hub-menerio-connect` still leaves Claude Code
+its `.mcp.json`, and one line says what is missing.
+
+`age`, the program that locks the key, is fetched at the moment a key needs
+locking and not before. Most readers never connect Menerio, and they get nothing
+installed for it.
+
+**The way back in**, for the reader who said no on the day:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v2/setup-hub.sh | bash -s -- --only menerio
+```
+
+```powershell
+iwr https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v2/windows/setup-hub.ps1 -OutFile "$env:TEMP\setup-hub.ps1"
+powershell -ExecutionPolicy Bypass -File "$env:TEMP\setup-hub.ps1" -Only menerio
+```
+
+It needs a hub already on the computer. It fetches the kit's programs and runs the
+Menerio step, and it leaves everything else alone: no pull, no prerequisite check,
+no re-wiring. `join.sh --only menerio` and `join.ps1 -Only menerio` do the same.
+`KB_NOTEBOOK=skip` and `KB_NOTEBOOK_TOKEN` still answer the question without
+asking, except that `--only menerio` ignores `skip`, because somebody who typed it
+has asked to be asked. The HubSetup.exe wizard has no page for the single step.
+
+`steps/menerio.md` is the sheet an assistant follows to walk somebody through it.
 
 ## Windows: HubSetup.exe
 
