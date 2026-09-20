@@ -19,12 +19,19 @@ Never tell them to connect Hermes, Claude Code and Codex one by one. That was th
 old way. One key, stored once, and `hub-menerio-connect` gives every assistant on
 the computer the same connection.
 
+**Connecting the notebook and copying the hub are two separate choices.** Never
+present them as one. Somebody whose hub holds client notes or patient notes can say
+yes to the notebook and no to the copy, and that is a complete setup. After a no to
+the copy, nothing is sent to Menerio or fetched from it in the background, in either
+direction. Do not talk them into a yes.
+
 ## 1. Say what it is, and ask
 
 > Menerio is optional. It is the author's online notebook. Connect it once, and
 > every assistant that opens this hub can save notes there and find them again.
-> Your whole hub also becomes searchable by meaning, not only by exact word. A
-> free account is enough to try it: https://menerio.com/auth?tab=signup
+> Connecting sends none of your hub's files anywhere. Copying them for search is a
+> second question, asked after this one, and its answer is no unless you say yes.
+> A free account is enough to try it: https://menerio.com/auth?tab=signup
 >
 > 1. **Yes, connect it now**
 > 2. Not now. Your hub is complete without it, and you can come back any time.
@@ -64,14 +71,54 @@ What it does:
 1. fetches the kit's small programs, so `hub-menerio-connect` is here
 2. fetches `age`, the program that locks the key, if this computer has none
 3. asks "Connect Menerio now?" and asks for the key
-4. stores the key locked inside the hub folder, and asks for a passphrase so the
-   next computer only ever types that passphrase
-5. makes the key available to programs on this computer
-6. runs `hub-menerio-connect`, and shows one line for each assistant
-7. installs the hourly catch-up and the on-save update
+4. stores the key locked inside the hub folder
+5. asks "Set a passphrase for a second computer now?" Enter means no. A yes asks for
+   a passphrase, and that passphrase is all they type on the next computer. A no is
+   a finished setup for one computer, and nothing warns about it later
+6. makes the key available to programs on this computer
+7. runs `hub-menerio-connect`, and shows one line for each assistant
+8. asks "Copy your hub's files to Menerio for search?" Enter means no. See below
+9. installs the small hub job, on save and once an hour. It keeps the folder fresh
+   from its repository and hands a replaced key to Hermes. It copies to and from
+   Menerio only after a yes in step 8
 
-On a hub that is already connected it asks nothing and only repeats step 6. That
-is how an assistant installed last week gets the connection today.
+On a hub that is already connected it does not ask for the key again. It repeats
+step 7, which is how an assistant installed last week gets the connection today. It
+offers the passphrase again if there is none. And it asks step 8 again with their
+last answer as the default, so this is also how somebody changes their mind.
+
+## The second choice: a copy of the hub, for search
+
+The installer says this, and you should not soften it or shorten it:
+
+> One more choice. Menerio can keep a copy of your hub's text files, so your assistant
+> can search them by meaning and not only by exact word. The copy holds everything in
+> your hub except dev/ and your locked keys. In return, the people and facts Menerio
+> holds for you are copied into your hub's world/ folder as a safety copy. Say yes only
+> if you are happy for your hub's files to be in your Menerio account. Your notebook
+> works either way.
+
+The answer is kept for this one computer, as the line `HUB_NOTEBOOK_MIRROR=1` or
+`HUB_NOTEBOOK_MIRROR=0` in `~/.hub/device.env`. A full install asks once and never
+again. Only this single step asks again.
+
+- **After a no:** nothing is copied in either direction, and nothing is sent to
+  Menerio or fetched from it in the background. Their assistant still saves and finds
+  notes there when they ask it to. `hub-search --local` still searches the hub's own
+  files by word.
+- **After a yes:** the hub's files go up when the hub saves a version and once an
+  hour, and the people and facts Menerio holds for them come down into `world/` once
+  an hour.
+- **A computer that was already copying before this question existed** is written
+  down as yes without being asked, and one line says so. To turn it off, run this
+  step and say no.
+- **An older copy of the kit** has a job that copies whatever anybody answered. After
+  a no the installer does not schedule that job and takes out one it scheduled before,
+  and says so. Updating the kit brings the job back, and the new one reads the answer.
+
+To answer without a keyboard: `KB_NOTEBOOK_MIRROR=yes` or `KB_NOTEBOOK_MIRROR=no`,
+and `KB_NOTEBOOK_PASSPHRASE=skip` or `KB_NOTEBOOK_PASSPHRASE=ask`. With no keyboard
+and no answer, both are no.
 
 ## 4. Read the report back to them, in plain words
 

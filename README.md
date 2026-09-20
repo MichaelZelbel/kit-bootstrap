@@ -171,11 +171,41 @@ about it once, with "no" as the answer unless the reader says yes.
 
 When the reader says yes, the installer stores the pasted key as `MENERIO_API_KEY`
 in the locked store inside the hub (`secrets/hub-secrets.env.age`), makes it
-available to programs on the computer, installs the hourly catch-up, and then runs
-the kit's `hub-menerio-connect`. That program reads the key from the store and
-gives Claude Code, Hermes and Codex the same connection. Its one line for each
-assistant is shown to the reader as it comes. Nobody is told to run
-`hermes mcp add` by hand any more.
+available to programs on the computer, and then runs the kit's
+`hub-menerio-connect`. That program reads the key from the store and gives Claude
+Code, Hermes and Codex the same connection. Its one line for each assistant is
+shown to the reader as it comes. Nobody is told to run `hermes mcp add` by hand any
+more.
+
+**The notebook and the copy of the hub are two choices, not one.** Two readers given
+the chapter cold both refused to connect, because connecting quietly started copying
+their whole hub, client notes and patient notes included, into an online account. So
+after the assistants are connected the installer asks a second question, "Copy your
+hub's files to Menerio for search?", and Enter means no. The answer is a fact about
+one computer, so it is the line `HUB_NOTEBOOK_MIRROR=1` or `=0` in
+`~/.hub/device.env`, and the kit's hourly runner obeys it in BOTH directions: after a
+no, nothing is sent to Menerio and nothing is fetched from it in the background.
+
+- A full install asks once for each computer. `--only menerio` asks again, with the
+  last answer as the default, so a mind can be changed.
+- `KB_NOTEBOOK_MIRROR=yes|no` answers without asking. With no keyboard and no answer
+  it is no, and nothing is written, so the question is still there for the day
+  somebody is at the keyboard.
+- A computer that already had the hourly job before 2026-09-21 WAS copying. It is
+  written down as 1 without being asked, and one line says so.
+- The hub job (on save, and once an hour) is installed either way, because it also
+  keeps the folder fresh from its repository and hands a replaced key to Hermes. Its
+  lines never describe it as Menerio copying after a no.
+- A job from an older copy of the kit never reads the setting. After anything but a
+  yes it is not scheduled, and one scheduled earlier is taken out, with a line that
+  says so. A no has to be a no.
+
+**The passphrase is a question too.** A first connect used to end in "Choose a
+passphrase", which locks this computer's key into the hub folder so a second computer
+can open it. A reader with one computer does not need it. Now the installer asks "Set
+a passphrase for a second computer now?", Enter means no, and a no is a finished
+state: nothing warns about it on later runs. `--only menerio` offers it again.
+`KB_NOTEBOOK_PASSPHRASE=skip|ask` answers without asking.
 
 It runs on every road into the step: a key pasted a moment ago, a hub that was
 connected already, and a second computer that has just typed its passphrase. So
