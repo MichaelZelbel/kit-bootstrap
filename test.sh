@@ -1065,6 +1065,24 @@ t "hub-search is installed and runs" \
   "$("$_l/home/.local/bin/hub-search" words 2>/dev/null)" "search-ran words"
 t "and a kit that has both hears nothing about either" \
   "$(printf '%s' "$out" | grep -c 'does not have')" "0"
+# THE HALF NEITHER LAUNCHER NAMES. The real programs both start with
+# require("./hub-notebook.js"), a module with no launcher and no hub- command of its own.
+# It arrives only because the copy loop takes every file in tools/, so a loop narrowed one
+# day to "the programs in the table" would install two commands that cannot start. The
+# case runs the installed command, because a file list would not notice.
+if command -v node >/dev/null 2>&1; then
+  printf '#!/bin/sh\nexec node "$(dirname "$0")/menerio-connect.js" "$@"\n' > "$_l/kit/tools/hub-menerio-connect"
+  printf 'const nb = require("./hub-notebook.js");\nconsole.log(nb.hello + " " + process.argv.slice(2).join(" "));\n' > "$_l/kit/tools/menerio-connect.js"
+  printf 'module.exports = { hello: "shared-module-found" };\n' > "$_l/kit/tools/hub-notebook.js"
+  _lk "a program that needs the shared module"
+  rm -rf "$_l/home"
+  HOME="$_l/home" kb_install_hub_tools "$_l/hub" "$_l/kit" >/dev/null 2>&1
+  t "the module both programs share is installed beside them, so they can start" \
+    "$("$_l/home/.local/bin/hub-menerio-connect" --check 2>&1)" "shared-module-found --check"
+  rm -f "$_l/kit/tools/hub-notebook.js"
+else
+  echo "  skip  the shared module case (no node on this computer to start the program with)"
+fi
 rm -f "$_l/kit/tools/hub-menerio-connect" "$_l/kit/tools/hub-search"
 printf '// mc\n' > "$_l/kit/tools/menerio-connect.js"
 _lk "program without a launcher"

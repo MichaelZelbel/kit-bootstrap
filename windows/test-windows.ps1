@@ -1472,6 +1472,29 @@ Check "a launcher that says 'exec node' becomes a .cmd that starts that program 
             -not $out.Contains('does not have')
     }
 }
+# THE HALF NEITHER LAUNCHER NAMES. The real programs both start with
+# require("./hub-notebook.js"), a module with no launcher and no hub- command of its own. It
+# arrives only because the copy takes every file in tools\, so a copy narrowed one day to
+# "the programs in the table" would install two commands that cannot start. The case runs
+# the installed command, because a file list would not notice.
+Check "the module both programs share is installed beside them, so they can start" {
+    if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Write-Host "  skip  no node on this PC to start the program with"; return $true }
+    Invoke-NotebookCase {
+        param($h)
+        $kit = New-MenerioKit 'mc-kit1b' @{
+            'hub-menerio-connect' = "#!/bin/sh`nexec node `"`$(dirname `"`$0`")/menerio-connect.js`" `"`$@`"`n"
+            'menerio-connect.js'  = "const nb = require('./hub-notebook.js');`nconsole.log(nb.hello + ' ' + process.argv.slice(2).join(' '));`n"
+            'hub-notebook.js'     = "module.exports = { hello: 'shared-module-found' };`n"
+        }
+        [void](Install-MenerioKit -Hub (New-NotebookHub 'mc-hub1b') -Kit $kit)
+        $procPath0 = $env:Path
+        try {
+            $env:Path = (@($procPath0 -split ';' | Where-Object { $_ } | Select-Object -Unique) -join ';')
+            $ran = (& (Join-Path $h '.local\bin\hub-menerio-connect.cmd') --check 2>&1 | Out-String).Trim()
+        } finally { $env:Path = $procPath0 }
+        $ran -eq 'shared-module-found --check'
+    }
+}
 Check "a launcher that is a real shell program goes to Git Bash, never to the bash on PATH" {
     Invoke-NotebookCase {
         param($h)
