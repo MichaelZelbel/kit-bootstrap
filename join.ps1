@@ -1897,6 +1897,14 @@ function Connect-KitAssistants {
         return
     }
 
+    # WHAT THE FIRST RUN WITH THE REAL PROGRAM SHOWED (2026-09-20). The program finishes its
+    # whole report and THEN exits 1 when anything in it failed, a refused key included, so
+    # "stopped early" was the wrong sentence, and the single step went on to print
+    # "connected" straight under a refusal. $global:KbMenerioProblem carries the answer to
+    # whoever prints the last line. The bash twin also takes MENERIO_API_KEY out of the
+    # program's environment; here Set-KitNotebookEnv has just set it FROM the store, one
+    # line before this function is called, so the two are already the same key.
+    $global:KbMenerioProblem = $false
     Write-Host "   Menerio: giving every assistant on this PC the same connection"
     $eap = $ErrorActionPreference
     $hubDir0 = $env:HUB_DIR
@@ -1905,7 +1913,7 @@ function Connect-KitAssistants {
     $rc = 1
     Push-Location -LiteralPath $Hub
     try {
-        & $tool --hub $Hub 2>&1 | ForEach-Object { Write-Host "   $_" }
+        & $tool --hub $Hub 2>&1 | ForEach-Object { if ("$_") { Write-Host "   $_" } else { Write-Host "" } }
         $rc = $LASTEXITCODE
     } catch {
         Write-Host "   $($_.Exception.Message)"
@@ -1915,7 +1923,8 @@ function Connect-KitAssistants {
         $ErrorActionPreference = $eap
     }
     if ($rc -ne 0) {
-        Write-KbWarn "Menerio: hub-menerio-connect stopped early, so an assistant may be missing the connection. Read the lines above, then run it again: hub-menerio-connect"
+        $global:KbMenerioProblem = $true
+        Write-KbWarn "Menerio: hub-menerio-connect found a problem, so something above is not working yet. Its own lines say what. When that is put right, run it again: hub-menerio-connect"
     }
     # The floor, for a program that reported and still left Claude Code without a file.
     if (-not (Test-Path (Join-Path $Hub '.mcp.json'))) { Write-KitMcpConfig -Hub $Hub }
@@ -2030,6 +2039,29 @@ function Set-KitNotebookEnv {
     if ($n -gt 0) { Write-KbOk "notebook: $n credential(s) are now on this PC for your assistant to use (open a new terminal for it to take)" }
 }
 
+function Read-KitSecret {
+    <#  Ask for a key without showing it. The Windows twin of ask_secret in lib.sh.
+
+        Hidden input, for two reasons. A key is a password and should not sit on the
+        screen; and windows\setup-hub.ps1 runs under Start-Transcript, which writes
+        everything typed at a plain Read-Host into %LOCALAPPDATA%\Hub\setup-log.txt. A
+        SecureString is not transcribed. A test double may hand back a plain string, so
+        both are accepted.
+
+        A function since the second place that asks for a key arrived (the single step,
+        for a key Menerio refuses): one copy, used by both, is this file's own rule. #>
+    param([Parameter(Mandatory)][string]$Prompt)
+    $typed = Read-Host "$Prompt (it stays hidden), then press Enter" -AsSecureString
+    $text = ''
+    if ($typed -is [System.Security.SecureString]) {
+        $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($typed)
+        try { $text = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
+        finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+    } else { $text = [string]$typed }
+    if ($text) { $text = $text.Trim() }
+    return $text
+}
+
 function Connect-KitNotebook {
     <#  The whole credential step, as one moment in the install rather than a checklist.
         -Token answers the question without asking. KB_NOTEBOOK=skip says no. #>
@@ -2063,18 +2095,7 @@ function Connect-KitNotebook {
                     return
                 }
                 Write-Host "In Menerio: Settings, then API Keys, then Generate new API key. Leave every box ticked (that is the default)."
-                # Hidden input, for two reasons. A key is a password and should not sit on
-                # the screen; and windows\setup-hub.ps1 runs this under Start-Transcript,
-                # which writes everything typed at a plain Read-Host into
-                # %LOCALAPPDATA%\Hub\setup-log.txt. A SecureString is not transcribed.
-                # A test double may hand back a plain string, so both are accepted.
-                $typed = Read-Host "Paste that key here (it stays hidden), then press Enter" -AsSecureString
-                if ($typed -is [System.Security.SecureString]) {
-                    $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($typed)
-                    try { $Token = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
-                    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
-                } else { $Token = [string]$typed }
-                if ($Token) { $Token = $Token.Trim() }
+                $Token = Read-KitSecret "Paste that key here"
             }
             if (-not $Token) { Write-KbOk "notebook: nothing pasted, so nothing was connected."; return }
             [void](Install-KitAge)   # the store below says what to do if this could not fetch it
@@ -2113,14 +2134,41 @@ function Connect-KitMenerioOnly {
         install", and somebody who typed -Only menerio has asked to be asked.
 
         On a hub that is already connected it asks nothing and runs the connecting again,
-        which is how an assistant installed last week gets the connection today. #>
+        which is how an assistant installed last week gets the connection today.
+
+        A KEY MENERIO REFUSES HAD NO WAY OUT. Found on the first run with the real connect
+        program, 2026-09-20: a connected hub is never asked for a key again, on any road,
+        so a reader whose key was copied with a piece missing, or revoked, was told about
+        the problem and had no way to put another key in. So when the check reports a
+        problem and somebody is at the keyboard, the single step offers to store a new
+        one, with "no" as the answer. It offers, because the problem may be the network
+        or one assistant's settings and only the reader can tell. Save-KitNotebookToken
+        replaces the one line and keeps every other credential, and the passphrase still
+        opens the folder, because the PC's key did not change. #>
     param([Parameter(Mandatory)][string]$Hub, [string]$ToolsRepo, [string]$Token)
     Write-KbSay "Connecting Menerio to the hub at $Hub"
     Install-KitHubTools -Hub $Hub -ToolsRepo $ToolsRepo
     $skip0 = $env:KB_NOTEBOOK
     $env:KB_NOTEBOOK = $null
+    $global:KbMenerioProblem = $false
     try { Connect-KitNotebook -Hub $Hub -Token $Token } finally { $env:KB_NOTEBOOK = $skip0 }
-    if ((Get-KitNotebookState -Hub $Hub) -eq 'connected') {
+    if (((Get-KitNotebookState -Hub $Hub) -eq 'connected') -and $global:KbMenerioProblem -and (Test-KitInteractive)) {
+        Write-Host ""
+        Write-Host "If the problem above is the key, you can store a new one now. It replaces the old one."
+        $yn = Read-Host "Store a new Menerio key? (y/N)"
+        if ($yn -match '^[Yy]') {
+            Write-Host "In Menerio: Settings, then API Keys, then Generate new API key. Leave every box ticked (that is the default)."
+            $new = Read-KitSecret "Paste that key here"
+            if ($new -and (Save-KitNotebookToken -Hub $Hub -Token $new)) {
+                Set-KitNotebookEnv -Hub $Hub
+                Connect-KitAssistants -Hub $Hub
+            }
+        }
+    }
+    $connected = ((Get-KitNotebookState -Hub $Hub) -eq 'connected')
+    if ($connected -and $global:KbMenerioProblem) {
+        Write-Host "   Menerio: your key is stored, and the check above found a problem. Nothing else on this PC was changed."
+    } elseif ($connected) {
         Write-KbOk "Menerio: connected. Open a new terminal, or start your assistant again, and it is there."
     } else {
         Write-Host "   Menerio: not connected. Nothing else on this PC was changed."

@@ -3022,14 +3022,27 @@ kb_connect_assistants() {
     return 0
   fi
 
+  # WHAT THE FIRST RUN WITH THE REAL PROGRAM SHOWED (2026-09-20), and the three lines below
+  # it changed. The program finishes its whole report and THEN exits 1 when anything in it
+  # failed, a refused key included, so "stopped early" was the wrong sentence and the
+  # single step went on to print "connected" straight under a refusal. KB_MENERIO_PROBLEM
+  # carries the answer to whoever prints the last line.
+  #
+  # And the program takes MENERIO_API_KEY from the environment BEFORE it opens the store.
+  # That is right for a terminal and wrong here: this shell may still hold the key of
+  # another hub, or last year's, and that one would be written into Hermes' .env over the
+  # key the reader pasted a moment ago. So it is taken out of the program's environment,
+  # and the store this step has just written is the only thing it can read.
+  KB_MENERIO_PROBLEM=0
   log "Menerio: giving every assistant on this computer the same connection"
   # Its stdin is /dev/null on purpose. Piped from curl, THIS SCRIPT is what is arriving on
   # stdin, and a program that reads one line of it eats the rest of the install.
   [ -x "$tool" ] || chmod +x "$tool" 2>/dev/null || true
-  out="$(cd "$hub" 2>/dev/null && HUB_DIR="$hub" "$tool" --hub "$hub" 2>&1 </dev/null)"; rc=$?
-  [ -z "$out" ] || printf '%s\n' "$out" | sed 's/^/   /'
+  out="$(cd "$hub" 2>/dev/null && unset MENERIO_API_KEY && HUB_DIR="$hub" "$tool" --hub "$hub" 2>&1 </dev/null)"; rc=$?
+  [ -z "$out" ] || printf '%s\n' "$out" | sed 's/^\(.\)/   \1/'
   if [ "$rc" -ne 0 ]; then
-    warn "Menerio: hub-menerio-connect stopped early, so an assistant may be missing the connection. Read the lines above, then run it again: hub-menerio-connect"
+    KB_MENERIO_PROBLEM=1
+    warn "Menerio: hub-menerio-connect found a problem, so something above is not working yet. Its own lines say what. When that is put right, run it again: hub-menerio-connect"
   fi
   # The floor, for a program that reported and still left Claude Code without a file.
   [ -f "$hub/.mcp.json" ] || kb_write_mcp_config "$hub"
@@ -3167,14 +3180,37 @@ kb_connect_notebook() {
 #
 # On a hub that is already connected it asks nothing and runs the connecting again, which
 # is how an assistant installed last week gets the connection today.
+#
+# A KEY MENERIO REFUSES HAD NO WAY OUT. Found on the first run with the real connect
+# program, 2026-09-20: a connected hub is never asked for a key again, on any road, so a
+# reader whose key was copied with a piece missing, or revoked, was told about the problem
+# and had no way to put another key in. So when the check reports a problem and somebody
+# is at the keyboard, the single step offers to store a new one, with "no" as the answer.
+# It offers, because the problem may be the network or one assistant's settings and only
+# the reader can tell. kb_store_notebook_token replaces the one line and keeps every other
+# credential, and the passphrase still opens the folder, because the computer's key did
+# not change.
 kb_only_menerio() {
-  local hub="${1:-}" repo="${2:-}"
+  local hub="${1:-}" repo="${2:-}" token=""
   [ -n "$hub" ] || return 1
   say "Connecting Menerio to the hub at $hub"
   kb_install_hub_tools "$hub" "$repo"
+  KB_MENERIO_PROBLEM=0
   KB_NOTEBOOK="" kb_connect_notebook "$hub"
-  case "$(kb_notebook_state "$hub")" in
-    connected) ok "Menerio: connected. Open a new terminal, or start your assistant again, and it is there." ;;
+  if [ "$(kb_notebook_state "$hub"):${KB_MENERIO_PROBLEM:-0}" = "connected:1" ] && have_tty; then
+    kb_tell ""
+    kb_tell "If the problem above is the key, you can store a new one now. It replaces the old one."
+    if ask_yes "Store a new Menerio key?" "n"; then
+      kb_tell "In Menerio: Settings, then API Keys, then Generate new API key. Leave every box ticked (that is the default)."
+      token="$(ask_secret "Paste that key here")"
+      if [ -n "$token" ] && kb_store_notebook_token "$hub" "$token"; then
+        kb_connect_assistants "$hub"
+      fi
+    fi
+  fi
+  case "$(kb_notebook_state "$hub"):${KB_MENERIO_PROBLEM:-0}" in
+    connected:1) log "Menerio: your key is stored, and the check above found a problem. Nothing else on this computer was changed." ;;
+    connected:*) ok "Menerio: connected. Open a new terminal, or start your assistant again, and it is there." ;;
     *)         log "Menerio: not connected. Nothing else on this computer was changed." ;;
   esac
   return 0

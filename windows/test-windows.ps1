@@ -1495,6 +1495,37 @@ Check "the module both programs share is installed beside them, so they can star
         $ran -eq 'shared-module-found --check'
     }
 }
+# A KEY MENERIO REFUSES HAD NO WAY OUT: a connected hub is never asked for a key again. With
+# somebody at the keyboard the single step offers to store a new one, and connects again.
+Check "with a problem and a reader at the keyboard, a yes stores a new key and connects again" {
+    $script:steps = @()
+    function Test-KitInteractive { $true }
+    function Read-Host { param($Prompt, [switch]$AsSecureString) if ($AsSecureString) { 'a-new-key-not-real-0123456789' } else { $script:steps += "ASKED:$Prompt"; 'y' } }
+    function Install-KitHubTools { param($Hub, $ToolsRepo) }
+    function Get-KitNotebookState { 'connected' }
+    function Save-KitNotebookToken { param($Hub, $Token) $script:steps += "STORED:$($Token.Length)"; $true }
+    function Set-KitNotebookEnv { param($Hub) $script:steps += 'ENV' }
+    function Connect-KitAssistants { param($Hub) $script:steps += 'CONNECT'; $global:KbMenerioProblem = (@($script:steps | Where-Object { $_ -eq 'CONNECT' }).Count -eq 1) }
+    function Connect-KitNotebook { param($Hub, $Token) Connect-KitAssistants -Hub $Hub }
+    $out = Connect-KitMenerioOnly -Hub (New-TestDir 'only-newkey') 3>&1 4>&1 6>&1 | Out-String
+    (($script:steps -join '|') -eq 'CONNECT|ASKED:Store a new Menerio key? (y/N)|STORED:29|ENV|CONNECT') -and
+        $out.Contains('Menerio: connected') -and -not $out.Contains('a-new-key-not-real')
+}
+Check "a no stores nothing, and with nobody at the keyboard it asks nothing at all" {
+    $script:steps = @()
+    function Read-Host { param($Prompt, [switch]$AsSecureString) $script:steps += 'ASKED'; 'n' }
+    function Install-KitHubTools { param($Hub, $ToolsRepo) }
+    function Get-KitNotebookState { 'connected' }
+    function Save-KitNotebookToken { param($Hub, $Token) $script:steps += 'STORED'; $true }
+    function Connect-KitNotebook { param($Hub, $Token) $global:KbMenerioProblem = $true }
+    function Test-KitInteractive { $true }
+    Connect-KitMenerioOnly -Hub (New-TestDir 'only-nokey') 3>&1 4>&1 6>&1 | Out-Null
+    $saidNo = (($script:steps -join '|') -eq 'ASKED')
+    $script:steps = @()
+    function Test-KitInteractive { $false }
+    Connect-KitMenerioOnly -Hub (New-TestDir 'only-nokey2') 3>&1 4>&1 6>&1 | Out-Null
+    $saidNo -and ($script:steps.Count -eq 0)
+}
 Check "a launcher that is a real shell program goes to Git Bash, never to the bash on PATH" {
     Invoke-NotebookCase {
         param($h)
@@ -1574,14 +1605,31 @@ Check "a line on stderr cannot end the install, even under 'Stop', which is how 
         $out.Contains('Hermes: connected') -and ($after -eq 'Stop')
     }
 }
-Check "a connect program that stops early is reported, and the install carries on" {
+# The real program prints its whole report and THEN exits 1 when anything failed, a refused
+# key included, so the sentence may not say it "stopped early": it did not.
+Check "a connect program that reports a problem is heard, in words that fit a refused key" {
     Invoke-NotebookCase {
         param($h)
         $hub = New-NotebookHub 'mc-hub9'
-        [void](New-ConnectStub -HomeDir $h -ExitCode 3)
+        [void](New-ConnectStub -HomeDir $h -ExitCode 1)
         function Get-KitNotebookState { 'connected' }
         $out = Connect-KitAssistants -Hub $hub 3>&1 4>&1 6>&1 | Out-String
-        $out.Contains('stopped early')
+        $out.Contains('found a problem') -and $out.Contains('Hermes: connected') -and
+            -not $out.Contains('stopped early') -and ($global:KbMenerioProblem -eq $true)
+    }
+}
+Check "and the single step never says 'connected' straight under that problem" {
+    Invoke-NotebookCase {
+        param($h)
+        $hub = New-NotebookHub 'mc-hub9b'
+        [void](New-ConnectStub -HomeDir $h -ExitCode 1)
+        function Get-KitNotebookState { 'connected' }
+        function Test-KitInteractive { $false }   # or a real console would be asked a question
+        function Install-KitHubTools { param($Hub, $ToolsRepo) }
+        function Connect-KitNotebook { param($Hub, $Token) Connect-KitAssistants -Hub $Hub }
+        $out = Connect-KitMenerioOnly -Hub $hub 3>&1 4>&1 6>&1 | Out-String
+        $out.Contains('your key is stored, and the check above found a problem') -and
+            -not $out.Contains('Menerio: connected')
     }
 }
 Check "a hub with no key on this PC does not run the connect program" {

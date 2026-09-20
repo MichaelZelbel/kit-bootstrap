@@ -1993,6 +1993,7 @@ _mstub() {   # _mstub <exit code>: a stand-in that reports, and writes down how 
 printf 'args=%s\n' "\$*" > "$_m/called.txt"
 printf 'cwd=%s\n' "\$(pwd -P)" >> "$_m/called.txt"
 printf 'hubdir=%s\n' "\${HUB_DIR:-}" >> "$_m/called.txt"
+[ -n "\${MENERIO_API_KEY:-}" ] && printf 'envkey=set\n' >> "$_m/called.txt"
 [ -f "$_m/hub/secrets/hub-secrets.env.age" ] && printf 'store=yes\n' >> "$_m/called.txt"
 echo "Claude Code: connected"
 echo "Hermes: connected"
@@ -2018,7 +2019,12 @@ rm -f "$_m/hub/.mcp.json"
 # The program is there and the hub is connected: it runs, and its words reach the reader.
 _mstub 0
 out="$( ( HOME="$_m/home"; kb_notebook_state() { printf connected; }
+          MENERIO_API_KEY="a-key-from-another-hub-not-real"; export MENERIO_API_KEY
           kb_connect_assistants "$_m/hub" ) 2>&1 )"
+# The real program takes the key from the environment BEFORE it opens the store. A shell
+# still holding another hub's key would have it written into Hermes over the one just pasted.
+t "a key left in this shell never reaches the connect program, so it reads the store" \
+  "$(grep -c '^envkey=set' "$_m/called.txt")" "0"
 t "the connect program's report reaches the reader, one line for each assistant" \
   "$(printf '%s' "$out" | grep -c -e 'Claude Code: connected' -e 'Hermes: connected' -e 'Codex: not on this computer')" "3"
 t "it is told which hub with --hub" \
@@ -2030,13 +2036,56 @@ t "and HUB_DIR names that hub too, because device.env may name another one" \
 t "a program that reported and wrote no file still leaves Claude Code the floor" \
   "$([ -f "$_m/hub/.mcp.json" ] && echo yes || echo no)" "yes"
 
-# A program that stops early must be heard, and must never stop the install.
-_mstub 3
+# A program that reports a problem must be heard, and must never stop the install. The
+# real one prints its whole report and THEN exits 1 when anything failed, a refused key
+# included, so the sentence may not say it "stopped early": it did not.
+_mstub 1
 out="$( ( HOME="$_m/home"; kb_notebook_state() { printf connected; }
-          kb_connect_assistants "$_m/hub"; echo "rc=$?" ) 2>&1 )"
-t "a connect program that stops early is reported" \
-  "$(printf '%s' "$out" | grep -c 'stopped early')" "1"
-t "and the install carries on" "$(printf '%s' "$out" | grep -c '^rc=0')" "1"
+          kb_connect_assistants "$_m/hub"; echo "rc=$? problem=$KB_MENERIO_PROBLEM" ) 2>&1 )"
+t "a connect program that reports a problem is heard, in words that fit a refused key" \
+  "$(printf '%s' "$out" | grep -c 'found a problem')" "1"
+t "its whole report still reaches the reader" "$(printf '%s' "$out" | grep -c 'Hermes: connected')" "1"
+t "and the install carries on, knowing about it" "$(printf '%s' "$out" | grep -c '^rc=0 problem=1')" "1"
+# Forced headless, like every case here that would otherwise wait for an answer on a real terminal.
+out="$( ( HOME="$_m/home"; kb_install_hub_tools() { :; }; kb_notebook_state() { printf connected; }
+          have_tty() { return 1; }
+          kb_connect_notebook() { kb_connect_assistants "$1"; }
+          kb_only_menerio "$_m/hub" "" ) 2>&1 )"
+t "the single step never says 'connected' straight under a problem" \
+  "$(printf '%s' "$out" | grep -c 'Menerio: connected')" "0"
+t "it says the key is stored and the check found a problem" \
+  "$(printf '%s' "$out" | grep -c 'your key is stored, and the check above found a problem')" "1"
+# A KEY MENERIO REFUSES HAD NO WAY OUT: a connected hub is never asked for a key again. With
+# somebody at the keyboard the single step offers to store a new one, and connects again.
+_only_with() {   # _only_with <answer to the question>: the connect program fails once, then is happy
+  ( HOME="$_m/home"; _calls=0
+    have_tty() { return 0; }; kb_tell() { printf '%s\n' "$*"; }
+    ask_yes() { printf 'ASKED: %s\n' "$1"; [ "$_answer" = y ]; }
+    ask_secret() { printf 'a-new-key-not-real-0123456789'; }
+    kb_install_hub_tools() { :; }; kb_notebook_state() { printf connected; }
+    kb_store_notebook_token() { printf 'STORED a new key for %s\n' "$1"; }
+    kb_connect_notebook() { kb_connect_assistants "$1"; }
+    kb_connect_assistants() { _calls=$((_calls + 1)); printf 'CONNECT %s\n' "$_calls"
+                              if [ "$_calls" -eq 1 ]; then KB_MENERIO_PROBLEM=1; else KB_MENERIO_PROBLEM=0; fi; }
+    _answer="$1"; kb_only_menerio "$_m/hub" "" ) 2>&1
+}
+out="$(_only_with y)"
+t "with a problem and a reader at the keyboard, the single step offers to store a new key" \
+  "$(printf '%s' "$out" | grep -c 'ASKED: Store a new Menerio key?')" "1"
+t "a yes stores it and connects every assistant again" \
+  "$(printf '%s\n' "$out" | grep -e '^STORED' -e '^CONNECT' | tr '\n' '|')" "CONNECT 1|STORED a new key for $_m/hub|CONNECT 2|"
+t "and the last line then says connected, because it now is" \
+  "$(printf '%s' "$out" | grep -c 'Menerio: connected')" "1"
+t "the new key is never shown" "$(printf '%s' "$out" | grep -c 'a-new-key-not-real')" "0"
+out="$(_only_with n)"
+t "a no stores nothing and connects nothing again" \
+  "$(printf '%s\n' "$out" | grep -e '^STORED' -e '^CONNECT' | tr '\n' '|')" "CONNECT 1|"
+out="$( ( HOME="$_m/home"; have_tty() { return 1; }; ask_yes() { echo ASKED; }
+          kb_install_hub_tools() { :; }; kb_notebook_state() { printf connected; }
+          kb_connect_notebook() { KB_MENERIO_PROBLEM=1; }
+          kb_only_menerio "$_m/hub" "" ) 2>&1 )"
+t "with nobody at the keyboard it asks nothing, and a one-line run stays one line" \
+  "$(printf '%s' "$out" | grep -c ASKED)" "0"
 
 # No key on this computer: the program has nothing to read, so it is not run at all.
 rm -f "$_m/called.txt"; _mstub 0
