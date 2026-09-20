@@ -1194,7 +1194,9 @@ if [ -L "$_skprobe/link" ]; then
   git -C "$_g2" add -A >/dev/null 2>&1; git -C "$_g2" -c user.name=t -c user.email=t@t commit -qm "before" >/dev/null 2>&1
   kb_wire_skills "$_g2" >/dev/null 2>&1
   t "a Claude-era hub keeps its real room tracked" "$(git -C "$_g2" ls-files .claude/skills | grep -c .)" "1"
-  t "and does not ignore it" "$(grep -cxF '.claude/skills' "$_g2/.gitignore" 2>/dev/null || echo 0)" "0"
+  # `grep -c` PRINTS 0 and then FAILS when nothing matches, so `|| echo 0` answered "0" twice and
+  # this case could never pass. It only runs where symlinks are real, so Git Bash never saw it.
+  t "and does not ignore it" "$(grep -cxF '.claude/skills' "$_g2/.gitignore" 2>/dev/null || true)" "0"
   t "but its .agents/skills door is ignored" "$(grep -cxF '.agents/skills' "$_g2/.gitignore")" "1"
 
   # A hub whose recipes really do live in .claude/skills must not be fed to
