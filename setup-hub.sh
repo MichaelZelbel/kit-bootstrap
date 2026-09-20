@@ -123,7 +123,8 @@ fi
 for fn in kb_install_prereqs kb_new_hub kb_copy_starter_hub kb_link_ai_memory kb_install_hub_cli \
           kb_install_hub_tools kb_install_prompt_harvest kb_sync_report kb_write_prompt_sources \
           kb_update_hub kb_connect_notebook kb_wire_skills kb_point_hermes_at_hub \
-          kb_hermes_approvals kb_refuse_hub_path kb_default_hub_dir \n          kb_beside kb_same_path; do
+          kb_hermes_approvals kb_refuse_hub_path kb_default_hub_dir \
+          kb_beside kb_same_path; do
   if ! command -v "$fn" >/dev/null 2>&1; then
     echo "[stop] the install code on this computer is incomplete ($fn is missing)." >&2
     echo "       Run the newest command from https://github.com/MichaelZelbel/kit-bootstrap" >&2

@@ -1888,6 +1888,21 @@ _bpre_home="${_bsrc%%$_bneedle*}"
 t "and kb_find_hub really does read HUB_DIR before the usual homes" \
   "$([ ${#_bpre_env} -lt ${#_bpre_home} ] && echo yes || echo no)" "yes"
 
+# THE LIST THAT STOPPED EVERY RUN. setup-hub.sh checks that the library it loaded has
+# every function it is about to call. From 2026-09-03 that list carried a backslash
+# followed by the LETTER n where a line break belonged, which bash reads as the word
+# "n": so the check looked for a function called n, never found one, and every run of
+# the macOS and Linux installer stopped with "(n is missing)" before doing anything.
+# Nothing here runs setup-hub.sh, because it reaches the network, so nothing saw it.
+# The list is read the way bash reads it, and every word has to be a real function.
+_need="$(sed -n '/^for fn in kb_install_prereqs/,/; do$/p' setup-hub.sh | sed 's/^for fn in//; s/; do$//')"
+eval "set -- $_need"
+_nomatch=""
+for _fn in "$@"; do declare -F "$_fn" >/dev/null || _nomatch="$_nomatch $_fn"; done
+t "every function setup-hub.sh insists on is one the library really has" "$_nomatch" ""
+t "and that list is not empty, so the case above is looking at something" \
+  "$([ "$#" -gt 10 ] && echo yes || echo no)" "yes"
+set --
 
 echo
 echo "  $pass passed, $fail failed"
