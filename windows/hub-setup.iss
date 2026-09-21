@@ -420,7 +420,11 @@ begin
       if Result <> '' then Result := Result + ',';
       Result := Result + ToolIds[i];
     end;
-  if Result = '' then Result := '-';
+  { Nothing ticked is the word 'none', never '-'. Windows PowerShell 5.1, which runs
+    setup-hub.ps1 below with -File, reads a lone '-' as the start of a parameter name
+    and stops before the first line runs. The wizard still said Finished, and a reader
+    who unticked every box had no hub. Found on a clean machine, 2026-09-21. }
+  if Result = '' then Result := 'none';
 end;
 
 { The same ticks as human names, for the Ready page. }

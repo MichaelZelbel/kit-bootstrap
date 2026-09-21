@@ -319,6 +319,9 @@ if ($found) {
 #    any wiring runs, so everything below obeys it. Sits AFTER the prerequisites
 #    on purpose, so detection sees the machine as step 2 left it.
 # -----------------------------------------------------------------------------
+# 'none' is how the wizard says nothing was ticked. It cannot say '-': Windows PowerShell
+# 5.1 reads a lone '-' after -File as a parameter name and this script never starts.
+if ($PromptSources.Trim() -eq 'none') { $PromptSources = '-' }
 if ($PromptSources -ne '(auto)') {
     Set-KitPromptSources -Value $PromptSources
     if ($PromptSources.Trim() -eq '' -or $PromptSources.Trim() -eq '-') { $env:KB_SYNC_SOURCES = '-' }

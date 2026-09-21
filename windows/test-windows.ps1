@@ -1123,6 +1123,23 @@ Check "the wizard hands the person's choice to the engine" {
     (Select-String -Path (Join-Path $PSScriptRoot 'hub-setup.iss') -Pattern 'GetPromptSources' -Quiet) -and
     (Select-String -Path (Join-Path $PSScriptRoot 'setup-hub.ps1') -Pattern 'PromptSources' -Quiet)
 }
+# THE WIZARD STARTS THE ENGINE WITH -File UNDER WINDOWS POWERSHELL 5.1, so that is how this
+# starts it. Every other case here calls functions directly, and 333 of them passed while a
+# clean machine with nothing ticked got no hub at all: 5.1 read the value '-' as a parameter
+# name and the engine stopped before its first line, while the wizard said Finished.
+Check "the engine starts when the wizard says nothing was ticked, launched the way the wizard launches it" {
+    $iss = Get-Content (Join-Path $PSScriptRoot 'hub-setup.iss') -Raw
+    if ($iss -notmatch "if Result = '' then Result := '([^']*)';") { return $false }
+    $none = $Matches[1]
+    $engine = Get-Content (Join-Path $PSScriptRoot 'setup-hub.ps1') -Raw
+    if ($engine -notmatch '(?s)(param\(.*?\r?\n\))') { return $false }
+    $stub = Join-Path (New-TestDir 'wizard-args') 'stub.ps1'
+    Set-Content -Path $stub -Value ($Matches[1] + "`r`n" + '"BOUND:[$PromptSources]"') -Encoding ascii
+    $ps51 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $out = & $ps51 -NoProfile -ExecutionPolicy Bypass -File $stub -NoPause -Hub 'C:\x' -PromptSources $none -KbBranch 'v0' 2>&1 | Out-String
+    if ($out -notmatch ("BOUND:\[" + [regex]::Escape($none) + "\]")) { Write-Host "        $($out.Trim())"; return $false }
+    $engine.Contains("-eq '$none'")
+}
 Check "no source file carries a stray control byte" {
     # The harvest task was dead on every reader's PC because one path carried a
     # literal backspace character - the corpse of a '\b' interpreted on its way
