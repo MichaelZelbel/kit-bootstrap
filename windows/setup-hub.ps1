@@ -39,10 +39,11 @@ param(
     # Another kit building its own .exe overrides these two and changes nothing else.
     [string]$StarterRepo = 'https://github.com/MichaelZelbel/teach-it-once-kit.git',
     [string]$StarterPath = 'starter-hub',
-    # Which AI tools may be synced from this PC, as a comma list (e.g. claude,codex).
-    # '-' or '' means none. The default '(auto)' means "no choice made this run": keep
-    # what this device already has recorded, or every syncable tool found here. The
-    # wizard fills this from its checklist page.
+    # Which AI tools have their conversations copied into the hub from this PC, as a
+    # comma list (claude, codex, hermes, opencode). '-', '' or 'none' means none. The
+    # default '(auto)' means "no choice made this run": keep what this device already
+    # has recorded; on a PC getting its first hub that is nothing, elsewhere it is what
+    # every PC read before there was a choice. The wizard fills this from its checklist.
     [string]$PromptSources = '(auto)',
     [switch]$SkipPrereqs,
     [switch]$NoPause,
@@ -184,7 +185,7 @@ $Only = $WantOnly
 foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-KitHub',
                  'Join-KitMemory', 'Install-KitHubCli', 'Install-KitHubTools',
                  'Install-KitPromptHarvest', 'Update-KitPath',
-                 'Find-KitAiTools', 'Set-KitPromptSources', 'Write-KitSyncReport',
+                 'Find-KitAiTools', 'Set-KitPromptSources', 'Write-KitSyncReport', 'Get-KitDeviceEnvValue',
                  'Connect-KitNotebook', 'Write-KitMcpConfig', 'Install-KitNotebookSync',
                  'Connect-KitSkills', 'Set-KitHermesHub', 'Set-KitHermesApprovals',
                  'Get-KitDefaultHubDir', 'Get-KitHubPathRefusal',
@@ -316,6 +317,13 @@ if ($found) {
 # 'none' is how the wizard says nothing was ticked. It cannot say '-': Windows PowerShell
 # 5.1 reads a lone '-' after -File as a parameter name and this script never starts.
 if ($PromptSources.Trim() -eq 'none') { $PromptSources = '-' }
+# A PC getting its first hub copies no conversations until its owner names the tools:
+# the wizard's boxes start unticked there, and a run without the wizard says the same.
+# Copying is the one step that pushes words typed to other programs into a repository,
+# so it is asked for, never assumed. A PC that already works from a hub (an update, or
+# -Beside) keeps whatever it recorded or did before.
+if ($PromptSources -eq '(auto)' -and $isNew -and -not $Beside -and
+    $null -eq (Get-KitDeviceEnvValue 'HUB_PROMPT_SOURCES')) { $PromptSources = '-' }
 if ($PromptSources -ne '(auto)') {
     Set-KitPromptSources -Value $PromptSources
     if ($PromptSources.Trim() -eq '' -or $PromptSources.Trim() -eq '-') { $env:KB_SYNC_SOURCES = '-' }

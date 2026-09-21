@@ -265,13 +265,37 @@ t "an assumed tool is reported with its powers" \
   "$(KB_ASSUME_TOOLS=claude kb_detect_ai_tools)" "claude|memory+prompts|Claude Code|"
 t "a machine with nothing reports nothing" \
   "$(KB_ASSUME_TOOLS=- kb_detect_ai_tools)" ""
-t "an unsyncable tool is reported with its reason" \
-  "$(KB_ASSUME_TOOLS=comet kb_detect_ai_tools | grep -c 'not in files here')" "1"
+t "a tool this kit cannot copy is reported as such, with no reason to misread" \
+  "$(KB_ASSUME_TOOLS=cursor kb_detect_ai_tools)" "cursor|none|Cursor|"
+t "a tool keeping its conversations only online is not on the roster at all" \
+  "$(KB_ASSUME_TOOLS=comet,claude-desktop kb_detect_ai_tools)" ""
+t "OpenCode is a tool this kit can copy" \
+  "$(KB_ASSUME_TOOLS=opencode kb_detect_ai_tools)" "opencode|prompts|OpenCode|"
+
+# REAL DETECTION, on a pretend home, with a PATH holding none of the tools. The
+# Windows wizard of 2026-09-21 listed Gemini CLI, GitHub Copilot and OpenCode on a
+# PC where a skill installer had merely made a skills folder for each (and Google
+# Antigravity keeps its settings in ~/.gemini). A folder with a tool's name is not
+# the tool.
+_d=$(mktemp -d)
+mkdir -p "$_d/.copilot/skills/x" "$_d/.gemini/skills/x" "$_d/.gemini/antigravity" \
+         "$_d/.cursor/skills/x" "$_d/.config/opencode/skills/x" "$_d/.claude/skills/x" \
+         "$_d/.codex/skills/x" "$_d/.openclaw/skills/x"
+t "skills folders and Antigravity's settings are not tools" \
+  "$(HOME="$_d" PATH=/usr/bin:/bin APPDATA= XDG_DATA_HOME= HERMES_HOME= KB_ASSUME_TOOLS= kb_detect_ai_tools)" ""
+mkdir -p "$_d/.local/share/opencode" "$_d/.gemini/tmp" "$_d/.claude/projects" "$_d/.codex/sessions"
+: > "$_d/.local/share/opencode/opencode.db"
+t "each tool is recognised by the place it keeps its own conversations" \
+  "$(HOME="$_d" PATH=/usr/bin:/bin APPDATA= XDG_DATA_HOME= HERMES_HOME= KB_ASSUME_TOOLS= kb_detect_ai_tools | cut -d'|' -f1 | tr '\n' ' ')" \
+  "claude codex opencode gemini "
+rm -rf "$_d"
 
 # Who decides, in order: the flag this run, the record on this device, detection.
 _s=$(mktemp -d)
-t "no flag and no record means every syncable tool found" \
-  "$(HOME="$_s" KB_ASSUME_TOOLS=claude,codex,comet kb_enabled_sources)" "claude,codex"
+t "no flag and no record means what every machine read before there was a choice" \
+  "$(HOME="$_s" KB_ASSUME_TOOLS=claude,codex,cursor kb_enabled_sources)" "claude,codex"
+t "and never a tool this kit learned to copy later" \
+  "$(HOME="$_s" KB_ASSUME_TOOLS=claude,opencode kb_enabled_sources)" "claude"
 mkdir -p "$_s/.hub"; printf 'HUB_PROMPT_SOURCES=claude\n' > "$_s/.hub/device.env"
 t "the choice recorded on the device wins over detection" \
   "$(HOME="$_s" KB_ASSUME_TOOLS=claude,codex kb_enabled_sources)" "claude"
@@ -295,12 +319,28 @@ t "and what else the file held survives" \
   "$(grep -c '^HUB_DIR=/somewhere$' "$_s2/.hub/device.env")" "1"
 
 # The report is the disclosure. It must name each state in plain words.
-_rep="$(HOME="$_s2" KB_ASSUME_TOOLS=claude,codex,comet KB_SYNC_SOURCES=claude kb_sync_report)"
-t "the report says what is synced"           "$(printf '%s' "$_rep" | grep -c 'Claude Code: its memory folder')" "1"
-t "the report says what was left alone"      "$(printf '%s' "$_rep" | grep -c 'Codex (switched off by your choice')" "1"
-t "the report says what cannot be synced"    "$(printf '%s' "$_rep" | grep -c 'Perplexity Comet:')" "1"
-t "a machine syncing nothing is told so" \
-  "$(KB_ASSUME_TOOLS=- KB_SYNC_SOURCES= kb_sync_report | grep -c 'Nothing is synced')" "1"
+_rep="$(HOME="$_s2" KB_ASSUME_TOOLS=claude,codex,cursor KB_SYNC_SOURCES=claude kb_sync_report)"
+t "the report says what is copied"           "$(printf '%s' "$_rep" | grep -c 'Claude Code: its memory folder')" "1"
+t "the report says what was left off"        "$(printf '%s' "$_rep" | grep -c 'Not copied, because you left it off: Codex.')" "1"
+t "and how to switch it on"                  "$(printf '%s' "$_rep" | grep -c 'e.g. --sources claude,codex$')" "1"
+t "a tool it cannot copy is named as still working with the hub" \
+  "$(printf '%s' "$_rep" | grep -c 'Also on this machine: Cursor. You can open your hub folder in it')" "1"
+t "the old wording that read as 'does not work' is gone" \
+  "$(printf '%s' "$_rep" | grep -c -i 'cannot sync\|not syncable\|format yet')" "0"
+t "several such tools are one sentence, in the plural" \
+  "$(KB_ASSUME_TOOLS=cursor,gemini KB_SYNC_SOURCES= kb_sync_report | grep -c 'Cursor, Gemini CLI. You can open your hub folder in them')" "1"
+t "a machine copying nothing is told so" \
+  "$(KB_ASSUME_TOOLS=- KB_SYNC_SOURCES= kb_sync_report | grep -c 'No conversations are copied')" "1"
+
+# A machine getting its FIRST hub copies nothing until its owner names tools, like the
+# Windows wizard whose boxes start unticked there. An update or a second hub beside the
+# first must never switch off what the machine already copies. setup-hub.sh reaches the
+# network, so the rule is checked where it is written.
+_fresh="$(sed -n '/^if \[ "\$SOURCES_SET" -eq 0 \] && \[ "\$IS_NEW" -eq 1 \] && \[ "\$BESIDE" -eq 0 \]/,/^fi$/p' setup-hub.sh)"
+t "a first hub on a machine starts with nothing copied" \
+  "$(printf '%s' "$_fresh" | grep -c 'SOURCES=""\|HUB_PROMPT_SOURCES=')" "2"
+t "and the rule sits before the choice is recorded" \
+  "$(awk '/"\$IS_NEW" -eq 1 \] && \[ "\$BESIDE" -eq 0 \]/{a=NR} /^  kb_write_prompt_sources "\$SOURCES"/{b=NR} END{print (a>0 && b>0 && a<b) ? "yes" : "no"}' setup-hub.sh)" "yes"
 
 # THE GATE ON THE MEMORY LINK. No Claude Code, no link, and above all no invented
 # ~/.claude folder on a machine that never had one.

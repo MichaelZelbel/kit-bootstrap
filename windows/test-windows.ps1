@@ -324,14 +324,59 @@ Check "a machine with nothing reports nothing" {
     try { $env:KB_ASSUME_TOOLS = '-'; @(Find-KitAiTools).Count -eq 0 }
     finally { $env:KB_ASSUME_TOOLS = $null }
 }
-Check "an unsyncable tool is reported with its reason" {
-    try { $env:KB_ASSUME_TOOLS = 'comet'
-          @(Find-KitAiTools | Where-Object { $_ -match 'not in files here' }).Count -eq 1 }
+Check "a tool this kit cannot copy is reported as such, with no reason to misread" {
+    try { $env:KB_ASSUME_TOOLS = 'cursor'
+          (@(Find-KitAiTools) -join ';') -eq 'cursor|none|Cursor|' }
     finally { $env:KB_ASSUME_TOOLS = $null }
 }
-Check "no flag and no record means every syncable tool found" {
-    try { $env:KB_ASSUME_TOOLS = 'claude,codex,comet'; $env:KB_HOME = New-TestDir 'src-home1'
+Check "a tool keeping its conversations only online is not on the roster at all" {
+    try { $env:KB_ASSUME_TOOLS = 'comet,claude-desktop'; @(Find-KitAiTools).Count -eq 0 }
+    finally { $env:KB_ASSUME_TOOLS = $null }
+}
+Check "OpenCode is a tool this kit can copy" {
+    try { $env:KB_ASSUME_TOOLS = 'opencode'
+          (@(Find-KitAiTools) -join ';') -eq 'opencode|prompts|OpenCode|' }
+    finally { $env:KB_ASSUME_TOOLS = $null }
+}
+# REAL DETECTION, on a pretend home, with a PATH and app folders holding none of the
+# tools. The wizard of 2026-09-21 listed Gemini CLI, GitHub Copilot and OpenCode on a PC
+# where a skill installer had merely made a skills folder for each (and Google
+# Antigravity keeps its settings in .gemini). A folder with a tool's name is not the tool.
+Check "skills folders and Antigravity's settings are not tools; each tool's own store is" {
+    $save = @{ PATH = $env:PATH; LOCALAPPDATA = $env:LOCALAPPDATA; APPDATA = $env:APPDATA
+               XDG_DATA_HOME = $env:XDG_DATA_HOME; HERMES_HOME = $env:HERMES_HOME }
+    try {
+        $h = New-TestDir 'detect-home'
+        foreach ($d in '.copilot\skills\x', '.gemini\skills\x', '.gemini\antigravity', '.cursor\skills\x',
+                       '.config\opencode\skills\x', '.claude\skills\x', '.codex\skills\x', '.openclaw\skills\x') {
+            New-Item -ItemType Directory -Force (Join-Path $h $d) | Out-Null
+        }
+        $env:KB_HOME = $h; $env:KB_ASSUME_TOOLS = $null
+        $env:PATH = Join-Path $env:SystemRoot 'System32'
+        $env:LOCALAPPDATA = Join-Path $h 'AppData\Local'; $env:APPDATA = Join-Path $h 'AppData\Roaming'
+        $env:XDG_DATA_HOME = $null; $env:HERMES_HOME = $null
+        $none = @(Find-KitAiTools).Count -eq 0
+        foreach ($d in '.local\share\opencode', '.gemini\tmp', '.claude\projects', '.codex\sessions',
+                       'AppData\Roaming\Cursor\User') {
+            New-Item -ItemType Directory -Force (Join-Path $h $d) | Out-Null
+        }
+        Set-Content (Join-Path $h '.local\share\opencode\opencode.db') '' -Encoding ascii
+        $ids = (@(Find-KitAiTools) | ForEach-Object { ($_ -split '\|')[0] }) -join ' '
+        $none -and ($ids -eq 'claude codex opencode cursor gemini')
+    } finally {
+        foreach ($k in $save.Keys) { Set-Item "env:$k" $save[$k] -ErrorAction SilentlyContinue
+                                     if ($null -eq $save[$k]) { Remove-Item "env:$k" -ErrorAction SilentlyContinue } }
+        $env:KB_HOME = $null
+    }
+}
+Check "no flag and no record means what every PC read before there was a choice" {
+    try { $env:KB_ASSUME_TOOLS = 'claude,codex,cursor'; $env:KB_HOME = New-TestDir 'src-home1'
           (Get-KitEnabledSources) -eq 'claude,codex' }
+    finally { $env:KB_ASSUME_TOOLS = $null; $env:KB_HOME = $null }
+}
+Check "and never a tool this kit learned to copy later" {
+    try { $env:KB_ASSUME_TOOLS = 'claude,opencode'; $env:KB_HOME = New-TestDir 'src-home1b'
+          (Get-KitEnabledSources) -eq 'claude' }
     finally { $env:KB_ASSUME_TOOLS = $null; $env:KB_HOME = $null }
 }
 Check "the choice recorded on the device wins over detection" {
@@ -361,18 +406,46 @@ Check "the choice is recorded, replaced not stacked, neighbours kept" {
           (@($lines | Where-Object { $_ -eq 'HUB_DIR=C:\somewhere' }).Count -eq 1) }
     finally { $env:KB_HOME = $null }
 }
-Check "the report says what is synced, what was left alone, what cannot be" {
-    try { $env:KB_ASSUME_TOOLS = 'claude,codex,comet'; $env:KB_SYNC_SOURCES = 'claude'
+Check "the report says what is copied, what was left off, and what still works with the hub" {
+    try { $env:KB_ASSUME_TOOLS = 'claude,codex,cursor'; $env:KB_SYNC_SOURCES = 'claude'
           $rep = (Write-KitSyncReport 6>&1 | Out-String)
           $rep.Contains('Claude Code: its memory folder') -and
-          $rep.Contains('Codex (switched off by your choice') -and
-          $rep.Contains('Perplexity Comet:') }
+          $rep.Contains('Not copied, because you left it off: Codex.') -and
+          $rep.Contains('run the installer again and tick it') -and
+          $rep.Contains('Also on this PC: Cursor. You can open your hub folder in it') -and
+          ($rep -notmatch 'cannot sync|not syncable|format yet') }
     finally { $env:KB_ASSUME_TOOLS = $null; $env:KB_SYNC_SOURCES = $null }
 }
-Check "a PC syncing nothing is told so" {
-    try { $env:KB_ASSUME_TOOLS = '-'; $env:KB_SYNC_SOURCES = '-'
-          (Write-KitSyncReport 6>&1 | Out-String).Contains('Nothing is synced') }
+Check "several such tools are one sentence, in the plural" {
+    try { $env:KB_ASSUME_TOOLS = 'cursor,gemini'; $env:KB_SYNC_SOURCES = '-'
+          (Write-KitSyncReport 6>&1 | Out-String).Contains('Cursor, Gemini CLI. You can open your hub folder in them') }
     finally { $env:KB_ASSUME_TOOLS = $null; $env:KB_SYNC_SOURCES = $null }
+}
+Check "a PC copying nothing is told so" {
+    try { $env:KB_ASSUME_TOOLS = '-'; $env:KB_SYNC_SOURCES = '-'
+          (Write-KitSyncReport 6>&1 | Out-String).Contains('No conversations are copied') }
+    finally { $env:KB_ASSUME_TOOLS = $null; $env:KB_SYNC_SOURCES = $null }
+}
+# THE WIZARD PAGE, as Michael met it on 2026-09-21: "Your AI tools", greyed boxes reading
+# "cannot sync", and no way to act on any of them. Checked in the source, because the page
+# only exists inside the compiled .exe.
+Check "the wizard gives no tool a box it cannot tick, and names those tools in words" {
+    $iss = Get-Content (Join-Path $PSScriptRoot 'hub-setup.iss') -Raw
+    ($iss -notmatch 'ItemEnabled') -and ($iss -notmatch "cannot sync:") -and
+    ($iss -match "Also on this PC: ' \+ Others") -and
+    ($iss -match 'Every AI tool on this PC can work with your hub, ticked or not')
+}
+Check "the wizard's boxes start unticked on a PC getting its first hub" {
+    $iss = Get-Content (Join-Path $PSScriptRoot 'hub-setup.iss') -Raw
+    $iss -match "if RecordedSources = '\(auto\)' then\s+SyncPage\.Values\[row\] := \(FoundHub <> ''\)"
+}
+Check "a page with nothing to tick is not shown" {
+    $iss = Get-Content (Join-Path $PSScriptRoot 'hub-setup.iss') -Raw
+    $iss -match 'if PageID = SyncPage\.ID then\s+Result := \(ToolCount = 0\)'
+}
+Check "the engine run without the wizard copies nothing on a PC getting its first hub" {
+    $eng = Get-Content (Join-Path $PSScriptRoot 'setup-hub.ps1') -Raw
+    $eng -match "if \(\`$PromptSources -eq '\(auto\)' -and \`$isNew -and -not \`$Beside -and\s+\`$null -eq \(Get-KitDeviceEnvValue 'HUB_PROMPT_SOURCES'\)\) \{ \`$PromptSources = '-' \}"
 }
 
 Write-Host ""

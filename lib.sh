@@ -1639,27 +1639,41 @@ kb_link_ai_memory() {
 # first or telling them.
 #
 # Three ideas, kept separate on purpose:
-#   DETECTED  the tool leaves files on this machine, so we can see it is here.
+#   DETECTED  the tool is really installed here (its program, or the place it
+#             keeps its conversations; a folder with its name is not enough).
 #   SYNCABLE  this kit knows how to read what the person typed to it. Today that
-#             is Claude Code (memory + prompts), Codex (prompts) and Hermes
-#             (prompts). Everything else is shown with the reason it is not.
+#             is Claude Code (memory + prompts), Codex, Hermes and OpenCode
+#             (prompts). Only these get a tick box.
 #   ENABLED   the person said yes. Recorded per device in ~/.hub/device.env as
 #             HUB_PROMPT_SOURCES, because "my work laptop's Codex must stay out"
 #             is a fact about one machine, not about the hub.
 #
-# A tool that is detected but not syncable is NAMED with its reason, never
-# silently promised: "every assistant shares one memory" was written on every
-# completion screen while exactly one assistant was wired, and that ends here.
+# A tool that is detected but not syncable gets no tick box, only one line saying
+# it is here, still works with the hub, and has conversations this kit cannot copy
+# yet. Until 2026-09-21 it got a greyed-out box reading "cannot sync", which a
+# person installing the kit read as "this tool does not work with your hub" and
+# could do nothing with. Never silently promised either: "every assistant shares
+# one memory" was once written on every completion screen while exactly one
+# assistant was wired.
 # =============================================================================
 
 # The sources the harvester can actually read. One list, referenced everywhere,
 # so adding a source is one edit here plus a reader in the collector.
-KB_SUPPORTED_SOURCES="claude codex hermes"
+KB_SUPPORTED_SOURCES="claude codex hermes opencode"
+# What a machine that never recorded a choice keeps reading: the sources that
+# existed before there was a choice, and never one added since (OpenCode arrived
+# 2026-09-21). A new source is read only where its owner ticked it.
+KB_LEGACY_DEFAULT_SOURCES="claude codex hermes"
 
 # kb_ai_tool_detected <id>
-# Does this AI tool leave files on this machine? Fingerprints verified on real
-# installs (2026-08-11); a wrong guess here can only fail to see a tool, never
-# invent one, because everything is a plain "does this folder exist".
+# Is this AI tool really installed here? Each fingerprint is the program itself or
+# the place the tool keeps its own conversations, never merely a folder with the
+# tool's name. That was the rule until 2026-09-21, and it listed tools nobody had:
+# skill installers create ~/.copilot/skills, ~/.gemini/skills, ~/.cursor/skills
+# and ~/.config/opencode/skills for every assistant they know of, and Google
+# Antigravity keeps its settings in ~/.gemini, so the Windows installer showed
+# "Gemini CLI" on a PC that had never seen it. A folder still counts when it is
+# one only the real tool writes (sessions, a database, a login file).
 #
 # KB_ASSUME_TOOLS is the test override: a comma list of ids to report as
 # present, or "-" for a machine with nothing. Detection reads the machine it
@@ -1670,57 +1684,60 @@ kb_ai_tool_detected() {
     case ",$KB_ASSUME_TOOLS," in *",$1,"*) return 0 ;; *) return 1 ;; esac
   fi
   case "$1" in
-    claude)         [ -d "$HOME/.claude" ] || command -v claude >/dev/null 2>&1 ;;
-    codex)          [ -d "$HOME/.codex" ] ;;
+    claude)   command -v claude >/dev/null 2>&1 || [ -d "$HOME/.claude/projects" ] || \
+              [ -f "$HOME/.claude.json" ] ;;
+    codex)    command -v codex >/dev/null 2>&1 || [ -d "$HOME/.codex/sessions" ] || \
+              [ -f "$HOME/.codex/auth.json" ] || [ -f "$HOME/.codex/config.toml" ] ;;
     # config.yaml is the marker every install has. The old marker, a profiles/
     # subfolder, missed any install still on its default profile - which is how
     # Hermes was invisible on the machine of the person writing the book about
     # it. HERMES_HOME wins because that is where a relocated install lives.
-    hermes)         [ -f "${HERMES_HOME:-/nonexistent}/config.yaml" ] || \
-                    [ -f "$HOME/.hermes/config.yaml" ] || \
-                    [ -f /home/hermes/.hermes/config.yaml ] ;;
-    claude-desktop) [ -d "$HOME/Library/Application Support/Claude" ] || \
-                    [ -d "${APPDATA:-/nonexistent}/Claude" ] || \
-                    [ -d "${LOCALAPPDATA:-/nonexistent}/AnthropicClaude" ] ;;
-    muse)           [ -d "$HOME/.config/muse" ] || [ -d "$HOME/.local/share/muse" ] || \
-                    command -v muse >/dev/null 2>&1 ;;
-    opencode)       [ -d "$HOME/.config/opencode" ] || command -v opencode >/dev/null 2>&1 ;;
-    openclaw)       [ -d "$HOME/.openclaw" ] ;;
-    comet)          [ -d "$HOME/Library/Application Support/Perplexity/Comet" ] || \
-                    [ -d "${LOCALAPPDATA:-/nonexistent}/Perplexity/Comet" ] ;;
-    copilot)        [ -d "$HOME/.copilot" ] ;;
-    cursor)         [ -d "$HOME/.cursor" ] || [ -d "${APPDATA:-/nonexistent}/Cursor" ] ;;
-    gemini)         [ -d "$HOME/.gemini" ] ;;
+    hermes)   [ -f "${HERMES_HOME:-/nonexistent}/config.yaml" ] || \
+              [ -f "$HOME/.hermes/config.yaml" ] || \
+              [ -f /home/hermes/.hermes/config.yaml ] ;;
+    # Its conversation database, in the same place on every system.
+    opencode) command -v opencode >/dev/null 2>&1 || \
+              [ -f "${XDG_DATA_HOME:-$HOME/.local/share}/opencode/opencode.db" ] ;;
+    cursor)   command -v cursor >/dev/null 2>&1 || [ -d /Applications/Cursor.app ] || \
+              [ -d "$HOME/Applications/Cursor.app" ] || \
+              [ -d "$HOME/Library/Application Support/Cursor/User" ] || \
+              [ -d "$HOME/.config/Cursor/User" ] || \
+              [ -d "${APPDATA:-/nonexistent}/Cursor/User" ] ;;
+    copilot)  command -v copilot >/dev/null 2>&1 || [ -d "$HOME/.copilot/session-state" ] || \
+              [ -d "$HOME/.copilot/history-session-state" ] ;;
+    gemini)   command -v gemini >/dev/null 2>&1 || [ -d "$HOME/.gemini/tmp" ] || \
+              [ -f "$HOME/.gemini/settings.json" ] ;;
+    openclaw) command -v openclaw >/dev/null 2>&1 || [ -f "$HOME/.openclaw/openclaw.json" ] ;;
     *) return 1 ;;
   esac
 }
 
-# kb_ai_tool_info <id>   ->   sync|Human name|why not, when sync is none
-# "sync" is what this kit can read TODAY, not what the tool could offer.
+# kb_ai_tool_info <id>   ->   sync|Human name|
+# "sync" is what this kit can copy TODAY: memory+prompts, prompts, or none. A tool
+# whose conversations live only on its maker's servers (Claude Desktop, Perplexity
+# Comet) is not on this roster at all: there is nothing on the machine to copy, so
+# naming it on a page about copying told the person nothing they could act on.
 kb_ai_tool_info() {
   case "$1" in
-    claude)         printf 'memory+prompts|Claude Code|' ;;
-    codex)          printf 'prompts|Codex|' ;;
-    hermes)         printf 'prompts|Hermes|' ;;
-    claude-desktop) printf 'none|Claude Desktop|keeps your conversations on its own servers, not in files here' ;;
-    comet)          printf 'none|Perplexity Comet|keeps your conversations on its own servers, not in files here' ;;
-    muse)           printf 'none|Muse Code|keeps files here, but this kit cannot read its format yet' ;;
-    opencode)       printf 'none|OpenCode|keeps files here, but this kit cannot read its format yet' ;;
-    openclaw)       printf 'none|OpenClaw|keeps files here, but this kit cannot read its format yet' ;;
-    copilot)        printf 'none|GitHub Copilot|keeps files here, but this kit cannot read its format yet' ;;
-    cursor)         printf 'none|Cursor|keeps files here, but this kit cannot read its format yet' ;;
-    gemini)         printf 'none|Gemini CLI|keeps files here, but this kit cannot read its format yet' ;;
+    claude)   printf 'memory+prompts|Claude Code|' ;;
+    codex)    printf 'prompts|Codex|' ;;
+    hermes)   printf 'prompts|Hermes|' ;;
+    opencode) printf 'prompts|OpenCode|' ;;
+    cursor)   printf 'none|Cursor|' ;;
+    copilot)  printf 'none|GitHub Copilot|' ;;
+    gemini)   printf 'none|Gemini CLI|' ;;
+    openclaw) printf 'none|OpenClaw|' ;;
     *) return 1 ;;
   esac
 }
 
 # kb_detect_ai_tools
-# One line per AI tool found on this machine:  id|sync|Human name|note
-# Order is fixed and syncable-first, so every caller (the report below, the
+# One line per AI tool found on this machine:  id|sync|Human name|
+# Order is fixed and copyable-first, so every caller (the report below, the
 # Windows wizard's checklist) shows the same list in the same order.
 kb_detect_ai_tools() {
   local id
-  for id in claude codex hermes claude-desktop muse opencode openclaw comet copilot cursor gemini; do
+  for id in claude codex hermes opencode cursor copilot gemini openclaw; do
     kb_ai_tool_detected "$id" && printf '%s|%s\n' "$id" "$(kb_ai_tool_info "$id")"
   done
   return 0
@@ -1730,8 +1747,8 @@ kb_detect_ai_tools() {
 # Which syncable tools the person has said yes to, as a comma list. Who decides,
 # in order: a --sources flag this run (KB_SYNC_SOURCES, where empty means NONE,
 # because unticking every box is a decision and not an accident), the choice
-# recorded on this device, and only then "every syncable tool found here", which
-# is what every machine did before there was a choice.
+# recorded on this device, and only then the tools every machine read before
+# there was a choice (KB_LEGACY_DEFAULT_SOURCES), where they are found.
 kb_enabled_sources() {
   # "-" is NONE spelled so it survives a Windows environment variable, which
   # cannot hold an empty string. Both spellings are accepted everywhere.
@@ -1748,7 +1765,7 @@ kb_enabled_sources() {
       printf '%s' "$v"; return 0
     fi
   fi
-  for id in $KB_SUPPORTED_SOURCES; do
+  for id in $KB_LEGACY_DEFAULT_SOURCES; do
     kb_ai_tool_detected "$id" && list="$list,$id"
   done
   printf '%s' "${list#,}"
@@ -1773,31 +1790,46 @@ kb_write_prompt_sources() {
 # The truth about this machine, built from what was detected and chosen, never
 # from the promise. This is what the completion screen prints, so a person who
 # runs no other command still learns exactly what is read and where it goes.
+# Worded around what actually happens, copying conversations, because the old
+# "not syncable" read as "does not work with your hub", which was never meant.
 kb_sync_report() {
-  local on=",$(kb_enabled_sources)," line id sync name note synced="" off="" unsyncable=""
+  local on=",$(kb_enabled_sources)," id sync name note synced="" off="" other="" ids=""
   while IFS='|' read -r id sync name note; do
     [ -n "$id" ] || continue
     if [ "$sync" = "none" ]; then
-      unsyncable="$unsyncable  - $name: $note\n"
-    elif [ "${on#*,$id,}" != "$on" ]; then
+      other="$other, $name"
+      continue
+    fi
+    ids="$ids,$id"
+    if [ "${on#*,$id,}" != "$on" ]; then
       case "$sync" in
         memory+prompts) synced="$synced  - $name: its memory folder, plus what you type to it and its answers\n" ;;
         *)              synced="$synced  - $name: what you type to it, and its answers\n" ;;
       esac
     else
-      off="$off  - $name (switched off by your choice; edit HUB_PROMPT_SOURCES in ~/.hub/device.env to change it)\n"
+      off="$off, $name"
     fi
-  done <<EOF
+  done <<KB_TOOLS
 $(kb_detect_ai_tools)
-EOF
+KB_TOOLS
   if [ -n "$synced" ]; then
-    printf 'What is synced from this machine into your hub, and pushed to its repository:\n'
+    printf 'Copied from this machine into your hub, and pushed to its repository:\n'
     printf '%b' "$synced"
   else
-    printf 'Nothing is synced from this machine: no AI tool here is both readable by this kit and switched on.\n'
+    printf 'No conversations are copied from this machine into your hub.\n'
   fi
-  [ -n "$off" ] && { printf 'Found here but left alone:\n'; printf '%b' "$off"; }
-  [ -n "$unsyncable" ] && { printf 'Found here but not syncable:\n'; printf '%b' "$unsyncable"; }
+  if [ -n "$off" ]; then
+    printf 'Not copied, because you left it off: %s.\n' "${off#, }"
+    printf '  To copy one, run this again with --sources naming the tools you want, e.g. --sources %s\n' "${ids#,}"
+  fi
+  if [ -n "$other" ]; then
+    case "${other#, }" in
+      *,*) printf 'Also on this machine: %s. You can open your hub folder in them like in any\n' "${other#, }"
+           printf '  other assistant; only their conversations cannot be copied into the hub yet.\n' ;;
+      *)   printf 'Also on this machine: %s. You can open your hub folder in it like in any\n' "${other#, }"
+           printf '  other assistant; only its conversations cannot be copied into the hub yet.\n' ;;
+    esac
+  fi
   return 0
 }
 
