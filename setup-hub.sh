@@ -308,7 +308,7 @@ fi
 kb_sync_report
 cat <<EOF
 
-Two things worth knowing:
+Worth knowing:
 
   * Open a NEW terminal window before you use the hub commands, so it picks up
     what was just installed.

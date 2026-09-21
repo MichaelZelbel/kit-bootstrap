@@ -379,7 +379,7 @@ if (Test-KitBeside) {
 Write-KitSyncReport
 Write-Host @"
 
-Two things worth knowing:
+Worth knowing:
 
   * Open a NEW terminal window before you use the hub commands. Windows only
     hands the updated list of commands to windows opened after an install.
