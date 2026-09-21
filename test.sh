@@ -1087,6 +1087,38 @@ if command -v node >/dev/null 2>&1; then
 else
   echo "  skip  the shared module case (no node on this computer to start the program with)"
 fi
+
+# THE MAIL TOOL (2026-09-21, email plan). Every install and every re-run tells each assistant
+# about hub-mail and connects no mailbox. The case uses the REAL kit files when this computer
+# has a checkout beside this one, because the promise is about the real program: it installs,
+# it starts from the entry every assistant is given, it says "not connected" with nothing set
+# up, it asks nothing, and a second run changes nothing. One ordinary computer, no server.
+_mailsrc="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)/teach-it-once-kit/tools"
+if command -v node >/dev/null 2>&1 && [ -f "$_mailsrc/hub-mail.js" ]; then
+  cp "$_mailsrc/hub-mail.js" "$_mailsrc/hub-mail-gmail.js" "$_mailsrc/hub-mail-wire.js" "$_mailsrc/hub-mail" "$_l/kit/tools/"
+  _lk "the mail tool"
+  rm -rf "$_l/home"; mkdir -p "$_l/home/.codex" "$_l/home/.hermes"
+  printf 'model: x\nmcp_servers:\n  notebook:\n    url: https://mcp.menerio.com\n' > "$_l/home/.hermes/config.yaml"
+  printf '{"mcpServers":{"notebook":{"type":"http","url":"https://mcp.menerio.com"}}}\n' > "$_l/hub/.mcp.json"
+  : > "$_l/hub/AGENTS.md"
+  HOME="$_l/home" kb_install_hub_tools "$_l/hub" "$_l/kit" >/dev/null 2>&1
+  out="$(HOME="$_l/home" USERPROFILE="$_l/home" CODEX_HOME="$_l/home/.codex" HERMES_HOME="$_l/home/.hermes" kb_wire_mail "$_l/hub" 2>&1 </dev/null)"
+  t "the mail tool is added to Claude Code, Codex and Hermes" \
+    "$(grep -c 'hub-mail' "$_l/hub/.mcp.json" "$_l/home/.codex/config.toml" "$_l/home/.hermes/config.yaml" | grep -c ':[1-9]')" "3"
+  t "and what was there stays" "$(grep -c notebook "$_l/hub/.mcp.json" "$_l/home/.hermes/config.yaml" | grep -c ':[1-9]')" "2"
+  out2="$(HOME="$_l/home" USERPROFILE="$_l/home" CODEX_HOME="$_l/home/.codex" HERMES_HOME="$_l/home/.hermes" kb_wire_mail "$_l/hub" 2>&1 </dev/null)"
+  t "a second run changes nothing" "$(printf '%s' "$out2" | grep -c 'already has the mail tool')" "3"
+  launch="$(node -e 'const j=require(process.argv[1]);console.log(j.mcpServers["hub-mail"].args[1])' "$_l/hub/.mcp.json")"
+  st="$(cd "$_l/hub" && HOME="$_l/home" USERPROFILE="$_l/home" HUB_DIR="$_l/hub" HUB_MAIL_HOME="$_l/home" node -e "$launch" status 2>&1 </dev/null)"; rc=$?
+  t "the entry every assistant is given starts the tool, and with nothing connected it says so" \
+    "$(printf '%s' "$st" | grep -c 'not connected')" "2"
+  t "and not being connected is not an error" "$rc" "0"
+  t "installing it asked nothing and connected nothing" "$(printf '%s' "$out" | grep -ci 'client id\|password\|connected:')" "0"
+  rm -f "$_l/kit/tools/hub-mail.js" "$_l/kit/tools/hub-mail-gmail.js" "$_l/kit/tools/hub-mail-wire.js" "$_l/kit/tools/hub-mail" "$_l/hub/AGENTS.md"
+  _lk "mail tool case done"
+else
+  echo "  skip  the mail tool case (needs node and a teach-it-once-kit checkout beside this one)"
+fi
 rm -f "$_l/kit/tools/hub-menerio-connect" "$_l/kit/tools/hub-search"
 printf '// mc\n' > "$_l/kit/tools/menerio-connect.js"
 _lk "program without a launcher"

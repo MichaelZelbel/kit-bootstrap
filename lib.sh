@@ -3049,6 +3049,44 @@ kb_connect_assistants() {
   return 0
 }
 
+# kb_wire_mail <hub>
+# Tell every assistant on this computer that the hub has a mail tool. Connects NO mailbox.
+#
+# WHY (2026-09-21, email plan). Email is optional and is never asked for during an install.
+# But when a reader later connects Gmail once (`hub-mail connect gmail`), every assistant
+# should already know the tool, so there is nothing to wire by hand afterwards and no
+# assistant needs its own Google sign-in. So every install and every re-run adds the one
+# hub-mail entry to .mcp.json, Codex and Hermes, holding no key: the tool reads the hub's
+# locked store itself. With nothing connected it answers "not connected" and nothing else
+# changes. Runs on ONE ordinary computer; it needs no server and no second machine.
+#
+# It never fails an install. An older kit without the tool is simply skipped.
+kb_wire_mail() {
+  local hub="${1:-}" tool out
+  [ -n "$hub" ] || return 0
+  tool="$HOME/.local/bin/hub-mail.js"
+  [ -f "$tool" ] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+  # stdin is /dev/null for the reason kb_connect_assistants gives: piped from curl, this
+  # script is what is arriving on stdin.
+  out="$(cd "$hub" 2>/dev/null && HUB_DIR="$hub" node "$tool" setup 2>&1 </dev/null)" || true
+  [ -z "$out" ] || printf '%s\n' "$out" | sed 's/^/   /'
+  return 0
+}
+
+# kb_mail_note
+# One line at the end of an install, only when the mail tool is here: email is optional,
+# and this is how to switch it on later.
+kb_mail_note() {
+  [ -f "$HOME/.local/bin/hub-mail.js" ] || return 0
+  cat <<EOF
+  * Email is optional and switched off. When you want it: hub-mail connect gmail
+    lets every assistant read your Gmail and save draft replies (it asks you before
+    anything is sent), and hub-mail connect agentmail gives the hub its own address.
+    hub-mail status shows what is connected.
+EOF
+}
+
 # =============================================================================
 # THE NOTEBOOK AND THE COPY OF YOUR HUB ARE TWO CHOICES, NOT ONE (2026-09-21)
 #

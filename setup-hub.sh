@@ -261,6 +261,8 @@ kb_install_prompt_harvest "$HUB"  # the daily job that files what you type to an
 # connection lives in the folder, so the next computer only ever types the passphrase.
 # Quiet and complete for the reader who never connects one - which is most of the book.
 kb_connect_notebook "$HUB"
+# The mail tool, known to every assistant and connected to nothing (email is optional).
+command -v kb_wire_mail >/dev/null 2>&1 && kb_wire_mail "$HUB"
 
 kb_wire_skills "$HUB"   # one real room, links to it, and it counts what it wired
 
@@ -314,6 +316,7 @@ Two things worth knowing:
     this same command on the next machine to pick it up there. To change which
     AI tools are read on this machine, edit HUB_PROMPT_SOURCES in ~/.hub/device.env
 EOF
+command -v kb_mail_note >/dev/null 2>&1 && kb_mail_note
 
 if [ -n "${KB_MISSING:-}" ]; then
   warn "I could not install these, so some things will not work until they are here: $KB_MISSING"

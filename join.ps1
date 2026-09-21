@@ -1963,6 +1963,47 @@ function Connect-KitAssistants {
 # own PC has the real one.
 # =============================================================================
 
+function Connect-KitMail {
+    <# Tell every assistant on this PC that the hub has a mail tool. Connects NO mailbox.
+
+        WHY (2026-09-21, email plan). Email is optional and is never asked for during an
+        install. When a reader later connects Gmail once (hub-mail connect gmail), every
+        assistant should already know the tool, so nothing has to be wired by hand and no
+        assistant needs its own Google sign-in. The entry holds no key: the tool reads the
+        hub's locked store itself. Runs on one ordinary PC; no server, no second machine.
+        Never fails an install; an older kit without the tool is skipped. The bash twin is
+        kb_wire_mail in lib.sh. #>
+    param([Parameter(Mandatory)][string]$Hub)
+    $tool = Join-Path (Get-KitHome) '.local\bin\hub-mail.js'
+    if (-not (Test-Path $tool) -or -not (Test-KitCommand 'node')) { return }
+    $eap = $ErrorActionPreference
+    $hubDir0 = $env:HUB_DIR
+    $ErrorActionPreference = 'Continue'
+    $env:HUB_DIR = $Hub
+    Push-Location -LiteralPath $Hub
+    try {
+        & node $tool setup 2>&1 | ForEach-Object { if ("$_") { Write-Host "   $_" } }
+    } catch {
+        Write-Host "   mail tool: $($_.Exception.Message)"
+    } finally {
+        Pop-Location
+        $env:HUB_DIR = $hubDir0
+        $ErrorActionPreference = $eap
+        $global:LASTEXITCODE = 0
+    }
+}
+
+function Write-KitMailNote {
+    <# One paragraph at the end of an install, only when the mail tool is here. #>
+    if (-not (Test-Path (Join-Path (Get-KitHome) '.local\bin\hub-mail.js'))) { return }
+    Write-Host @"
+  * Email is optional and switched off. When you want it: hub-mail connect gmail
+    lets every assistant read your Gmail and save draft replies (it asks you before
+    anything is sent), and hub-mail connect agentmail gives the hub its own address.
+    hub-mail status shows what is connected.
+"@
+}
+
 function Get-KitNotebookTaskName { if ($env:KB_NOTEBOOK_TASK) { return $env:KB_NOTEBOOK_TASK } return 'Hub notebook sync' }
 
 function Set-KitDeviceEnvValue {
@@ -3126,6 +3167,10 @@ Install-KitPromptHarvest -Hub $Hub
 # wires the sync here too. Sits after the tools step on purpose, because it schedules
 # the runner that step just installed. Quiet for the reader who never connects one.
 Connect-KitNotebook -Hub $Hub
+# The mail tool, known to every assistant here and connected to nothing. A Gmail connection
+# made on another computer lives in the hub's locked store, so it works here as soon as this
+# PC can open the store; there is no second Google sign-in.
+if (Get-Command Connect-KitMail -ErrorAction SilentlyContinue) { Connect-KitMail -Hub $Hub }
 
 # One real room, junctions to it, and it counts what it wired. Replaces three lines
 # that pointed .agents\skills at .claude\skills whenever .claude\skills existed, which
@@ -3159,6 +3204,7 @@ so keep doing what you already do with the folder. To change which AI tools are
 read on this PC later: run this again with -Sources, or edit
 HUB_PROMPT_SOURCES in $HOME\.hub\device.env
 "@
+if (Get-Command Write-KitMailNote -ErrorAction SilentlyContinue) { Write-KitMailNote }
 
 # EXPLICIT, and it has to be. This script ends with wiring that calls Hermes, and
 # `hermes approvals test` answers 3 when the leash is working, so without this line a

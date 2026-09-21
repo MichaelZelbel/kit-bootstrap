@@ -328,6 +328,8 @@ Install-KitPromptHarvest -Hub $Hub   # the daily job that files what you type to
 # connection lives in the folder, so the next computer only ever types the passphrase.
 # Quiet and complete for the reader who never connects one - which is most of the book.
 Connect-KitNotebook -Hub $Hub
+# The mail tool, known to every assistant and connected to nothing (email is optional).
+if (Get-Command Connect-KitMail -ErrorAction SilentlyContinue) { Connect-KitMail -Hub $Hub }
 
 # One real room, junctions to it, and it counts what it wired. Replaces three lines
 # that pointed .agents\skills at .claude\skills whenever .claude\skills existed, which
@@ -386,6 +388,7 @@ Two things worth knowing:
     AI tools are read on this PC, run the installer again, or edit
     HUB_PROMPT_SOURCES in $HOME\.hub\device.env
 "@
+if (Get-Command Write-KitMailNote -ErrorAction SilentlyContinue) { Write-KitMailNote }
 
 if ($missing.Count -gt 0) {
     Write-Host ""

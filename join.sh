@@ -121,6 +121,10 @@ kb_install_prompt_harvest "$HUB"
 #     schedules the runner that step just installed. Quiet and complete for the reader
 #     who never connects one, and piped from curl with no keyboard it stays silent.
 kb_connect_notebook "$HUB"
+# 2f. The mail tool, known to every assistant here and connected to nothing. A Gmail
+#     connection made on another computer lives in the hub's locked store, so it works here
+#     as soon as this computer can open the store; there is no second Google sign-in.
+command -v kb_wire_mail >/dev/null 2>&1 && kb_wire_mail "$HUB"
 
 # 3. Skills, if this hub keeps them where the assistants other than Claude Code
 #    can be pointed at them. Harmless when it has none.
@@ -146,3 +150,4 @@ so keep doing what you already do with the folder. To change which AI tools are
 read on this machine later: run this again with --sources, or edit
 HUB_PROMPT_SOURCES in ~/.hub/device.env
 EOF
+command -v kb_mail_note >/dev/null 2>&1 && kb_mail_note

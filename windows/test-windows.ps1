@@ -109,7 +109,8 @@ foreach ($fn in 'Find-KitHub', 'Test-KitHub', 'Update-KitHub', 'Join-KitMemory',
                  'Set-KitDeviceEnvValue', 'Get-KitNotebookMirror', 'Test-KitNotebookRunnerAsks',
                  'Test-KitNotebookJobHere', 'Select-KitNotebookMirror', 'Request-KitPassphrase',
                  'Set-KitPromptSources', 'Write-KitSyncReport', 'Get-KitHome',
-                 'Write-KitExpiryRecord', 'Write-KitDueFolder', 'Get-KitRoomTwin') {
+                 'Write-KitExpiryRecord', 'Write-KitDueFolder', 'Get-KitRoomTwin',
+                 'Connect-KitMail', 'Write-KitMailNote') {
     Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
 }
 
@@ -3081,6 +3082,49 @@ Check "and the build reads git without git being able to kill it" {
     # build-installer.ps1 also runs under 'Stop', and `git rev-parse` on a tag that does not
     # exist yet writes to stderr. It killed the build instead of reporting the missing pin.
     ($BuildSrc -match 'function git0') -and ($BuildSrc -notmatch '\(git rev-parse HEAD')
+}
+
+# THE MAIL TOOL (2026-09-21, email plan). Every install and re-run tells each assistant about
+# hub-mail and connects no mailbox. Uses the REAL kit files from a teach-it-once-kit checkout
+# beside this one, because the promise is about the real program: one ordinary PC, nothing
+# asked, nothing connected, "not connected" is not an error, and a second run changes nothing.
+$MailSrc = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'teach-it-once-kit\tools'
+if ((Test-KitCommand 'node') -and (Test-Path (Join-Path $MailSrc 'hub-mail.js'))) {
+    Write-Host "-- the mail tool"
+    $mailHub = New-TestDir 'mail-hub'
+    $mailBin = Join-Path $SuiteHome '.local\bin'
+    foreach ($f in 'hub-mail.js', 'hub-mail-gmail.js', 'hub-mail-wire.js') { Copy-Item (Join-Path $MailSrc $f) $mailBin -Force }
+    Set-Content -Path (Join-Path $mailHub 'AGENTS.md') -Value '# hub' -Encoding ascii
+    Set-Content -Path (Join-Path $mailHub '.mcp.json') -Value '{"mcpServers":{"notebook":{"type":"http","url":"https://mcp.menerio.com"}}}' -Encoding ascii
+    # Earlier cases put KB_HOME back to the real one; this case needs the suite's own home.
+    $kbhome0 = $env:KB_HOME; $env:KB_HOME = $SuiteHome
+    $codex0 = $env:CODEX_HOME; $hermes0 = $env:HERMES_HOME; $up0 = $env:USERPROFILE
+    $env:CODEX_HOME = New-TestDir 'mail-codex'; $env:HERMES_HOME = New-TestDir 'mail-hermes'; $env:USERPROFILE = $SuiteHome
+    Set-Content -Path (Join-Path $env:HERMES_HOME 'config.yaml') -Value "model: x`nmcp_servers:`n  notebook:`n    url: https://mcp.menerio.com" -Encoding ascii
+    try {
+        $out1 = Connect-KitMail -Hub $mailHub 6>&1 | Out-String
+        $out2 = Connect-KitMail -Hub $mailHub 6>&1 | Out-String
+        $mcp = Get-Content (Join-Path $mailHub '.mcp.json') -Raw
+        Check "the mail tool is added to Claude Code, Codex and Hermes, keeping what was there" {
+            $mcp.Contains('hub-mail') -and $mcp.Contains('notebook') -and
+                (Get-Content (Join-Path $env:CODEX_HOME 'config.toml') -Raw).Contains('hub-mail') -and
+                (Get-Content (Join-Path $env:HERMES_HOME 'config.yaml') -Raw).Contains('hub-mail:')
+        }.GetNewClosure()
+        Check "a second run changes nothing" { ([regex]::Matches($out2, 'already has the mail tool')).Count -eq 3 }.GetNewClosure()
+        Check "installing it asked nothing and connected nothing" { -not ($out1 -match 'Client ID|password|Connected:') }.GetNewClosure()
+        $launch = (ConvertFrom-Json $mcp).mcpServers.'hub-mail'.args[1]
+        $hubDir0 = $env:HUB_DIR; $env:HUB_DIR = $mailHub; $env:HUB_MAIL_HOME = $SuiteHome
+        $st = & node -e $launch status 2>&1 | Out-String; $rc = $LASTEXITCODE
+        $env:HUB_DIR = $hubDir0; Remove-Item Env:HUB_MAIL_HOME -ErrorAction SilentlyContinue
+        Check "the entry every assistant is given starts the tool on Windows, and 'not connected' is not an error" {
+            ([regex]::Matches($st, 'not connected')).Count -eq 2 -and $rc -eq 0
+        }.GetNewClosure()
+    } finally {
+        $env:CODEX_HOME = $codex0; $env:HERMES_HOME = $hermes0; $env:USERPROFILE = $up0; $env:KB_HOME = $kbhome0
+        foreach ($f in 'hub-mail.js', 'hub-mail-gmail.js', 'hub-mail-wire.js') { Remove-Item (Join-Path $mailBin $f) -ErrorAction SilentlyContinue }
+    }
+} else {
+    Write-Host "  skip  the mail tool case (needs node and a teach-it-once-kit checkout beside this one)"
 }
 
 # THE REAL PATH, PUT BACK ONCE MORE, AND THIS TIME LAST. The restore further up was written
