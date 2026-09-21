@@ -19,12 +19,12 @@
 ; =============================================================================
 
 #define AppName        "Hub"
-#define AppVersion     "2.3.1"
+#define AppVersion     "2.5.0"
 ; THE PIN. The kit-bootstrap tag this .exe carries and fetches from, so a reader runs
 ; exactly the code that passed its runs. build-installer.ps1 refuses to build unless this
 ; tag exists and names the very commit being built, which is what stops it drifting from
 ; the .exe it labels. install-hub.sh carries the same pin for macOS and Linux.
-#define KbPin         "v2.7"
+#define KbPin         "v2.10"
 #define AppPublisher   "Michael Zelbel"
 #define AppURL         "https://github.com/MichaelZelbel/kit-bootstrap"
 
@@ -94,9 +94,9 @@ var
   HubPage: TInputQueryWizardPage;
   BesidePage: TInputOptionWizardPage;
   FoundHub: String;
-  { The AI-tools checklist. ToolIds/ToolNames/ToolRows describe only the rows a
-    person can tick (the syncable ones); tools this kit cannot read are shown as
-    disabled rows so they are seen to be seen, and never tracked here. }
+  { The conversations checklist. ToolIds/ToolNames/ToolRows describe the rows,
+    and every row is a tool whose conversations this kit can copy. A tool it
+    cannot copy gets no row at all, only its name in the page's text. }
   SyncPage: TInputOptionWizardPage;
   ToolIds: array of String;
   ToolNames: array of String;
@@ -204,8 +204,13 @@ var
   row: Integer;
 begin
   row := SyncPage.Add(Caption);
+  { Nothing recorded yet: a PC getting its first hub starts with every box
+    unticked, because copying pushes words typed to other programs into a
+    repository and is asked for, never assumed (the book says the same). A PC
+    that already works from a hub, and never recorded a choice, has been copying
+    since before there was one, so its boxes show exactly that. }
   if RecordedSources = '(auto)' then
-    SyncPage.Values[row] := True
+    SyncPage.Values[row] := (FoundHub <> '')
   else
     SyncPage.Values[row] := InCsv(RecordedSources, Id);
   SetArrayLength(ToolIds, ToolCount + 1);
@@ -220,8 +225,8 @@ end;
 procedure InitializeWizard();
 var
   ToolLines: TArrayOfString;
-  i, row: Integer;
-  id, sync, name, note: String;
+  i: Integer;
+  id, sync, name, Others, OthersText: String;
 begin
   FoundHub := DetectHub();
   DetectTools(RecordedSources, ToolLines);
@@ -255,15 +260,38 @@ begin
   { The choice page. Everything a ticked row means is said HERE, before it
     happens, because this is the person's one moment to say no: what you type to
     a ticked tool, and what it answers, is copied into the hub folder and pushed
-    to its repository. }
+    to its repository.
+
+    Until 2026-09-21 this page was titled "Your AI tools", asked which tools "may
+    be synced", and listed the tools it could not copy as greyed-out boxes reading
+    "cannot sync". Michael, installing it, read that as "these tools do not work
+    with the hub" - OpenCode among them, which the book teaches using with the
+    hub - and there was nothing he could do with a box he could not tick. So the
+    page now says what it decides (copying conversations, nothing else), says
+    first that every tool works with the hub either way, and names the tools it
+    cannot copy in one sentence instead of as dead boxes. }
+  Others := '';
+  for i := 0 to GetArrayLength(ToolLines) - 1 do
+    if PipeField(ToolLines[i], 1) = 'none' then
+    begin
+      if Others <> '' then Others := Others + ', ';
+      Others := Others + PipeField(ToolLines[i], 2);
+    end;
+  OthersText := '';
+  if Pos(',', Others) > 0 then
+    OthersText := #13#10 + #13#10 + 'Also on this PC: ' + Others + '. They work with your hub too, but their conversations cannot be copied into it yet.'
+  else if Others <> '' then
+    OthersText := #13#10 + #13#10 + 'Also on this PC: ' + Others + '. It works with your hub too, but its conversations cannot be copied into it yet.';
+
   SyncPage := CreateInputOptionPage(HubPage.ID,
-    'Your AI tools',
-    'Which AI tools may be synced through your hub?',
-    'These AI tools were found on this PC. Each ticked one has what you type to it, '
-    + 'and what it answers you (and, for Claude Code, what it remembers about you), '
-    + 'copied into your hub folder and pushed with your hub to its git repository, so '
-    + 'your other machines share it. Untick a tool and its files are not read at all. '
-    + 'You can change this any time by running this installer again.',
+    'Your conversations',
+    'Copy your AI conversations into your hub?',
+    'Every AI tool on this PC can work with your hub, ticked or not. A tick decides one thing: '
+    + 'whether what you type to that tool, and what it answers, is also copied into your hub '
+    + 'folder and pushed with it to its git repository, so your other computers can search it. '
+    + 'For Claude Code a tick also shares its memory folder. Unticked, its files are not read '
+    + 'at all. Run this installer again any time to change your mind.'
+    + OthersText,
     False, False);
 
   ToolCount := 0;
@@ -278,18 +306,9 @@ begin
     id   := PipeField(ToolLines[i], 0);
     sync := PipeField(ToolLines[i], 1);
     name := PipeField(ToolLines[i], 2);
-    note := PipeField(ToolLines[i], 3);
-    if sync = 'none' then
-    begin
-      { Shown so the person knows the tool was seen rather than forgotten, and
-        disabled because there is nothing this kit could do with a tick. }
-      row := SyncPage.Add(name + ' - cannot sync: ' + note);
-      SyncPage.CheckListBox.ItemEnabled[row] := False;
-      SyncPage.Values[row] := False;
-    end
-    else if sync = 'memory+prompts' then
-      AddSyncRow(id, name + ' - its memory folder, plus what you type to it and its answers')
-    else
+    if sync = 'memory+prompts' then
+      AddSyncRow(id, name + ' - what you type to it and its answers, plus its memory folder')
+    else if sync <> 'none' then
       AddSyncRow(id, name + ' - what you type to it, and its answers');
   end;
 end;
@@ -303,6 +322,10 @@ end;
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
+  { No tool here whose conversations can be copied: a page with no box to tick is
+    not a question, so it is not shown. The finish screen still names what it found. }
+  if PageID = SyncPage.ID then
+    Result := (ToolCount = 0);
   { Nothing to sit beside, so nothing to ask. }
   if PageID = BesidePage.ID then
     Result := (FoundHub = '');
@@ -439,7 +462,7 @@ begin
       if Result <> '' then Result := Result + ', ';
       Result := Result + ToolNames[i];
     end;
-  if Result = '' then Result := 'nothing (every box is unticked)';
+  if Result = '' then Result := 'none';
 end;
 
 { The Ready page should say which of the two jobs is about to happen, in words a
@@ -460,5 +483,5 @@ begin
     Result := Result + 'I will also install anything missing that it needs: Git and Node.js. Windows may ask your permission for those, which is normal. Hermes itself is a separate download; if it is not on this PC yet I will say so and tell you where to get it.';
   end;
   Result := Result + NewLine + NewLine
-          + 'Synced through your hub from this PC: ' + GetSyncSummary();
+          + 'Conversations copied into your hub from this PC: ' + GetSyncSummary();
 end;

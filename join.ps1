@@ -250,7 +250,11 @@ function Join-KitMemory {
 #             spelling that survives one.
 # =============================================================================
 
-$script:KitSupportedSources = @('claude', 'codex', 'hermes')
+$script:KitSupportedSources = @('claude', 'codex', 'hermes', 'opencode')
+# What a PC that never recorded a choice keeps reading: the sources that existed
+# before there was a choice, and never one added since (OpenCode arrived
+# 2026-09-21). A new source is read only where its owner ticked it.
+$script:KitLegacyDefaultSources = @('claude', 'codex', 'hermes')
 
 function Get-KitHome {
     <#  KB_HOME wins so the test suite can hand these functions a pretend home
@@ -260,9 +264,13 @@ function Get-KitHome {
 }
 
 function Test-KitAiTool {
-    <#  Does this AI tool leave files on this PC? Fingerprints verified on real
-        installs (2026-08-11). A wrong path here can only fail to see a tool,
-        never invent one, because everything is a plain "does this folder exist".
+    <#  Is this AI tool really installed on this PC? Each fingerprint is the
+        program itself or the place the tool keeps its own conversations, never
+        merely a folder with the tool's name. Until 2026-09-21 a folder was
+        enough, and the wizard listed tools nobody had: skill installers make
+        .copilot\skills, .gemini\skills, .cursor\skills and .config\opencode\skills
+        for every assistant they know of, and Google Antigravity keeps its
+        settings in .gemini, so "Gemini CLI" showed on a PC that never had it.
         KB_ASSUME_TOOLS is the test override: a comma list of ids to report as
         present, or "-" for a PC with nothing. #>
     param([Parameter(Mandatory)][string]$Id)
@@ -270,65 +278,66 @@ function Test-KitAiTool {
         return ((($env:KB_ASSUME_TOOLS -split ',') | ForEach-Object { $_.Trim() }) -contains $Id)
     }
     $h = Get-KitHome
+    $cmd = { param($n) [bool](Get-Command $n -CommandType Application -ErrorAction SilentlyContinue) }
     switch ($Id) {
-        'claude'         { return ((Test-Path (Join-Path $h '.claude')) -or
-                                   [bool](Get-Command claude -ErrorAction SilentlyContinue)) }
-        'codex'          { return [bool](Test-Path (Join-Path $h '.codex')) }
+        'claude'   { return ((& $cmd 'claude') -or (Test-Path (Join-Path $h '.claude\projects')) -or
+                             (Test-Path (Join-Path $h '.claude.json'))) }
+        'codex'    { return ((& $cmd 'codex') -or (Test-Path (Join-Path $h '.codex\sessions')) -or
+                             (Test-Path (Join-Path $h '.codex\auth.json')) -or
+                             (Test-Path (Join-Path $h '.codex\config.toml'))) }
         # config.yaml is the marker every install has. The old marker, a
         # profiles\ subfolder, missed any install still on its default profile,
         # and the old location, ~\.hermes, is not where Windows keeps it - which
         # between them made Hermes invisible on the machine of the person
         # writing the book about it. HERMES_HOME wins because that is where a
         # relocated install actually lives.
-        'hermes'         { foreach ($d in @($env:HERMES_HOME,
-                               $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'hermes' }),
-                               (Join-Path $h '.hermes'))) {
-                               if ($d -and (Test-Path (Join-Path $d 'config.yaml'))) { return $true }
-                           }
-                           return $false }
-        'claude-desktop' { return (($null -ne $env:APPDATA -and (Test-Path (Join-Path $env:APPDATA 'Claude'))) -or
-                                   ($null -ne $env:LOCALAPPDATA -and (Test-Path (Join-Path $env:LOCALAPPDATA 'AnthropicClaude')))) }
-        'muse'           { return ((Test-Path (Join-Path $h '.config\muse')) -or
-                                   (Test-Path (Join-Path $h '.local\share\muse')) -or
-                                   [bool](Get-Command muse -ErrorAction SilentlyContinue)) }
-        'opencode'       { return ((Test-Path (Join-Path $h '.config\opencode')) -or
-                                   [bool](Get-Command opencode -ErrorAction SilentlyContinue)) }
-        'openclaw'       { return [bool](Test-Path (Join-Path $h '.openclaw')) }
-        'comet'          { return ($null -ne $env:LOCALAPPDATA -and (Test-Path (Join-Path $env:LOCALAPPDATA 'Perplexity\Comet'))) }
-        'copilot'        { return [bool](Test-Path (Join-Path $h '.copilot')) }
-        'cursor'         { return ((Test-Path (Join-Path $h '.cursor')) -or
-                                   ($null -ne $env:APPDATA -and (Test-Path (Join-Path $env:APPDATA 'Cursor')))) }
-        'gemini'         { return [bool](Test-Path (Join-Path $h '.gemini')) }
+        'hermes'   { foreach ($d in @($env:HERMES_HOME,
+                         $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'hermes' }),
+                         (Join-Path $h '.hermes'))) {
+                         if ($d -and (Test-Path (Join-Path $d 'config.yaml'))) { return $true }
+                     }
+                     return $false }
+        # Its conversation database. OpenCode keeps it in the same place on
+        # every system, Windows included.
+        'opencode' { $data = if ($env:XDG_DATA_HOME) { $env:XDG_DATA_HOME } else { Join-Path $h '.local\share' }
+                     return ((& $cmd 'opencode') -or (Test-Path (Join-Path $data 'opencode\opencode.db'))) }
+        'cursor'   { return ((& $cmd 'cursor') -or
+                             ($env:LOCALAPPDATA -and (Test-Path (Join-Path $env:LOCALAPPDATA 'Programs\cursor\Cursor.exe'))) -or
+                             ($env:APPDATA -and (Test-Path (Join-Path $env:APPDATA 'Cursor\User')))) }
+        'copilot'  { return ((& $cmd 'copilot') -or (Test-Path (Join-Path $h '.copilot\session-state')) -or
+                             (Test-Path (Join-Path $h '.copilot\history-session-state'))) }
+        'gemini'   { return ((& $cmd 'gemini') -or (Test-Path (Join-Path $h '.gemini\tmp')) -or
+                             (Test-Path (Join-Path $h '.gemini\settings.json'))) }
+        'openclaw' { return ((& $cmd 'openclaw') -or (Test-Path (Join-Path $h '.openclaw\openclaw.json'))) }
     }
     return $false
 }
 
 function Get-KitAiToolInfo {
-    <#  sync|Human name|why not, when sync is none. "sync" is what this kit can
-        read TODAY, not what the tool could offer. #>
+    <#  sync|Human name|   "sync" is what this kit can copy TODAY: memory+prompts,
+        prompts, or none. A tool whose conversations live only on its maker's
+        servers (Claude Desktop, Perplexity Comet) is not on this roster at all:
+        there is nothing on the PC to copy, so naming it on a page about copying
+        told the person nothing they could act on. #>
     param([Parameter(Mandatory)][string]$Id)
     switch ($Id) {
-        'claude'         { return 'memory+prompts|Claude Code|' }
-        'codex'          { return 'prompts|Codex|' }
-        'hermes'         { return 'prompts|Hermes|' }
-        'claude-desktop' { return 'none|Claude Desktop|keeps your conversations on its own servers, not in files here' }
-        'comet'          { return 'none|Perplexity Comet|keeps your conversations on its own servers, not in files here' }
-        'muse'           { return 'none|Muse Code|keeps files here, but this kit cannot read its format yet' }
-        'opencode'       { return 'none|OpenCode|keeps files here, but this kit cannot read its format yet' }
-        'openclaw'       { return 'none|OpenClaw|keeps files here, but this kit cannot read its format yet' }
-        'copilot'        { return 'none|GitHub Copilot|keeps files here, but this kit cannot read its format yet' }
-        'cursor'         { return 'none|Cursor|keeps files here, but this kit cannot read its format yet' }
-        'gemini'         { return 'none|Gemini CLI|keeps files here, but this kit cannot read its format yet' }
+        'claude'   { return 'memory+prompts|Claude Code|' }
+        'codex'    { return 'prompts|Codex|' }
+        'hermes'   { return 'prompts|Hermes|' }
+        'opencode' { return 'prompts|OpenCode|' }
+        'cursor'   { return 'none|Cursor|' }
+        'copilot'  { return 'none|GitHub Copilot|' }
+        'gemini'   { return 'none|Gemini CLI|' }
+        'openclaw' { return 'none|OpenClaw|' }
     }
     return $null
 }
 
 function Find-KitAiTools {
-    <#  One line per AI tool found on this PC:  id|sync|Human name|note
-        Fixed order, syncable-first, so every caller (the report below, the
+    <#  One line per AI tool found on this PC:  id|sync|Human name|
+        Fixed order, copyable-first, so every caller (the report below, the
         wizard's checklist) shows the same list in the same order. #>
-    foreach ($id in @('claude', 'codex', 'hermes', 'claude-desktop', 'muse', 'opencode',
-                      'openclaw', 'comet', 'copilot', 'cursor', 'gemini')) {
+    foreach ($id in @('claude', 'codex', 'hermes', 'opencode', 'cursor', 'copilot', 'gemini', 'openclaw')) {
         if (Test-KitAiTool $id) { "$id|$(Get-KitAiToolInfo $id)" }
     }
 }
@@ -350,13 +359,13 @@ function Get-KitDeviceEnvValue {
 function Get-KitEnabledSources {
     <#  Which syncable tools the person said yes to, as a comma list ('' = none).
         Who decides, in order: KB_SYNC_SOURCES this run, the choice recorded on
-        this device, and only then "every syncable tool found here", which is
-        what every machine did before there was a choice. #>
+        this device, and only then the tools every machine read before there
+        was a choice ($script:KitLegacyDefaultSources), where they are found. #>
     $v = $env:KB_SYNC_SOURCES
     if ($null -eq $v) { $v = Get-KitDeviceEnvValue 'HUB_PROMPT_SOURCES' }
     if ($null -eq $v) {
         $found = @()
-        foreach ($id in $script:KitSupportedSources) { if (Test-KitAiTool $id) { $found += $id } }
+        foreach ($id in $script:KitLegacyDefaultSources) { if (Test-KitAiTool $id) { $found += $id } }
         return ($found -join ',')
     }
     if ($v.Trim() -eq '-') { return '' }
@@ -385,30 +394,42 @@ function Set-KitPromptSources {
 
 function Write-KitSyncReport {
     <#  The truth about this PC, built from what was detected and chosen, never
-        from the promise. This is what the completion screen prints. #>
+        from the promise. This is what the completion screen prints. Worded
+        around what actually happens, copying conversations, because the old
+        "not syncable" read as "does not work with your hub", which was never
+        meant. #>
     $on = @((Get-KitEnabledSources) -split ',' | Where-Object { $_ })
-    $synced = @(); $off = @(); $unsync = @()
+    $synced = @(); $off = @(); $other = @()
     foreach ($line in @(Find-KitAiTools)) {
         $p = $line -split '\|', 4
-        if ($p.Count -lt 4) { continue }
-        $id = $p[0]; $sync = $p[1]; $name = $p[2]; $note = $p[3]
+        if ($p.Count -lt 3) { continue }
+        $id = $p[0]; $sync = $p[1]; $name = $p[2]
         if ($sync -eq 'none') {
-            $unsync += "  - ${name}: $note"
+            $other += $name
         } elseif ($on -contains $id) {
             if ($sync -eq 'memory+prompts') { $synced += "  - ${name}: its memory folder, plus what you type to it and its answers" }
             else { $synced += "  - ${name}: what you type to it, and its answers" }
         } else {
-            $off += "  - $name (switched off by your choice; edit HUB_PROMPT_SOURCES in ~\.hub\device.env to change it)"
+            $off += $name
         }
     }
     if ($synced.Count -gt 0) {
-        Write-Host "What is synced from this PC into your hub, and pushed to its repository:"
+        Write-Host "Copied from this PC into your hub, and pushed to its repository:"
         $synced | ForEach-Object { Write-Host $_ }
     } else {
-        Write-Host "Nothing is synced from this PC: no AI tool here is both readable by this kit and switched on."
+        Write-Host "No conversations are copied from this PC into your hub."
     }
-    if ($off.Count -gt 0)    { Write-Host "Found here but left alone:";   $off    | ForEach-Object { Write-Host $_ } }
-    if ($unsync.Count -gt 0) { Write-Host "Found here but not syncable:"; $unsync | ForEach-Object { Write-Host $_ } }
+    if ($off.Count -gt 0) {
+        Write-Host "Not copied, because you left it off: $($off -join ', ')."
+        Write-Host "  To copy one, run the installer again and tick it."
+    }
+    if ($other.Count -gt 1) {
+        Write-Host "Also on this PC: $($other -join ', '). You can open your hub folder in them like in any"
+        Write-Host "  other assistant; only their conversations cannot be copied into the hub yet."
+    } elseif ($other.Count -eq 1) {
+        Write-Host "Also on this PC: $($other[0]). You can open your hub folder in it like in any"
+        Write-Host "  other assistant; only its conversations cannot be copied into the hub yet."
+    }
 }
 
 # =============================================================================

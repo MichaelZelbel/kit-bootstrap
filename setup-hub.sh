@@ -31,9 +31,11 @@
 #   --starter-repo <url>    the product whose starter folder a new hub begins as
 #   --starter-path <name>   the folder inside that repo        (default: starter-hub)
 #   --skip-prereqs          do not install anything, just wire it up
-#   --sources <list>        which AI tools may be synced from this machine, as a
-#                           comma list (e.g. claude,codex). "" means none. Without
-#                           it, every tool this kit can read that is found here.
+#   --sources <list>        which AI tools have their conversations copied into the
+#                           hub from this machine, as a comma list (claude, codex,
+#                           hermes, opencode). "" means none. Without it, a machine
+#                           getting its first hub copies nothing, and a machine that
+#                           already has one keeps the choice it made before.
 #   --beside                put a SECOND hub at --hub and leave this computer working
 #                           from the one it already has. Needs --hub, and needs a hub
 #                           already here to sit beside. For a work hub next to a
@@ -250,6 +252,16 @@ fi
 #    this device before any wiring runs, so everything below obeys it, and the
 #    person is told what will be read BEFORE it is read.
 # -----------------------------------------------------------------------------
+# A machine getting its first hub copies no conversations until its owner names
+# the tools, the same as the Windows wizard, whose boxes start unticked there. Copying
+# is the one step that pushes words typed to other programs into a repository, so it
+# is asked for, never assumed. A machine that already works from a hub (an update, or
+# --beside) keeps whatever it recorded or did before, so an update never switches
+# anything off behind anyone's back.
+if [ "$SOURCES_SET" -eq 0 ] && [ "$IS_NEW" -eq 1 ] && [ "$BESIDE" -eq 0 ]    && ! grep -q '^[[:space:]]*HUB_PROMPT_SOURCES=' "$HOME/.hub/device.env" 2>/dev/null; then
+  SOURCES=""
+  SOURCES_SET=1
+fi
 if [ "$SOURCES_SET" -eq 1 ]; then
   KB_SYNC_SOURCES="$SOURCES"
   export KB_SYNC_SOURCES
@@ -321,7 +333,8 @@ Worth knowing:
     what was just installed.
   * Your hub travels between machines through git. Push it from here, and run
     this same command on the next machine to pick it up there. To change which
-    AI tools are read on this machine, edit HUB_PROMPT_SOURCES in ~/.hub/device.env
+    AI tools have their conversations copied from this machine, run it again with
+    --sources, or edit HUB_PROMPT_SOURCES in ~/.hub/device.env
 EOF
 command -v kb_mail_note >/dev/null 2>&1 && kb_mail_note
 
