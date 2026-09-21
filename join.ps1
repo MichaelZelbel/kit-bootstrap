@@ -1667,7 +1667,7 @@ function Write-KitDueFolder {
         '# due - the things with a last day'
         ''
         '**This room starts empty, and an empty one costs you nothing.** It fills the first time you tell'
-        'your hub about something with a deadline (Chapter 33). If you never do, you have an empty folder'
+        'your hub about something with a deadline (Chapter 27). If you never do, you have an empty folder'
         'and you have lost nothing.'
         ''
         '## Why this is not a reminder'
@@ -1760,7 +1760,7 @@ function Write-KitDueFolder {
         ''
         '## Your keys are already in here'
         ''
-        'If you have `secrets/expires.txt` from Chapter 27, `hub-due` reads it and treats each key as one of'
+        'If you have `secrets/expires.txt` from Chapter 31, `hub-due` reads it and treats each key as one of'
         'these. You never write a date in two places, and there is one thing nagging you rather than two'
         'that disagree. Moving the date in that file is still the off switch, and it is now also the proof:'
         'moving it forward is what replacing a key looks like from outside, so the reminder closes itself.'
@@ -1791,7 +1791,7 @@ function Write-KitDueFolder {
         'hub-due check               run the self checks, close what is provably done'
         '```'
         ''
-        'The card is `procedures/what-runs-out-and-when.md` in the kit. Chapter 33.'
+        'The card is `procedures/what-runs-out-and-when.md` in the kit. Chapter 27.'
     )
     Set-KbTextFile -Path $f -Lines $lines
     Write-KbOk "deadlines: made due\README.md, the room for everything with a last day"
