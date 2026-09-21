@@ -2800,7 +2800,7 @@ kb_seed_due_folder() {
 # due - the things with a last day
 
 **This room starts empty, and an empty one costs you nothing.** It fills the first time you tell
-your hub about something with a deadline (Chapter 33). If you never do, you have an empty folder
+your hub about something with a deadline (Chapter 27). If you never do, you have an empty folder
 and you have lost nothing.
 
 ## Why this is not a reminder
@@ -2893,7 +2893,7 @@ for a deadline "nobody got to it" is the failure, not a quiet success.
 
 ## Your keys are already in here
 
-If you have `secrets/expires.txt` from Chapter 27, `hub-due` reads it and treats each key as one of
+If you have `secrets/expires.txt` from Chapter 31, `hub-due` reads it and treats each key as one of
 these. You never write a date in two places, and there is one thing nagging you rather than two
 that disagree. Moving the date in that file is still the off switch, and it is now also the proof:
 moving it forward is what replacing a key looks like from outside, so the reminder closes itself.
@@ -2924,7 +2924,7 @@ hub-due drop <name> --yes   delete it
 hub-due check               run the self checks, close what is provably done
 ```
 
-The card is `procedures/what-runs-out-and-when.md` in the kit. Chapter 33.
+The card is `procedures/what-runs-out-and-when.md` in the kit. Chapter 27.
 DUEEOF
   ok "deadlines: made due/, the room for everything with a last day"
   return 0
@@ -3053,7 +3053,7 @@ kb_connect_assistants() {
 # Tell every assistant on this computer that the hub has a mail tool. Connects NO mailbox.
 #
 # WHY (2026-09-21, email plan). Email is optional and is never asked for during an install.
-# But when a reader later connects Gmail once (`hub-mail connect gmail`), every assistant
+# But when a reader later connects Gmail once (THE GMAIL STEP, below), every assistant
 # should already know the tool, so there is nothing to wire by hand afterwards and no
 # assistant needs its own Google sign-in. So every install and every re-run adds the one
 # hub-mail entry to .mcp.json, Codex and Hermes, holding no key: the tool reads the hub's
@@ -3080,11 +3080,111 @@ kb_wire_mail() {
 kb_mail_note() {
   [ -f "$HOME/.local/bin/hub-mail.js" ] || return 0
   cat <<EOF
-  * Email is optional and switched off. When you want it: hub-mail connect gmail
-    lets every assistant read your Gmail and save draft replies (it asks you before
-    anything is sent), and hub-mail connect agentmail gives the hub its own address.
-    hub-mail status shows what is connected.
+  * Email is optional and switched off. Chapter 30 of the book lets your hub read your
+    Gmail and save draft replies there (it sends nothing; you press Send in Gmail). To
+    start it, run this same command again with  --only gmail  at the end. Chapter 29
+    gives the hub its own address instead.
 EOF
+}
+
+# =============================================================================
+# THE GMAIL STEP (Michael, 2026-09-21)
+#
+# "Every reader of Teach It Once, and Michael himself, connects Gmail the same way: each
+# person registers their own small Google app once, guided step by step, in their own
+# Google account." No shared app, no connection company in between, and NO TERMINAL
+# COMMAND FOR THE READER: connecting Gmail is a step of this installer, like Menerio.
+#
+# THE WORDS ARE NOT HERE. The guiding (which Google page, what to click, the two hidden
+# pastes, Google's Allow window, the mailbox question) is one program in the kit,
+# hub-mail-guide.js, started by both installers. The Menerio step had its sentences in
+# lib.sh AND join.ps1 and they drifted within a fortnight; this step has one copy. What is
+# here is only what an installer knows: is there a person, is the tool on this computer,
+# is `age` here to lock the connection away, and the one question.
+#
+# WHEN IT ASKS. Never on the day a hub is made: a reader in Chapter 2 has not heard of it,
+# and the first install asks nothing about email. On a later run of the whole installer
+# (which is what "Update my hub" is on Windows) it asks once, with no as the answer, and
+# only while Gmail is not connected. `--only gmail` does not ask whether: somebody who
+# typed that has asked to be asked, so it goes straight to the guided step, which on a
+# connected hub offers to leave it, connect again or remove it.
+#
+# THE PERSON'S KEYBOARD. Piped from curl, this script is what arrives on stdin, so the
+# guide is started with stdin closed and opens the terminal itself (/dev/tty), the way
+# ask() does. With no person there, nothing is asked and nothing is started.
+# =============================================================================
+
+# kb_gmail_state <hub>   ->  connected | not-connected | unknown
+# From the hub's locked store, without asking Google.
+kb_gmail_state() {
+  local hub="${1:-}" tool out
+  tool="$HOME/.local/bin/hub-mail.js"
+  [ -n "$hub" ] && [ -f "$tool" ] && command -v node >/dev/null 2>&1 || { printf 'unknown'; return 0; }
+  out="$(cd "$hub" 2>/dev/null && HUB_DIR="$hub" node "$tool" gmail-state 2>/dev/null </dev/null | head -1)"
+  case "$out" in
+    connected*)     printf 'connected' ;;
+    not-connected*) printf 'not-connected' ;;
+    *)              printf 'unknown' ;;      # a kit from before the guided step
+  esac
+}
+
+# kb_connect_gmail <hub>
+# Start the guided step and say in one line how it ended. Never fails an install.
+kb_connect_gmail() {
+  local hub="${1:-}" tool rc
+  [ -n "$hub" ] || return 0
+  tool="$HOME/.local/bin/hub-mail.js"
+  if [ ! -f "$tool" ] || [ ! -f "$HOME/.local/bin/hub-mail-guide.js" ]; then
+    log "Gmail: this copy of the kit cannot connect Gmail for you yet. Run this installer again after the kit is updated, and it will."
+    return 0
+  fi
+  command -v node >/dev/null 2>&1 || { warn "Gmail: Node.js is not on this computer, and the Gmail step needs it. Run the whole installer once, then this step again."; return 0; }
+  have_tty || { log "Gmail: nobody is at the keyboard, so nothing was asked and nothing was connected."; return 0; }
+  # The connection is kept in the hub's locked store, which needs `age`. A reader who never
+  # connected Menerio has neither the program nor a store; the guide makes the store.
+  kb_ensure_age || true
+  kb_have_age || { warn "Gmail: this computer needs the small program 'age' to keep the connection locked away, and I could not fetch it (Linux: apt install age, Mac: brew install age). Nothing was connected."; return 0; }
+  ( cd "$hub" 2>/dev/null && HUB_DIR="$hub" node "$tool" connect gmail --guided </dev/null ); rc=$?
+  case "$rc" in
+    0) ok "Gmail: connected. Close your assistant and open it again, and it is there." ;;
+    3) log "Gmail: not connected. Nothing else on this computer was changed." ;;
+    *) warn "Gmail: the step stopped with a problem, and its own lines above say what. Nothing else on this computer was changed." ;;
+  esac
+  return 0
+}
+
+# kb_offer_gmail <hub>
+# The one question, on a run of the whole installer over a hub that already existed.
+kb_offer_gmail() {
+  local hub="${1:-}"
+  [ -n "$hub" ] || return 0
+  [ "${KB_GMAIL:-}" = "skip" ] && return 0
+  have_tty || return 0                          # a one-line install stays a one-line install
+  [ "$(kb_gmail_state "$hub")" = "not-connected" ] || return 0
+  # THE SAME WORDS AS THE WINDOWS TWIN, line for line. test.sh compares the two texts.
+  kb_tell ""
+  kb_tell "Gmail is optional. Chapter 30 of the book explains it. Connected once, every assistant"
+  kb_tell "of your hub can search your Gmail, read messages and save draft replies. Your hub"
+  kb_tell "sends nothing: you press Send in Gmail. It takes about ten minutes, and I guide you"
+  kb_tell "through Google's pages one at a time."
+  ask_yes "Connect Gmail now?" "n" || { ok "Gmail: not connected, which is a complete way to own a hub. Run this installer again whenever you change your mind."; return 0; }
+  kb_connect_gmail "$hub"
+}
+
+# kb_only_gmail <hub> [<tools-repo>]
+# Just the Gmail step, for the reader who has reached Chapter 30. The twin of
+# kb_only_menerio, and for the same reason: the whole installer is long, and none of the
+# rest is what they came for. It fetches the kit's programs first (a hub made before the
+# guided step shipped has no guide), tells every assistant about the mail tool, and then
+# hands over to the guide.
+kb_only_gmail() {
+  local hub="${1:-}" repo="${2:-}"
+  [ -n "$hub" ] || return 1
+  say "Connecting Gmail to the hub at $hub"
+  kb_install_hub_tools "$hub" "$repo"
+  kb_wire_mail "$hub"
+  kb_connect_gmail "$hub"
+  return 0
 }
 
 # =============================================================================

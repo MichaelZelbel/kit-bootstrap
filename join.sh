@@ -75,9 +75,9 @@ If you have not got one yet, clone it first, then run this again."
 # One step only, when that is what was asked for. The same switch setup-hub.sh takes,
 # and kb_only_menerio in lib.sh says what the one step runs and why it exists.
 if [ -n "$ONLY" ]; then
-  [ "$ONLY" = "menerio" ] || die "--only knows one step so far, and it is: menerio. You typed: $ONLY"
-  command -v kb_only_menerio >/dev/null 2>&1 || die "the install code on this computer is older than this script, so it has no single Menerio step yet. Run the newest command from https://github.com/MichaelZelbel/kit-bootstrap"
-  kb_only_menerio "$HUB" "${KB_TOOLS_REPO:-}"
+  case "$ONLY" in menerio|gmail) ;; *) die "--only knows two steps: menerio and gmail. You typed: $ONLY" ;; esac
+  command -v "kb_only_$ONLY" >/dev/null 2>&1 || die "the install code on this computer is older than this script, so it has no single $ONLY step yet. Run the newest command from https://github.com/MichaelZelbel/kit-bootstrap"
+  "kb_only_$ONLY" "$HUB" "${KB_TOOLS_REPO:-}"
   exit 0
 fi
 

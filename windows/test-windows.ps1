@@ -110,7 +110,8 @@ foreach ($fn in 'Find-KitHub', 'Test-KitHub', 'Update-KitHub', 'Join-KitMemory',
                  'Test-KitNotebookJobHere', 'Select-KitNotebookMirror', 'Request-KitPassphrase',
                  'Set-KitPromptSources', 'Write-KitSyncReport', 'Get-KitHome',
                  'Write-KitExpiryRecord', 'Write-KitDueFolder', 'Get-KitRoomTwin',
-                 'Connect-KitMail', 'Write-KitMailNote') {
+                 'Connect-KitMail', 'Write-KitMailNote',
+                 'Get-KitGmailState', 'Connect-KitGmail', 'Request-KitGmail', 'Connect-KitGmailOnly') {
     Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
 }
 
@@ -1748,7 +1749,7 @@ Check "THE WAY BACK IN: the single step installs the kit's programs, then connec
 }
 $SetupSrcM = Get-Content (Join-Path $PSScriptRoot 'setup-hub.ps1') -Raw
 Check "join.ps1 takes -Only, and refuses a step it does not know by name" {
-    ($JoinSrc -match '\[string\]\$Only') -and ($JoinSrc -match '-Only knows one step so far')
+    ($JoinSrc -match '\[string\]\$Only') -and ($JoinSrc -match '-Only knows two steps: menerio and gmail')
 }
 Check "setup-hub.ps1 takes -Only, and runs it before it checks a single prerequisite" {
     $a = $SetupSrcM.IndexOf('Connect-KitMenerioOnly -Hub $found')
@@ -2897,8 +2898,8 @@ Check "beside leaves Hermes pointing where it was, and says so" {
 # refactor that drops one of them puts the collision back without failing anything above.
 $SetupSrc = Get-Content (Join-Path $PSScriptRoot 'setup-hub.ps1') -Raw
 Check "the installer takes -Beside" { $SetupSrc -match '\[switch\]\$Beside' }
-Check "the missing-code canary is the newest function, Select-KitNotebookMirror" {
-    $SetupSrc -match "Get-Command Select-KitNotebookMirror -ErrorAction SilentlyContinue"
+Check "the missing-code canary is the newest function, Request-KitGmail" {
+    $SetupSrc -match "Get-Command Request-KitGmail -ErrorAction SilentlyContinue"
 }
 Check "the HUB_DIR user variable is written only when this hub is the one in charge" {
     $SetupSrc -match "if \(-not \(Test-KitBeside\)\) \{[^}]*SetEnvironmentVariable\('HUB_DIR'"
@@ -3125,6 +3126,127 @@ if ((Test-KitCommand 'node') -and (Test-Path (Join-Path $MailSrc 'hub-mail.js'))
     }
 } else {
     Write-Host "  skip  the mail tool case (needs node and a teach-it-once-kit checkout beside this one)"
+}
+
+# =============================================================================
+# THE GMAIL STEP (Michael, 2026-09-21). Connecting Gmail is a step of the installer, like
+# Menerio, and the reader never types a command: on Windows the way in is "Update my hub".
+# The guiding itself is ONE program in the kit (hub-mail-guide.js), so what is tested here
+# is what an installer knows: when it asks, that it asks nothing with nobody there, the
+# order of the single step, and that this file carries none of the guide's sentences. The
+# last case starts the REAL guide from a teach-it-once-kit checkout beside this one, with
+# answers from a file and no browser.
+# =============================================================================
+Write-Host ""
+Write-Host "-- the Gmail step"
+Check "the single Gmail step fetches the kit's programs, tells the assistants, then guides, and runs nothing else" {
+    $script:steps = @()
+    function Install-KitHubTools { param($Hub, $ToolsRepo) $script:steps += "tools:$ToolsRepo" }
+    function Connect-KitMail { param($Hub) $script:steps += 'wire' }
+    function Connect-KitGmail { param($Hub) $script:steps += 'guide' }
+    function Update-KitHub { $script:steps += 'UPDATE' }
+    function Install-KitPrereqs { $script:steps += 'PREREQS' }
+    function Connect-KitNotebook { $script:steps += 'MENERIO' }
+    Connect-KitGmailOnly -Hub (New-TestDir 'gmail-only') -ToolsRepo 'kit-url' 3>&1 4>&1 6>&1 | Out-Null
+    ($script:steps -join '|') -eq 'tools:kit-url|wire|guide'
+}
+$SetupSrcG = Get-Content (Join-Path $PSScriptRoot 'setup-hub.ps1') -Raw
+Check "setup-hub.ps1 runs -Only gmail before it checks a single prerequisite" {
+    $a = $SetupSrcG.IndexOf('Connect-KitGmailOnly -Hub $found')
+    $b = $SetupSrcG.IndexOf('$missing = @(Install-KitPrereqs)')
+    ($a -gt 0) -and ($b -gt 0) -and ($a -lt $b)
+}
+Check "the day a hub is made, Gmail is never asked about; 'Update my hub' is the run that asks" {
+    $SetupSrcG.Contains('if (-not $isNew) { Request-KitGmail -Hub $Hub }')
+}
+Check "the Start menu entry a reader clicks is still there, and still runs the whole installer" {
+    $iss = Get-Content (Join-Path $PSScriptRoot 'hub-setup.iss') -Raw
+    $iss.Contains('Name: "{group}\Update my hub"') -and -not ($iss -match 'Update my hub[^\n]*\n[^\n]*-Only')
+}
+Check "on a later run it asks once, Enter means no, and a no starts nothing" {
+    $script:asked = @(); $script:steps = @()
+    function Test-KitInteractive { $true }
+    function Get-KitGmailState { param($Hub) 'not-connected' }
+    function Connect-KitGmail { param($Hub) $script:steps += 'guide' }
+    function Read-Host { param($Prompt) $script:asked += $Prompt; '' }
+    $out = Request-KitGmail -Hub (New-TestDir 'gmail-offer1') 3>&1 4>&1 6>&1 | Out-String
+    (($script:asked -join '|') -eq 'Connect Gmail now? (y/N)') -and ($script:steps.Count -eq 0) -and
+        $out.Contains('not connected, which is a complete way to own a hub')
+}
+Check "a yes starts the guide" {
+    $script:steps = @()
+    function Test-KitInteractive { $true }
+    function Get-KitGmailState { param($Hub) 'not-connected' }
+    function Connect-KitGmail { param($Hub) $script:steps += 'guide' }
+    function Read-Host { param($Prompt) 'y' }
+    Request-KitGmail -Hub (New-TestDir 'gmail-offer2') 3>&1 4>&1 6>&1 | Out-Null
+    ($script:steps -join '|') -eq 'guide'
+}
+Check "a connected hub, an older kit, nobody at the keyboard and KB_GMAIL=skip are each asked nothing" {
+    $script:steps = @()
+    function Connect-KitGmail { param($Hub) $script:steps += 'guide' }
+    function Read-Host { throw 'must not ask' }
+    $h = New-TestDir 'gmail-offer3'
+    function Test-KitInteractive { $true }
+    function Get-KitGmailState { param($Hub) 'connected' };     Request-KitGmail -Hub $h 6>&1 | Out-Null
+    function Get-KitGmailState { param($Hub) 'unknown' };       Request-KitGmail -Hub $h 6>&1 | Out-Null
+    function Get-KitGmailState { param($Hub) 'not-connected' }
+    function Test-KitInteractive { $false };                    Request-KitGmail -Hub $h 6>&1 | Out-Null
+    function Test-KitInteractive { $true }
+    $g0 = $env:KB_GMAIL
+    try { $env:KB_GMAIL = 'skip'; Request-KitGmail -Hub $h 6>&1 | Out-Null } finally { $env:KB_GMAIL = $g0 }
+    $script:steps.Count -eq 0
+}
+Check "this file carries none of the guide's sentences, and tells no reader to type hub-mail connect gmail" {
+    $code = ($JoinSrc -split "`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+    -not ($JoinSrc -match 'Client ID|Client secret|Is this the one') -and -not $code.Contains('hub-mail connect gmail')
+}
+Check "a kit without the guide says so and changes nothing" {
+    function Test-KitInteractive { $true }
+    # Earlier cases put KB_HOME back to the real one, and the real one may well have the guide.
+    $kb0 = $env:KB_HOME; $env:KB_HOME = New-TestDir 'gmail-noguide-home'
+    try { $out = Connect-KitGmail -Hub (New-TestDir 'gmail-noguide') 3>&1 4>&1 6>&1 | Out-String } finally { $env:KB_HOME = $kb0 }
+    $out.Contains('cannot connect Gmail for you yet')
+}
+
+if ((Test-KitCommand 'node') -and (Test-Path (Join-Path $MailSrc 'hub-mail-guide.js')) -and (Test-KitAge)) {
+    $gHub = New-TestDir 'gmail-real-hub'
+    Set-Content -Path (Join-Path $gHub 'AGENTS.md') -Value '# hub' -Encoding ascii
+    $gBin = Join-Path $SuiteHome '.local\bin'
+    $gFiles = 'hub-mail.js', 'hub-mail-gmail.js', 'hub-mail-wire.js', 'hub-mail-guide.js'
+    foreach ($f in $gFiles) { Copy-Item (Join-Path $MailSrc $f) $gBin -Force }
+    $answers = Join-Path $Root 'gmail-answers.txt'
+    [IO.File]::WriteAllText($answers, "sam@sam-studio.example`n`n`nstop`n")
+    $save = @{}; foreach ($n in 'KB_HOME', 'HUB_MAIL_HOME', 'HUB_MAIL_GUIDE_ANSWERS', 'HUB_MAIL_NO_BROWSER', 'HUB_DIR', 'USERPROFILE', 'GMAIL_REFRESH_TOKEN', 'GMAIL_CLIENT_ID') { $save[$n] = [Environment]::GetEnvironmentVariable($n) }
+    try {
+        # Earlier cases put KB_HOME back to the real one; this case needs the suite's own home.
+        $env:KB_HOME = $SuiteHome; $env:HUB_MAIL_HOME = $SuiteHome; $env:USERPROFILE = $SuiteHome
+        $env:HUB_MAIL_GUIDE_ANSWERS = $answers; $env:HUB_MAIL_NO_BROWSER = '1'
+        Remove-Item Env:GMAIL_REFRESH_TOKEN, Env:GMAIL_CLIENT_ID -ErrorAction SilentlyContinue
+        # In a scope of its own, so "somebody is at the keyboard" does not reach the cases below.
+        $gOut, $gState = & {
+            function Test-KitInteractive { $true }
+            function Install-KitAge { $true }
+            $o = Connect-KitGmail -Hub $gHub 3>&1 4>&1 6>&1 | Out-String
+            $o, (Get-KitGmailState -Hub $gHub)
+        }
+        Check "the real guide starts from the installer, and opens Google's first page under the reader's own address" {
+            $gOut.Contains('Connect your Gmail to your hub') -and
+                $gOut.Contains('(page: https://console.cloud.google.com/projectcreate?authuser=sam%40sam-studio.example)')
+        }.GetNewClosure()
+        Check "a Workspace address is told its app is Internal" { $gOut.Contains('Google calls Internal') }.GetNewClosure()
+        Check "'stop' ends it, and the installer says nothing else on this PC was changed" {
+            $gOut.Contains('Stopped. Nothing was changed') -and $gOut.Contains('Gmail: not connected. Nothing else on this PC was changed')
+        }.GetNewClosure()
+        Check "no locked store was made for a connection that was not made, and the state reads 'not-connected'" {
+            -not (Test-Path (Join-Path $gHub 'secrets\hub-secrets.env.age')) -and ($gState -eq 'not-connected')
+        }.GetNewClosure()
+    } finally {
+        foreach ($n in $save.Keys) { [Environment]::SetEnvironmentVariable($n, $save[$n]) }
+        foreach ($f in $gFiles) { Remove-Item (Join-Path $gBin $f) -ErrorAction SilentlyContinue }
+    }
+} else {
+    Write-Host "  skip  the real guide (needs node, age and a teach-it-once-kit checkout beside this one)"
 }
 
 # THE REAL PATH, PUT BACK ONCE MORE, AND THIS TIME LAST. The restore further up was written

@@ -12,6 +12,7 @@
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File join.ps1 [C:\path\to\your\hub]
 #   powershell -ExecutionPolicy Bypass -File join.ps1 -Only menerio     just connect Menerio
+#   powershell -ExecutionPolicy Bypass -File join.ps1 -Only gmail       just the guided Gmail step
 #
 # Or dot-source it to reuse the one function (this is how the hub's own device
 # bootstrap calls it, so the wiring lives in ONE place per D-092):
@@ -1667,7 +1668,7 @@ function Write-KitDueFolder {
         '# due - the things with a last day'
         ''
         '**This room starts empty, and an empty one costs you nothing.** It fills the first time you tell'
-        'your hub about something with a deadline (Chapter 33). If you never do, you have an empty folder'
+        'your hub about something with a deadline (Chapter 27). If you never do, you have an empty folder'
         'and you have lost nothing.'
         ''
         '## Why this is not a reminder'
@@ -1760,7 +1761,7 @@ function Write-KitDueFolder {
         ''
         '## Your keys are already in here'
         ''
-        'If you have `secrets/expires.txt` from Chapter 27, `hub-due` reads it and treats each key as one of'
+        'If you have `secrets/expires.txt` from Chapter 31, `hub-due` reads it and treats each key as one of'
         'these. You never write a date in two places, and there is one thing nagging you rather than two'
         'that disagree. Moving the date in that file is still the off switch, and it is now also the proof:'
         'moving it forward is what replacing a key looks like from outside, so the reminder closes itself.'
@@ -1791,7 +1792,7 @@ function Write-KitDueFolder {
         'hub-due check               run the self checks, close what is provably done'
         '```'
         ''
-        'The card is `procedures/what-runs-out-and-when.md` in the kit. Chapter 33.'
+        'The card is `procedures/what-runs-out-and-when.md` in the kit. Chapter 27.'
     )
     Set-KbTextFile -Path $f -Lines $lines
     Write-KbOk "deadlines: made due\README.md, the room for everything with a last day"
@@ -1967,7 +1968,7 @@ function Connect-KitMail {
     <# Tell every assistant on this PC that the hub has a mail tool. Connects NO mailbox.
 
         WHY (2026-09-21, email plan). Email is optional and is never asked for during an
-        install. When a reader later connects Gmail once (hub-mail connect gmail), every
+        install. When a reader later connects Gmail once (THE GMAIL STEP, below), every
         assistant should already know the tool, so nothing has to be wired by hand and no
         assistant needs its own Google sign-in. The entry holds no key: the tool reads the
         hub's locked store itself. Runs on one ordinary PC; no server, no second machine.
@@ -1997,11 +1998,100 @@ function Write-KitMailNote {
     <# One paragraph at the end of an install, only when the mail tool is here. #>
     if (-not (Test-Path (Join-Path (Get-KitHome) '.local\bin\hub-mail.js'))) { return }
     Write-Host @"
-  * Email is optional and switched off. When you want it: hub-mail connect gmail
-    lets every assistant read your Gmail and save draft replies (it asks you before
-    anything is sent), and hub-mail connect agentmail gives the hub its own address.
-    hub-mail status shows what is connected.
+  * Email is optional and switched off. Chapter 30 of the book lets your hub read your
+    Gmail and save draft replies there (it sends nothing; you press Send in Gmail). To
+    start it, click "Update my hub" in the Start menu and say yes when it asks about
+    Gmail. Chapter 29 gives the hub its own address instead.
 "@
+}
+
+# =============================================================================
+# THE GMAIL STEP (Michael, 2026-09-21). The Windows twin of the block of the same name
+# in lib.sh, which says why it exists and when it asks.
+#
+# THE WORDS ARE NOT HERE. The guiding (which Google page, what to click, the two hidden
+# pastes, Google's Allow window, the mailbox question) is one program in the kit,
+# hub-mail-guide.js, started by both installers, so the sentences exist once. What is
+# here is only what an installer knows: is there a person, is the tool on this PC, is
+# `age` here to lock the connection away, and the one question.
+#
+# THE PERSON'S KEYBOARD. The guide is started with NOTHING piped, in either direction:
+# it opens the console itself for its questions, and a pasted line is never shown, so
+# nothing of it reaches the transcript this installer keeps.
+# =============================================================================
+
+function Get-KitGmailState {
+    <# connected | not-connected | unknown, from the hub's locked store, without asking Google. #>
+    param([Parameter(Mandatory)][string]$Hub)
+    $tool = Join-Path (Get-KitHome) '.local\bin\hub-mail.js'
+    if (-not (Test-Path $tool) -or -not (Test-KitCommand 'node')) { return 'unknown' }
+    $eap = $ErrorActionPreference; $hubDir0 = $env:HUB_DIR
+    $ErrorActionPreference = 'Continue'; $env:HUB_DIR = $Hub
+    $out = ''
+    try { $out = [string](& node $tool gmail-state 2>$null | Select-Object -First 1) } catch { }
+    finally { $env:HUB_DIR = $hubDir0; $ErrorActionPreference = $eap; $global:LASTEXITCODE = 0 }
+    if ($out -like 'connected*') { return 'connected' }
+    if ($out -like 'not-connected*') { return 'not-connected' }
+    return 'unknown'      # a kit from before the guided step
+}
+
+function Connect-KitGmail {
+    <# Start the guided step and say in one line how it ended. Never fails an install. #>
+    param([Parameter(Mandatory)][string]$Hub)
+    $bin = Join-Path (Get-KitHome) '.local\bin'
+    $tool = Join-Path $bin 'hub-mail.js'
+    if (-not (Test-Path $tool) -or -not (Test-Path (Join-Path $bin 'hub-mail-guide.js'))) {
+        Write-Host "   Gmail: this copy of the kit cannot connect Gmail for you yet. Run this installer again after the kit is updated, and it will."
+        return
+    }
+    if (-not (Test-KitCommand 'node')) { Write-KbWarn "Gmail: Node.js is not on this PC, and the Gmail step needs it. Run the whole installer once, then this step again."; return }
+    if (-not (Test-KitInteractive)) { Write-Host "   Gmail: nobody is at the keyboard, so nothing was asked and nothing was connected."; return }
+    # The connection is kept in the hub's locked store, which needs `age`. A reader who never
+    # connected Menerio has neither the program nor a store; the guide makes the store.
+    [void](Install-KitAge)
+    if (-not (Test-KitAge)) { Write-KbWarn "Gmail: this PC needs the small program 'age' to keep the connection locked away, and I could not fetch it. Nothing was connected."; return }
+    $eap = $ErrorActionPreference; $hubDir0 = $env:HUB_DIR
+    $ErrorActionPreference = 'Continue'; $env:HUB_DIR = $Hub
+    $rc = 1
+    Push-Location -LiteralPath $Hub
+    try { & node $tool connect gmail --guided; $rc = $LASTEXITCODE }
+    catch { Write-Host "   Gmail: $($_.Exception.Message)" }
+    finally { Pop-Location; $env:HUB_DIR = $hubDir0; $ErrorActionPreference = $eap; $global:LASTEXITCODE = 0 }
+    if ($rc -eq 0)     { Write-KbOk "Gmail: connected. Close your assistant and open it again, and it is there." }
+    elseif ($rc -eq 3) { Write-Host "   Gmail: not connected. Nothing else on this PC was changed." }
+    else               { Write-KbWarn "Gmail: the step stopped with a problem, and its own lines above say what. Nothing else on this PC was changed." }
+}
+
+function Request-KitGmail {
+    <# The one question, on a run of the whole installer over a hub that already existed.
+       "Update my hub" in the Start menu is that run, so this is a Windows reader's way in. #>
+    param([Parameter(Mandatory)][string]$Hub)
+    if ($env:KB_GMAIL -eq 'skip') { return }
+    if (-not (Test-KitInteractive)) { return }          # a one-line install stays a one-line install
+    if ((Get-KitGmailState -Hub $Hub) -ne 'not-connected') { return }
+    # THE SAME WORDS AS THE BASH TWIN, line for line. test.sh compares the two texts.
+    Write-Host ""
+    Write-Host "Gmail is optional. Chapter 30 of the book explains it. Connected once, every assistant"
+    Write-Host "of your hub can search your Gmail, read messages and save draft replies. Your hub"
+    Write-Host "sends nothing: you press Send in Gmail. It takes about ten minutes, and I guide you"
+    Write-Host "through Google's pages one at a time."
+    $yn = Read-Host "Connect Gmail now? (y/N)"
+    if ($yn -notmatch '^[Yy]') {
+        Write-KbOk "Gmail: not connected, which is a complete way to own a hub. Run this installer again whenever you change your mind."
+        return
+    }
+    Connect-KitGmail -Hub $Hub
+}
+
+function Connect-KitGmailOnly {
+    <# Just the Gmail step. The Windows twin of kb_only_gmail in lib.sh: the kit's programs
+       first (a hub made before the guided step shipped has no guide), then every assistant
+       is told about the mail tool, then the guide. #>
+    param([Parameter(Mandatory)][string]$Hub, [string]$ToolsRepo)
+    Write-KbSay "Connecting Gmail to the hub at $Hub"
+    Install-KitHubTools -Hub $Hub -ToolsRepo $ToolsRepo
+    Connect-KitMail -Hub $Hub
+    Connect-KitGmail -Hub $Hub
 }
 
 function Get-KitNotebookTaskName { if ($env:KB_NOTEBOOK_TASK) { return $env:KB_NOTEBOOK_TASK } return 'Hub notebook sync' }
@@ -3127,11 +3217,12 @@ if (-not $Hub) {
 
 # One step only, when that is what was asked for.
 if ($Only) {
-    if ($Only -ne 'menerio') {
-        Write-Error "-Only knows one step so far, and it is: menerio. You typed: $Only"
+    if ($Only -notin 'menerio', 'gmail') {
+        Write-Error "-Only knows two steps: menerio and gmail. You typed: $Only"
         exit 1
     }
-    Connect-KitMenerioOnly -Hub $Hub -ToolsRepo $env:KB_TOOLS_REPO
+    if ($Only -eq 'gmail') { Connect-KitGmailOnly -Hub $Hub -ToolsRepo $env:KB_TOOLS_REPO }
+    else { Connect-KitMenerioOnly -Hub $Hub -ToolsRepo $env:KB_TOOLS_REPO }
     exit 0
 }
 

@@ -153,6 +153,7 @@ Options, all optional, after `bash -s --`:
 | `--starter-path <name>` | the folder inside that repo (default `starter-hub`) |
 | `--skip-prereqs` | install nothing, just wire it up |
 | `--only menerio` | run the Menerio step and nothing else (see below) |
+| `--only gmail` | run the guided Gmail step and nothing else (see below) |
 
 A product points the last two at itself and ships a one-line wrapper under its own
 name, the same way the `.exe` does. `teach-it-once-kit/install-hub.sh` is that
@@ -236,6 +237,32 @@ asking, except that `--only menerio` ignores `skip`, because somebody who typed 
 has asked to be asked. The HubSetup.exe wizard has no page for the single step.
 
 `steps/menerio.md` is the sheet an assistant follows to walk somebody through it.
+
+## Gmail: a step of the installer, and no command for the reader
+
+Connecting Gmail is optional, and it works the same way for everyone: each person registers
+their own small Google app once, in their own Google account. No shared app, and no connection
+company in between. The reader never types a command for it.
+
+- **When it asks.** Never on the day a hub is made. On a later run of the whole installer, which
+  is what **Update my hub** in the Windows Start menu is, it asks `Connect Gmail now?` once, with
+  no as the answer, and only while Gmail is not connected. `KB_GMAIL=skip` says no without asking.
+- **The single step.** `--only gmail` (and `-Only gmail`) fetches the kit's programs, tells every
+  assistant about the mail tool, and starts the guide. It does not ask whether.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v2/setup-hub.sh | bash -s -- --only gmail
+```
+
+- **The words are not in this repository.** The guiding (which Google page to open, the one
+  sentence about what to click there, the two hidden pastes, Google's Allow window, the mailbox
+  question) is one program in the kit, `tools/hub-mail-guide.js`, and both installers start it.
+  The Menerio step had its sentences in `lib.sh` and `join.ps1` and they drifted apart. What
+  lives here is only what an installer knows: is somebody at the keyboard, is the tool on this
+  computer, is `age` here to lock the connection away, and the one question. `test.sh` checks
+  that neither installer carries a sentence of the guide.
+- The connection is kept in the hub's locked store, so `age` is fetched when this step needs it,
+  and a hub that never had a store gets one.
 
 ## Windows: HubSetup.exe
 

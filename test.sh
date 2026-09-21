@@ -40,6 +40,7 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_unseal_hub_key kb_seal_hub_key kb_store_notebook_token kb_write_mcp_config \
          kb_install_notebook_sync kb_persist_notebook_env kb_connect_notebook \
          kb_ensure_age kb_connect_assistants kb_only_menerio \
+         kb_gmail_state kb_connect_gmail kb_offer_gmail kb_only_gmail \
          kb_device_env_set kb_notebook_mirror kb_notebook_runner_asks kb_notebook_job_is_here \
          kb_choose_notebook_mirror kb_offer_passphrase \
          kb_seed_expiry_record kb_seed_due_folder \
@@ -2195,7 +2196,7 @@ t "and hands it to the single step before it checks a single prerequisite" \
   "$(awk '/kb_only_menerio "\$FOUND"/{a=NR} /^\[ "\$SKIP_PREREQS" -eq 1 \] \|\| kb_install_prereqs/{b=NR} END{print (a>0 && b>0 && a<b) ? "yes" : "no"}' setup-hub.sh)" "yes"
 t "join.sh takes --only too"   "$(grep -c -- '--only)      ONLY=' join.sh)" "1"
 t "an unknown step is refused by name on both front doors" \
-  "$(cat setup-hub.sh join.sh | grep -c -- '--only knows one step so far')" "2"
+  "$(cat setup-hub.sh join.sh | grep -c -- '--only knows two steps: menerio and gmail')" "2"
 
 # THE SAME QUESTION ON BOTH PLATFORMS. lib.sh said Menerio from 2026-09-05 while
 # join.ps1 still asked about "a notebook". The two texts are compared, not eyeballed.
@@ -2214,6 +2215,89 @@ t "and Windows no longer asks about 'a notebook'" \
 t "the answer is still no unless the reader says yes" \
   "$(grep -c 'ask_yes "Connect Menerio now?" "n"' lib.sh)" "1"
 rm -rf "$_m"
+
+# ---------------------------------------------------------------------------
+# THE GMAIL STEP (Michael, 2026-09-21). Connecting Gmail is a step of the installer, like
+# Menerio, and the reader never types a command. The guiding itself is ONE program in the
+# kit (hub-mail-guide.js), so what is tested here is what an installer knows: when it
+# asks, that it asks nothing with nobody there, the order of the single step, and that
+# both platforms ask in the same words. The last case starts the REAL guide from a
+# teach-it-once-kit checkout beside this one, with answers from a file and no browser.
+# ---------------------------------------------------------------------------
+echo "-- the Gmail step"
+_g="$(mktemp -d)"; mkdir -p "$_g/home/.local/bin" "$_g/hub"; echo "# hub" > "$_g/hub/AGENTS.md"
+out="$( ( kb_install_hub_tools() { echo "tools hub=$1 repo=$2"; }
+          kb_wire_mail() { echo "wire hub=$1"; }
+          kb_connect_gmail() { echo "guide hub=$1"; }
+          kb_update_hub() { echo UPDATE; }; kb_install_prereqs() { echo PREREQS; }
+          kb_link_ai_memory() { echo MEMORY; }; kb_connect_notebook() { echo MENERIO; }
+          kb_only_gmail "$_g/hub" "kit-url" ) 2>&1 )"
+t "the single Gmail step fetches the kit's programs, tells the assistants, then guides" \
+  "$(printf '%s\n' "$out" | grep -e '^tools' -e '^wire' -e '^guide' | tr '\n' '|')" "tools hub=$_g/hub repo=kit-url|wire hub=$_g/hub|guide hub=$_g/hub|"
+t "and runs none of the rest of the installer" \
+  "$(printf '%s' "$out" | grep -c -e UPDATE -e PREREQS -e MEMORY -e MENERIO)" "0"
+t "setup-hub.sh hands --only gmail to it before it checks a single prerequisite" \
+  "$(awk '/kb_only_gmail "\$FOUND"/{a=NR} /^\[ "\$SKIP_PREREQS" -eq 1 \] \|\| kb_install_prereqs/{b=NR} END{print (a>0 && b>0 && a<b) ? "yes" : "no"}' setup-hub.sh)" "yes"
+t "the day a hub is made, Gmail is never asked about" \
+  "$(grep -c '^\[ "\$IS_NEW" -eq 1 \] || kb_offer_gmail "\$HUB"' setup-hub.sh)" "1"
+t "and Windows keeps the same rule" \
+  "$(tr -d '\r' < windows/setup-hub.ps1 | grep -c '^if (-not \$isNew) { Request-KitGmail -Hub \$Hub }')" "1"
+
+_offer() {   # _offer <state> <tty 0|1> <answer>
+  ( HOME="$_g/home"; _state="$1"; _tty="$2"; _answer="$3"
+    have_tty() { [ "$_tty" = 1 ]; }; kb_tell() { printf '%s\n' "$*"; }
+    ask_yes() { printf 'ASKED: %s [%s]\n' "$1" "$2"; [ "$_answer" = y ]; }
+    kb_gmail_state() { printf '%s' "$_state"; }
+    kb_connect_gmail() { echo "GUIDE $1"; }
+    kb_offer_gmail "$_g/hub" ) 2>&1
+}
+out="$(_offer not-connected 1 n)"
+t "on a later run it asks once, and the answer is no unless the reader says yes" \
+  "$(printf '%s' "$out" | grep -c 'ASKED: Connect Gmail now? \[n\]')" "1"
+t "a no starts nothing and says that is a complete way to own a hub" \
+  "$(printf '%s' "$out" | grep -c -e GUIDE)$(printf '%s' "$out" | grep -c 'not connected, which is a complete way to own a hub')" "01"
+t "a yes starts the guide" "$(_offer not-connected 1 y | grep -c "GUIDE $_g/hub")" "1"
+t "a hub that is connected already is not asked again" "$(_offer connected 1 y | grep -c -e ASKED -e GUIDE)" "0"
+t "a kit from before the guided step is not asked about it" "$(_offer unknown 1 y | grep -c -e ASKED -e GUIDE)" "0"
+t "with nobody at the keyboard it asks nothing, and a one-line run stays one line" "$(_offer not-connected 0 y | grep -c -e ASKED -e GUIDE)" "0"
+t "KB_GMAIL=skip says no without being asked" "$( ( KB_GMAIL=skip; export KB_GMAIL; _offer not-connected 1 y ) | grep -c -e ASKED -e GUIDE)" "0"
+
+_q_sh="$(sed -n 's/^ *kb_tell "\(.*\)"$/\1/p' lib.sh | sed -n '/^Gmail is optional/,/^through Google/p')"
+_q_ps="$(tr -d '\r' < join.ps1 | sed -n 's/^ *Write-Host "\(.*\)"$/\1/p' | sed -n '/^Gmail is optional/,/^through Google/p')"
+t "the Gmail question has four lines" "$(printf '%s\n' "$_q_sh" | grep -c .)" "4"
+t "and Windows asks it in the same words" "$_q_ps" "$_q_sh"
+t "it says the hub sends nothing" "$(printf '%s' "$_q_sh" | grep -c 'sends nothing: you press Send in Gmail')" "1"
+t "both platforms ask 'Connect Gmail now?'" "$(cat lib.sh join.ps1 | grep -c 'Connect Gmail now?')" "2"
+t "the installers carry none of the guide's sentences, so there is one copy of the words" \
+  "$(cat lib.sh join.ps1 | grep -c -e 'Client ID' -e 'Client secret' -e 'Is this the one')" "0"
+t "no reader is told to type hub-mail connect gmail any more" \
+  "$(cat lib.sh join.ps1 setup-hub.sh windows/setup-hub.ps1 | grep -v '^ *#' | grep -c 'hub-mail connect gmail')" "0"
+
+out="$( ( HOME="$_g/home"; have_tty() { return 0; }; kb_connect_gmail "$_g/hub" ) 2>&1 )"
+t "a kit without the guide says so and changes nothing" "$(printf '%s' "$out" | grep -c 'cannot connect Gmail for you yet')" "1"
+
+_mailsrc="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)/teach-it-once-kit/tools"
+if command -v node >/dev/null 2>&1 && [ -f "$_mailsrc/hub-mail-guide.js" ] && kb_have_age; then
+  cp "$_mailsrc/hub-mail.js" "$_mailsrc/hub-mail-gmail.js" "$_mailsrc/hub-mail-wire.js" "$_mailsrc/hub-mail-guide.js" "$_g/home/.local/bin/"
+  printf 'sam@sam-studio.example\n\n\nstop\n' > "$_g/answers.txt"
+  out="$( ( HOME="$_g/home"; USERPROFILE="$_g/home"; HUB_MAIL_HOME="$_g/home"; export HOME USERPROFILE HUB_MAIL_HOME
+            HUB_MAIL_GUIDE_ANSWERS="$_g/answers.txt"; HUB_MAIL_NO_BROWSER=1; export HUB_MAIL_GUIDE_ANSWERS HUB_MAIL_NO_BROWSER
+            unset HUB_DIR GMAIL_REFRESH_TOKEN GMAIL_CLIENT_ID
+            have_tty() { return 0; }; kb_ensure_age() { return 0; }
+            kb_connect_gmail "$_g/hub" ) 2>&1 )"
+  t "the real guide starts from the installer, for the hub it was given" \
+    "$(printf '%s' "$out" | grep -c 'Connect your Gmail to your hub')" "1"
+  t "it opens Google's first page under the reader's own address" \
+    "$(printf '%s' "$out" | grep -c '(page: https://console.cloud.google.com/projectcreate?authuser=sam%40sam-studio.example)')" "1"
+  t "a Workspace address is told its app is Internal" "$(printf '%s' "$out" | grep -c 'Google calls Internal')" "1"
+  t "'stop' ends it, and the installer says nothing else was changed" \
+    "$(printf '%s' "$out" | grep -c -e 'Stopped. Nothing was changed' -e 'Gmail: not connected. Nothing else on this computer was changed')" "2"
+  t "and no locked store was made for a connection that was not made" "$([ -e "$_g/hub/secrets/hub-secrets.env.age" ] && echo yes || echo no)" "no"
+  t "the state the installer reads is 'not-connected'" "$( ( HOME="$_g/home"; USERPROFILE="$_g/home"; HUB_MAIL_HOME="$_g/home"; export HOME USERPROFILE HUB_MAIL_HOME; unset HUB_DIR; kb_gmail_state "$_g/hub" ) )" "not-connected"
+else
+  echo "  skip  the real guide (needs node, age and a teach-it-once-kit checkout beside this one)"
+fi
+rm -rf "$_g"
 
 # ---------------------------------------------------------------------------
 # THE NOTEBOOK AND THE COPY OF YOUR HUB ARE TWO CHOICES (2026-09-21).

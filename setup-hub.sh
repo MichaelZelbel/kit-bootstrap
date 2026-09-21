@@ -44,6 +44,9 @@
 #                           about Menerio, store the key, and give every assistant here
 #                           the connection. For the reader who said no on the day. It
 #                           needs a hub already on this computer.
+#   --only gmail            the same for Gmail: the guided step that registers the
+#                           reader's own small Google app and connects their mailbox
+#                           for every assistant. No other command is ever typed.
 #
 # Safe to run as many times as you like. It never deletes a memory.
 # =============================================================================
@@ -84,7 +87,7 @@ while [ $# -gt 0 ]; do
     --only=*)       ONLY="${1#--only=}";   shift ;;
     --sources)      SOURCES="${2:-}"; SOURCES_SET=1; shift 2 ;;
     --sources=*)    SOURCES="${1#--sources=}"; SOURCES_SET=1; shift ;;
-    -h|--help)      sed -n '2,48p' "$0" 2>/dev/null; exit 0 ;;
+    -h|--help)      sed -n '2,51p' "$0" 2>/dev/null; exit 0 ;;
     # A bare path, so `... | bash -s -- ~/hub` keeps working the way join.sh did.
     *)              [ -z "$HUB" ] && HUB="$1"; shift ;;
   esac
@@ -131,7 +134,7 @@ for fn in kb_install_prereqs kb_new_hub kb_copy_starter_hub kb_link_ai_memory kb
           kb_install_hub_tools kb_install_prompt_harvest kb_sync_report kb_write_prompt_sources \
           kb_update_hub kb_connect_notebook kb_wire_skills kb_point_hermes_at_hub \
           kb_hermes_approvals kb_refuse_hub_path kb_default_hub_dir \
-          kb_beside kb_same_path kb_only_menerio; do
+          kb_beside kb_same_path kb_only_menerio kb_only_gmail kb_offer_gmail; do
   if ! command -v "$fn" >/dev/null 2>&1; then
     echo "[stop] the install code on this computer is incomplete ($fn is missing)." >&2
     echo "       Run the newest command from https://github.com/MichaelZelbel/kit-bootstrap" >&2
@@ -148,14 +151,15 @@ done
 # says what the one step runs. It needs a hub to connect, so it never makes one.
 # -----------------------------------------------------------------------------
 if [ -n "$ONLY" ]; then
-  [ "$ONLY" = "menerio" ] || die "--only knows one step so far, and it is: menerio. You typed: $ONLY"
+  case "$ONLY" in menerio|gmail) ;; *) die "--only knows two steps: menerio and gmail. You typed: $ONLY" ;; esac
   if [ "$BESIDE" -eq 1 ]; then KB_BESIDE=1; export KB_BESIDE; fi
   FOUND="$(kb_find_hub "$HUB" 2>/dev/null || true)"
-  [ -n "$FOUND" ] || die "there is no hub on this computer yet, so there is nothing to connect Menerio to. Run this without --only first, and it will make one."
+  [ -n "$FOUND" ] || die "there is no hub on this computer yet, so there is nothing to connect. Run this without --only first, and it will make one."
   if [ -n "$HUB" ] && ! kb_same_path "$FOUND" "$HUB"; then
     die "you asked for the hub at $HUB, and I could not find a hub there. This computer works from $FOUND. Leave off --hub to connect that one."
   fi
-  kb_only_menerio "$FOUND" "$STARTER_REPO"
+  if [ "$ONLY" = "gmail" ]; then kb_only_gmail "$FOUND" "$STARTER_REPO"
+  else kb_only_menerio "$FOUND" "$STARTER_REPO"; fi
   exit 0
 fi
 
@@ -263,6 +267,9 @@ kb_install_prompt_harvest "$HUB"  # the daily job that files what you type to an
 kb_connect_notebook "$HUB"
 # The mail tool, known to every assistant and connected to nothing (email is optional).
 command -v kb_wire_mail >/dev/null 2>&1 && kb_wire_mail "$HUB"
+# Gmail is offered on a later run, never on the day the hub is made: a reader in Chapter 2
+# has not heard of it. The answer is no unless they say yes. See THE GMAIL STEP in lib.sh.
+[ "$IS_NEW" -eq 1 ] || kb_offer_gmail "$HUB"
 
 kb_wire_skills "$HUB"   # one real room, links to it, and it counts what it wired
 

@@ -29,6 +29,10 @@
 #   -Only menerio   run ONE step and leave the rest of this PC alone: ask about Menerio,
 #             store the key, and give every assistant here the connection. For the
 #             reader who said no on the day. It needs a hub already on this PC.
+#
+#   -Only gmail     the same for Gmail: the guided step that registers the reader's own
+#             small Google app and connects their mailbox for every assistant. A reader
+#             never types this: "Update my hub" in the Start menu asks about Gmail.
 # =============================================================================
 param(
     [string]$Hub,
@@ -47,7 +51,7 @@ param(
     [switch]$SkipPrereqs,
     [switch]$NoPause,
     [switch]$Beside,
-    # One step instead of the whole install. 'menerio' is the only one so far.
+    # One step instead of the whole install: 'menerio' or 'gmail'.
     [string]$Only,
     # Which kit-bootstrap tag or branch the shared install code comes from. The wizard
     # passes the tag this .exe was built from, so a reader runs exactly the code that
@@ -171,7 +175,7 @@ if (-not $Join) {
 # copy inside the .exe when it is not there. The canary moves forward with the
 # code: it is the NEWEST function this file calls, or the check passes on a copy
 # that is missing everything added since.
-if (-not (Get-Command Select-KitNotebookMirror -ErrorAction SilentlyContinue)) {
+if (-not (Get-Command Request-KitGmail -ErrorAction SilentlyContinue)) {
     if ($Join -ne $Bundled -and (Test-Path $Bundled)) {
         Write-Warning "the published install code is older than this installer, so I am using the copy that came with it."
         . $Bundled -AsLibrary
@@ -190,7 +194,8 @@ foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-
                  'Get-KitDefaultHubDir', 'Get-KitHubPathRefusal',
                  'Test-KitBeside', 'Test-KitSamePath',
                  'Connect-KitAssistants', 'Connect-KitMenerioOnly',
-                 'Select-KitNotebookMirror', 'Request-KitPassphrase') {
+                 'Select-KitNotebookMirror', 'Request-KitPassphrase',
+                 'Request-KitGmail', 'Connect-KitGmailOnly') {
     if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
         Stop-Setup "the install code on this PC is incomplete ($fn is missing). Download the newest installer from https://github.com/MichaelZelbel/kit-bootstrap/releases/latest and run that."
     }
@@ -205,17 +210,18 @@ foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-
 # join.ps1 says what the one step runs. It needs a hub to connect, so it never makes one.
 # -----------------------------------------------------------------------------
 if ($Only) {
-    if ($Only -ne 'menerio') { Stop-Setup "-Only knows one step so far, and it is: menerio. You typed: $Only" }
+    if ($Only -notin 'menerio', 'gmail') { Stop-Setup "-Only knows two steps: menerio and gmail. You typed: $Only" }
     Update-KitPath
     if ($Beside) { $env:KB_BESIDE = '1' }
     $found = Find-KitHub -Hint $Hub
     if (-not $found) {
-        Stop-Setup "there is no hub on this PC yet, so there is nothing to connect Menerio to. Run this without -Only first, and it will make one."
+        Stop-Setup "there is no hub on this PC yet, so there is nothing to connect. Run this without -Only first, and it will make one."
     }
     if ($Hub -and -not (Test-KitSamePath $found $Hub)) {
         Stop-Setup "you asked for the hub at $Hub, and I could not find a hub there. This PC works from $found. Leave off -Hub to connect that one."
     }
-    Connect-KitMenerioOnly -Hub $found -ToolsRepo $StarterRepo
+    if ($Only -eq 'gmail') { Connect-KitGmailOnly -Hub $found -ToolsRepo $StarterRepo }
+    else { Connect-KitMenerioOnly -Hub $found -ToolsRepo $StarterRepo }
     Write-Host ""
     Write-Host "  A record of this run is at $LogFile"
     try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }
@@ -330,6 +336,9 @@ Install-KitPromptHarvest -Hub $Hub   # the daily job that files what you type to
 Connect-KitNotebook -Hub $Hub
 # The mail tool, known to every assistant and connected to nothing (email is optional).
 if (Get-Command Connect-KitMail -ErrorAction SilentlyContinue) { Connect-KitMail -Hub $Hub }
+# Gmail is offered on a later run, never on the day the hub is made: a reader in Chapter 2
+# has not heard of it. The answer is no unless they say yes. "Update my hub" is this run.
+if (-not $isNew) { Request-KitGmail -Hub $Hub }
 
 # One real room, junctions to it, and it counts what it wired. Replaces three lines
 # that pointed .agents\skills at .claude\skills whenever .claude\skills existed, which
