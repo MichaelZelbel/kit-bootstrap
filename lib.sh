@@ -2205,11 +2205,13 @@ kb_install_hub_tools() {
 }
 
 # kb_wire_hooks <hub-dir>
-# The two checks that run by themselves at the end of an assistant's turn (2026-09-22):
+# The checks that run by themselves at the end of an assistant's turn (2026-09-22):
 #   promise-guard       a turn that promises you something on a clock cannot end until the promise
 #                       is a file in work/commitments/ (checked every morning by hub-promises)
 #   no-new-top-folder   the assistant may not invent new folders at the top of your hub; naming one
 #                       in a message is your permission
+#   ownership-guard     a turn that ends by giving up early or handing work back to you is asked,
+#                       once, whether it is really finished
 # The assistant never reads these; they speak only when something is wrong. Wired into:
 #   Claude Code  the HUB'S OWN .claude/settings.json, entries appended, never reordered. Never
 #                ~/.claude/settings.json: Claude Code rewrites that file (settings/README.md).
@@ -2226,7 +2228,7 @@ kb_wire_hooks() {
   [ -n "$hub" ] && [ -d "$hub" ] && [ -d "$src" ] || return 0
   command -v node >/dev/null 2>&1 || return 0
   mkdir -p "$hub/.claude/hooks" "$hub/work/commitments"
-  for f in promise-guard.js no-new-top-folder.js; do
+  for f in promise-guard.js no-new-top-folder.js ownership-guard.js ownership-patterns.json; do
     [ -f "$src/$f" ] || continue
     cmp -s "$src/$f" "$hub/.claude/hooks/$f" || { cp "$src/$f" "$hub/.claude/hooks/$f"; said=1; }
   done
@@ -2249,10 +2251,10 @@ function merge(file, entries) {
 const cc = (n) => `node "\${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/${n}.js"`;
 merge(path.join(hub, ".claude", "settings.json"), [
   ["SessionStart", cc("no-new-top-folder")], ["UserPromptSubmit", cc("no-new-top-folder")],
-  ["Stop", cc("no-new-top-folder")], ["Stop", cc("promise-guard")]]);
+  ["Stop", cc("no-new-top-folder")], ["Stop", cc("promise-guard")], ["Stop", cc("ownership-guard")]]);
 merge(path.join(hub, ".codex", "hooks.json"), [
   ["SessionStart", "hub-hook no-new-top-folder"], ["UserPromptSubmit", "hub-hook no-new-top-folder"],
-  ["Stop", "hub-hook no-new-top-folder"], ["Stop", "hub-hook promise-guard"]]);
+  ["Stop", "hub-hook no-new-top-folder"], ["Stop", "hub-hook promise-guard"], ["Stop", "hub-hook ownership-guard"]]);
 process.exit(changed ? 0 : 1);
 JS
   if [ -d "$HOME/.codex" ] && [ -f "$bindir/codex-trust-hooks.js" ]; then
