@@ -2013,7 +2013,7 @@ function Connect-KitHooks {
     $said = $false
     $hk = Join-Path $Hub '.claude\hooks'
     New-Item -ItemType Directory -Force $hk, (Join-Path $Hub 'work\commitments') | Out-Null
-    foreach ($f in @('promise-guard.js', 'no-new-top-folder.js', 'ownership-guard.js', 'ownership-patterns.json')) {
+    foreach ($f in @('promise-guard.js', 'no-new-top-folder.js', 'ownership-guard.js', 'ownership-patterns.json', 'no-publish-in-my-name.js')) {
         $s = Join-Path $src $f; $d = Join-Path $hk $f
         if (-not (Test-Path $s)) { continue }
         if (-not (Test-Path $d) -or ((Get-FileHash $s).Hash -ne (Get-FileHash $d).Hash)) { Copy-Item $s $d -Force; $said = $true }
@@ -2038,7 +2038,8 @@ function merge(file, entries) {
 const cc = (n) => 'node "${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/' + n + '.js"';
 merge(path.join(hub, ".claude", "settings.json"), [
   ["SessionStart", cc("no-new-top-folder")], ["UserPromptSubmit", cc("no-new-top-folder")],
-  ["Stop", cc("no-new-top-folder")], ["Stop", cc("promise-guard")], ["Stop", cc("ownership-guard")]]);
+  ["Stop", cc("no-new-top-folder")], ["Stop", cc("promise-guard")], ["Stop", cc("ownership-guard")],
+  ["PreToolUse", cc("no-publish-in-my-name")]]);
 merge(path.join(hub, ".codex", "hooks.json"), [
   ["SessionStart", "hub-hook no-new-top-folder"], ["UserPromptSubmit", "hub-hook no-new-top-folder"],
   ["Stop", "hub-hook no-new-top-folder"], ["Stop", "hub-hook promise-guard"], ["Stop", "hub-hook ownership-guard"]]);
