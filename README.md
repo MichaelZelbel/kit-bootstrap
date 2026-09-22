@@ -153,7 +153,7 @@ Options, all optional, after `bash -s --`:
 | `--starter-path <name>` | the folder inside that repo (default `starter-hub`) |
 | `--skip-prereqs` | install nothing, just wire it up |
 | `--only menerio` | run the Menerio step and nothing else (see below) |
-| `--only gmail` | run the guided Gmail step and nothing else (see below) |
+| `--only gmail` | retired: refreshes the mail tool and says how Gmail is connected now (see below) |
 
 A product points the last two at itself and ships a one-line wrapper under its own
 name, the same way the `.exe` does. `teach-it-once-kit/install-hub.sh` is that
@@ -238,31 +238,23 @@ has asked to be asked. The HubSetup.exe wizard has no page for the single step.
 
 `steps/menerio.md` is the sheet an assistant follows to walk somebody through it.
 
-## Gmail: a step of the installer, and no command for the reader
+## Gmail: not an installer step any more (retired 2026-09-22)
 
-Connecting Gmail is optional, and it works the same way for everyone: each person registers
-their own small Google app once, in their own Google account. No shared app, and no connection
-company in between. The reader never types a command for it.
+From 2026-09-21 to 2026-09-22 the installer had a Gmail step that walked each reader through
+registering their own Google app in Google's developer console. A real run stopped part way,
+and the reviewed email plan replaced the route: the kit connects Gmail with a Google app
+password and a free mail program (Himalaya), started when the reader asks their assistant
+*Connect Gmail for me*. That needs nothing from the installer, so:
 
-- **When it asks.** Never on the day a hub is made. On a later run of the whole installer, which
-  is what **Update my hub** in the Windows Start menu is, it asks `Connect Gmail now?` once, with
-  no as the answer, and only while Gmail is not connected. `KB_GMAIL=skip` says no without asking.
-- **The single step.** `--only gmail` (and `-Only gmail`) fetches the kit's programs, tells every
-  assistant about the mail tool, and starts the guide. It does not ask whether.
+- An install and an update (**Update my hub** on Windows) ask nothing about email.
+- `--only gmail` (and `-Only gmail`) still works: it refreshes the kit's programs and recipes,
+  tells every assistant about the mail tool, and says the old step is retired and what to ask
+  instead. It never quietly starts something else. `test.sh` checks both platforms say it in
+  the same words.
+- A Gmail connection someone made the old way keeps working; the kit's mail tool reads it.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v2/setup-hub.sh | bash -s -- --only gmail
-```
-
-- **The words are not in this repository.** The guiding (which Google page to open, the one
-  sentence about what to click there, the two hidden pastes, Google's Allow window, the mailbox
-  question) is one program in the kit, `tools/hub-mail-guide.js`, and both installers start it.
-  The Menerio step had its sentences in `lib.sh` and `join.ps1` and they drifted apart. What
-  lives here is only what an installer knows: is somebody at the keyboard, is the tool on this
-  computer, is `age` here to lock the connection away, and the one question. `test.sh` checks
-  that neither installer carries a sentence of the guide.
-- The connection is kept in the hub's locked store, so `age` is fetched when this step needs it,
-  and a hub that never had a store gets one.
+The mail tool itself, and the whole Gmail journey, live in the kit
+(`teach-it-once-kit/tools/hub-mail.js`, `hub-mail-imap.js`, `mail/README.md`).
 
 ## Windows: HubSetup.exe
 

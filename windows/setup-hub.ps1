@@ -30,9 +30,9 @@
 #             store the key, and give every assistant here the connection. For the
 #             reader who said no on the day. It needs a hub already on this PC.
 #
-#   -Only gmail     the same for Gmail: the guided step that registers the reader's own
-#             small Google app and connects their mailbox for every assistant. A reader
-#             never types this: "Update my hub" in the Start menu asks about Gmail.
+#   -Only gmail     retired (2026-09-22): refreshes the mail tool and says that Gmail is
+#             now connected by asking an assistant "Connect Gmail for me". It connects
+#             nothing itself.
 # =============================================================================
 param(
     [string]$Hub,
@@ -176,7 +176,7 @@ if (-not $Join) {
 # copy inside the .exe when it is not there. The canary moves forward with the
 # code: it is the NEWEST function this file calls, or the check passes on a copy
 # that is missing everything added since.
-if (-not (Get-Command Request-KitGmail -ErrorAction SilentlyContinue)) {
+if (-not (Get-Command Show-KitGmailRetired -ErrorAction SilentlyContinue)) {
     if ($Join -ne $Bundled -and (Test-Path $Bundled)) {
         Write-Warning "the published install code is older than this installer, so I am using the copy that came with it."
         . $Bundled -AsLibrary
@@ -196,7 +196,7 @@ foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-
                  'Test-KitBeside', 'Test-KitSamePath',
                  'Connect-KitAssistants', 'Connect-KitMenerioOnly',
                  'Select-KitNotebookMirror', 'Request-KitPassphrase',
-                 'Request-KitGmail', 'Connect-KitGmailOnly') {
+                 'Show-KitGmailRetired', 'Connect-KitGmailOnly') {
     if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
         Stop-Setup "the install code on this PC is incomplete ($fn is missing). Download the newest installer from https://github.com/MichaelZelbel/kit-bootstrap/releases/latest and run that."
     }
@@ -347,9 +347,7 @@ Install-KitPromptHarvest -Hub $Hub   # the daily job that files what you type to
 Connect-KitNotebook -Hub $Hub
 # The mail tool, known to every assistant and connected to nothing (email is optional).
 if (Get-Command Connect-KitMail -ErrorAction SilentlyContinue) { Connect-KitMail -Hub $Hub }
-# Gmail is offered on a later run, never on the day the hub is made: a reader in Chapter 2
-# has not heard of it. The answer is no unless they say yes. "Update my hub" is this run.
-if (-not $isNew) { Request-KitGmail -Hub $Hub }
+# Email is never asked about during an install or "Update my hub" (THE GMAIL STEP, RETIRED, in join.ps1).
 
 # One real room, junctions to it, and it counts what it wired. Replaces three lines
 # that pointed .agents\skills at .claude\skills whenever .claude\skills existed, which

@@ -46,9 +46,9 @@
 #                           about Menerio, store the key, and give every assistant here
 #                           the connection. For the reader who said no on the day. It
 #                           needs a hub already on this computer.
-#   --only gmail            the same for Gmail: the guided step that registers the
-#                           reader's own small Google app and connects their mailbox
-#                           for every assistant. No other command is ever typed.
+#   --only gmail            retired (2026-09-22): refreshes the mail tool and says that
+#                           Gmail is now connected by asking an assistant "Connect Gmail
+#                           for me". It connects nothing itself.
 #
 # Safe to run as many times as you like. It never deletes a memory.
 # =============================================================================
@@ -136,7 +136,7 @@ for fn in kb_install_prereqs kb_new_hub kb_copy_starter_hub kb_link_ai_memory kb
           kb_install_hub_tools kb_install_prompt_harvest kb_sync_report kb_write_prompt_sources \
           kb_update_hub kb_connect_notebook kb_wire_skills kb_point_hermes_at_hub \
           kb_hermes_approvals kb_refuse_hub_path kb_default_hub_dir \
-          kb_beside kb_same_path kb_only_menerio kb_only_gmail kb_offer_gmail; do
+          kb_beside kb_same_path kb_only_menerio kb_only_gmail kb_gmail_retired; do
   if ! command -v "$fn" >/dev/null 2>&1; then
     echo "[stop] the install code on this computer is incomplete ($fn is missing)." >&2
     echo "       Run the newest command from https://github.com/MichaelZelbel/kit-bootstrap" >&2
@@ -279,9 +279,7 @@ kb_install_prompt_harvest "$HUB"  # the daily job that files what you type to an
 kb_connect_notebook "$HUB"
 # The mail tool, known to every assistant and connected to nothing (email is optional).
 command -v kb_wire_mail >/dev/null 2>&1 && kb_wire_mail "$HUB"
-# Gmail is offered on a later run, never on the day the hub is made: a reader in Chapter 2
-# has not heard of it. The answer is no unless they say yes. See THE GMAIL STEP in lib.sh.
-[ "$IS_NEW" -eq 1 ] || kb_offer_gmail "$HUB"
+# Email is never asked about during an install or an update (THE GMAIL STEP, RETIRED, in lib.sh).
 
 kb_wire_skills "$HUB"   # one real room, links to it, and it counts what it wired
 
