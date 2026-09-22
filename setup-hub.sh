@@ -156,16 +156,16 @@ if [ -n "$ONLY" ]; then
   case "$ONLY" in menerio|gmail) ;; *) die "--only knows two steps: menerio and gmail. You typed: $ONLY" ;; esac
   if [ "$BESIDE" -eq 1 ]; then KB_BESIDE=1; export KB_BESIDE; fi
   FOUND="$(kb_find_hub "$HUB" 2>/dev/null || true)"
-  [ -n "$FOUND" ] || die "there is no hub on this computer yet, so there is nothing to connect. Run this without --only first, and it will make one."
+  [ -n "$FOUND" ] || die "there is no mission control on this computer yet, so there is nothing to connect. Run this without --only first, and it will make one."
   if [ -n "$HUB" ] && ! kb_same_path "$FOUND" "$HUB"; then
-    die "you asked for the hub at $HUB, and I could not find a hub there. This computer works from $FOUND. Leave off --hub to connect that one."
+    die "you asked for the mission control at $HUB, and I could not find a mission control there. This computer works from $FOUND. Leave off --hub to connect that one."
   fi
   if [ "$ONLY" = "gmail" ]; then kb_only_gmail "$FOUND" "$STARTER_REPO"
   else kb_only_menerio "$FOUND" "$STARTER_REPO"; fi
   exit 0
 fi
 
-say "Setting up your hub"
+say "Setting up Godspeed Mission Control"
 
 # -----------------------------------------------------------------------------
 # 2. What this computer is missing. Git, Node.js, Hermes.
@@ -192,26 +192,26 @@ fi
 # nothing else.
 OTHER=""
 if [ "$BESIDE" -eq 1 ]; then
-  [ -n "$HUB" ] || die "--beside needs --hub as well. It puts a hub in a place you name and leaves this computer working from the one it already has, so it has to be told where. Example: --beside --hub $(kb_default_hub_dir)"
+  [ -n "$HUB" ] || die "--beside needs --hub as well. It puts a mission control in a place you name and leaves this computer working from the one it already has, so it has to be told where. Example: --beside --hub $(kb_default_hub_dir)"
   OTHER="$(kb_find_hub 2>/dev/null || true)"
-  [ -n "$OTHER" ] || die "there is no hub on this computer yet, so there is nothing for a second one to sit beside. Run this without --beside and it will make the first one."
-  ! kb_same_path "$OTHER" "$HUB" || die "$HUB is the hub this computer already works from, so it cannot sit beside itself. Run this without --beside to bring it up to date."
+  [ -n "$OTHER" ] || die "there is no mission control on this computer yet, so there is nothing for a second one to sit beside. Run this without --beside and it will make the first one."
+  ! kb_same_path "$OTHER" "$HUB" || die "$HUB is the mission control this computer already works from, so it cannot sit beside itself. Run this without --beside to bring it up to date."
   KB_BESIDE=1
   export KB_BESIDE
-  say "This computer works from $OTHER and keeps working from it. The new hub will sit beside it."
+  say "This computer works from $OTHER and keeps working from it. The new mission control will sit beside it."
   FOUND=""
   kb_hub_looks_real "$HUB" && FOUND="$(cd "$HUB" && pwd -P)"
 else
   FOUND="$(kb_find_hub "$HUB" 2>/dev/null || true)"
   if [ -n "$FOUND" ] && [ -n "$HUB" ] && ! kb_same_path "$FOUND" "$HUB"; then
-    die "you asked for a hub at $HUB, but this computer already works from $FOUND. To put a second hub at $HUB and leave $FOUND in charge of this computer, add --beside. To bring $FOUND up to date instead, leave off --hub."
+    die "you asked for a mission control at $HUB, but this computer already works from $FOUND. To put a second mission control at $HUB and leave $FOUND in charge of this computer, add --beside. To bring $FOUND up to date instead, leave off --hub."
   fi
 fi
 IS_NEW=0
 
 if [ -n "$FOUND" ]; then
   HUB="$FOUND"
-  say "Found the hub already on this computer at $HUB"
+  say "Found your mission control already on this computer at $HUB"
   BEFORE="$(git -C "$HUB" rev-parse --short HEAD 2>/dev/null || true)"
   kb_update_hub "$HUB"
   AFTER="$(git -C "$HUB" rev-parse --short HEAD 2>/dev/null || true)"
@@ -230,17 +230,17 @@ if [ -n "$FOUND" ]; then
   kb_copy_starter_hub "$HUB" "$STARTER_REPO" "$STARTER_PATH" || true
   TOPUP_AFTER="$(ls -A "$HUB" 2>/dev/null | sort)"
   if [ "$TOPUP_BEFORE" != "$TOPUP_AFTER" ]; then
-    ok "the starter grew since this hub was made; added what was missing, touched nothing else."
+    ok "the starter grew since this mission control was made; added what was missing, touched nothing else."
   fi
 else
   IS_NEW=1
   [ -n "$HUB" ] || HUB="$(kb_default_hub_dir)"
   REFUSED="$(kb_refuse_hub_path "$HUB")"
-  [ -z "$REFUSED" ] || die "I will not put the hub at $HUB: $REFUSED"
-  if [ "$BESIDE" -eq 1 ]; then say "Making the hub at $HUB"
-  else say "No hub on this computer yet, so I am making one"; fi
+  [ -z "$REFUSED" ] || die "I will not put your mission control at $HUB: $REFUSED"
+  if [ "$BESIDE" -eq 1 ]; then say "Making your mission control at $HUB"
+  else say "No mission control on this computer yet, so I am making one"; fi
   kb_new_hub "$HUB" "$REPO_URL" "$STARTER_REPO" "$STARTER_PATH" \
-    || die "I could not make the hub. Read what it said just above."
+    || die "I could not make your mission control. Read what it said just above."
   HUB="$(cd "$HUB" && pwd -P)"
 fi
 
@@ -270,7 +270,7 @@ fi
 kb_sync_report
 
 kb_link_ai_memory   "$HUB"    # the one memory every machine shares
-kb_install_hub_cli  "$HUB"    # the hub's own commands, on PATH, from any folder
+kb_install_hub_cli  "$HUB"    # the mission control's own commands, on PATH, from any folder
 kb_install_hub_tools "$HUB" "$STARTER_REPO"   # the kit's own programs, on this machine
 kb_install_prompt_harvest "$HUB"  # the daily job that files what you type to an AI here
 # The notebook, and the one thing about it that has to travel: connect it once and the
@@ -302,11 +302,11 @@ kb_hermes_approvals
 # hides it.
 say "Done"
 if [ "$BESIDE" -eq 1 ]; then
-  echo "This second hub is ready at:"
+  echo "This second mission control is ready at:"
 elif [ "$IS_NEW" -eq 1 ]; then
-  echo "Your hub is at:"
+  echo "Your mission control is at:"
 else
-  echo "This computer is up to date and wired in. Your hub is at:"
+  echo "This computer is up to date and wired in. Your mission control is at:"
 fi
 cat <<EOF
 
@@ -316,7 +316,7 @@ EOF
 if [ "$BESIDE" -eq 1 ]; then
   cat <<EOF
 It has its own folders, its own git history and its own assistant memory.
-This computer still works from $OTHER, which keeps the hub commands, the daily
+This computer still works from $OTHER, which keeps its commands, the daily
 job, the hourly notebook job and the folder Hermes starts in. To work in the new
 one, open a terminal or an assistant inside it.
 
@@ -327,9 +327,9 @@ cat <<EOF
 
 Worth knowing:
 
-  * Open a NEW terminal window before you use the hub commands, so it picks up
+  * Open a NEW terminal window before you use its commands, so it picks up
     what was just installed.
-  * Your hub travels between machines through git. Push it from here, and run
+  * Your mission control travels between machines through git. Push it from here, and run
     this same command on the next machine to pick it up there. To change which
     AI tools have their conversations copied from this machine, run it again with
     --sources, or edit HUB_PROMPT_SOURCES in ~/.hub/device.env

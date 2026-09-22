@@ -435,7 +435,7 @@ Check "the wizard gives no tool a box it cannot tick, and names those tools in w
     $iss = Get-Content (Join-Path $PSScriptRoot 'hub-setup.iss') -Raw
     ($iss -notmatch 'ItemEnabled') -and ($iss -notmatch "cannot sync:") -and
     ($iss -match "Also on this PC: ' \+ Others") -and
-    ($iss -match 'Every AI tool on this PC can work with your hub, ticked or not')
+    ($iss -match 'Every AI tool on this PC can work with your mission control, ticked or not')
 }
 Check "the wizard's boxes start unticked on a PC getting its first hub" {
     $iss = Get-Content (Join-Path $PSScriptRoot 'hub-setup.iss') -Raw
@@ -3220,7 +3220,7 @@ if ((Test-KitCommand 'node') -and (Test-Path (Join-Path $MailSrc 'hub-mail.js'))
 
 # =============================================================================
 # THE GMAIL STEP, RETIRED (2026-09-22). Email is connected by asking an assistant, so an
-# install and "Update my hub" ask nothing about it, and -Only gmail refreshes the mail tool
+# install and "Update my mission control" ask nothing about it, and -Only gmail refreshes the mail tool
 # and the recipes and then SAYS the old step is retired. test.sh compares the words with
 # the bash twin.
 # =============================================================================
@@ -3245,12 +3245,12 @@ Check "setup-hub.ps1 runs -Only gmail before it checks a single prerequisite" {
     $b = $SetupSrcG.IndexOf('$missing = @(Install-KitPrereqs)')
     ($a -gt 0) -and ($b -gt 0) -and ($a -lt $b)
 }
-Check "an install and 'Update my hub' never ask about Gmail" {
+Check "an install and 'Update my mission control' never ask about Gmail" {
     -not $SetupSrcG.Contains('Request-KitGmail -Hub')
 }
 Check "the Start menu entry a reader clicks is still there, and still runs the whole installer" {
     $iss = Get-Content (Join-Path $PSScriptRoot 'hub-setup.iss') -Raw
-    $iss.Contains('Name: "{group}\Update my hub"') -and -not ($iss -match 'Update my hub[^\n]*\n[^\n]*-Only')
+    $iss.Contains('Name: "{group}\Update my mission control"') -and -not ($iss -match 'Update my mission control[^\n]*\n[^\n]*-Only')
 }
 Check "the old offer is silent even with a person at the keyboard" {
     function Test-KitInteractive { $true }

@@ -18,7 +18,7 @@
 ; Build it with:  powershell -File build-installer.ps1
 ; =============================================================================
 
-#define AppName        "Hub"
+#define AppName        "Godspeed Mission Control"
 #define AppVersion     "2.5.0"
 ; THE PIN. The kit-bootstrap tag this .exe carries and fetches from, so a reader runs
 ; exactly the code that passed its runs. build-installer.ps1 refuses to build unless this
@@ -37,7 +37,7 @@ AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}
 VersionInfoVersion={#AppVersion}
-VersionInfoDescription=Sets up your hub on this PC
+VersionInfoDescription=Sets up Godspeed Mission Control on this PC
 DefaultDirName={localappdata}\Hub\installer
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
@@ -67,18 +67,18 @@ Source: "..\join.ps1";   DestDir: "{tmp}";  Flags: dontcopy
 
 [Icons]
 ; So the next update is a Start Menu click and never a typed command again.
-Name: "{group}\Update my hub"; Filename: "powershell.exe"; \
+Name: "{group}\Update my mission control"; Filename: "powershell.exe"; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-hub.ps1"" -KbBranch ""{#KbPin}"""; \
-    Comment: "Bring this PC's hub up to date"
-Name: "{group}\Open my hub folder"; Filename: "{code:GetHubDir}"
+    Comment: "Bring this PC's mission control up to date"
+Name: "{group}\Open my mission control folder"; Filename: "{code:GetHubDir}"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 
 [Run]
 Filename: "powershell.exe"; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-hub.ps1"" -NoPause -Hub ""{code:GetHubDir}"" -RepoUrl ""{code:GetRepoUrl}"" -PromptSources ""{code:GetPromptSources}"" -KbBranch ""{#KbPin}""{code:GetBesideFlag}"; \
-    StatusMsg: "Setting up your hub. This can take a few minutes, and a window will show what it is doing..."; \
+    StatusMsg: "Setting up Godspeed Mission Control. This can take a few minutes, and a window will show what it is doing..."; \
     Flags: waituntilterminated
-Filename: "{code:GetHubDir}"; Description: "Open my hub folder"; \
+Filename: "{code:GetHubDir}"; Description: "Open my mission control folder"; \
     Flags: postinstall shellexec nowait unchecked
 
 [UninstallDelete]
@@ -87,7 +87,7 @@ Type: filesandordirs; Name: "{app}"
 [Messages]
 ; Said on the last page of the uninstaller, because the one thing people fear
 ; here is losing the memory, and they should be told plainly that they have not.
-ConfirmUninstall=This removes the setup program only.%n%nYour hub folder, and everything your assistants have learned, stays exactly where it is. Nothing you have written is deleted.%n%nRemove the setup program?
+ConfirmUninstall=This removes the setup program only.%n%nYour mission control folder, and everything your assistants have learned, stays exactly where it is. Nothing you have written is deleted.%n%nRemove the setup program?
 
 [Code]
 var
@@ -132,7 +132,7 @@ begin
   Result := Pos(',' + Id + ',', ',' + Csv + ',') > 0;
 end;
 
-{ Ask the shared install code where the hub is, rather than writing a second
+{ Ask the shared install code where the mission control is, rather than writing a second
   copy of that search in Pascal. Two copies of a search is how they drift. }
 function DetectHub(): String;
 var
@@ -204,10 +204,10 @@ var
   row: Integer;
 begin
   row := SyncPage.Add(Caption);
-  { Nothing recorded yet: a PC getting its first hub starts with every box
+  { Nothing recorded yet: a PC getting its first mission control starts with every box
     unticked, because copying pushes words typed to other programs into a
     repository and is asked for, never assumed (the book says the same). A PC
-    that already works from a hub, and never recorded a choice, has been copying
+    that already works from a mission control, and never recorded a choice, has been copying
     since before there was one, so its boxes show exactly that. }
   if RecordedSources = '(auto)' then
     SyncPage.Values[row] := (FoundHub <> '')
@@ -231,44 +231,44 @@ begin
   FoundHub := DetectHub();
   DetectTools(RecordedSources, ToolLines);
 
-  { Shown only on a PC that already has a hub. Unticked, so the common path stays
-    one click: a returning reader clicks Next and their hub is brought up to date,
+  { Shown only on a PC that already has a mission control. Unticked, so the common path stays
+    one click: a returning reader clicks Next and their mission control is brought up to date,
     exactly as before this page existed. Ticked, the folder page opens and the run
-    leaves all five of this PC's "which hub do I work from" settings alone. }
+    leaves all five of this PC's "which mission control do I work from" settings alone. }
   BesidePage := CreateInputOptionPage(wpWelcome,
-    'You already have a hub',
-    'This PC works from a hub already.',
-    'Clicking Next brings that hub up to date and re-checks how this PC is wired to it, which is what almost everybody wants.' + #13#10 + #13#10 +
-    'Tick the box instead if you want a SECOND hub in another folder: a work hub next to a personal one, or a clean one to try something in. This PC keeps working from the hub it has, so its commands, its daily jobs and the folder your assistant starts in are left alone. The second hub gets its own folders and its own history, and you use it by opening a terminal or an assistant inside it.',
+    'You already have a mission control',
+    'This PC works from a mission control already.',
+    'Clicking Next brings that mission control up to date and re-checks how this PC is wired to it, which is what almost everybody wants.' + #13#10 + #13#10 +
+    'Tick the box instead if you want a SECOND mission control in another folder: a work mission control next to a personal one, or a clean one to try something in. This PC keeps working from the mission control it has, so its commands, its daily jobs and the folder your assistant starts in are left alone. The second mission control gets its own folders and its own history, and you use it by opening a terminal or an assistant inside it.',
     False, False);
-  BesidePage.Add('Make a second hub somewhere else, and leave this PC working from the one it has');
+  BesidePage.Add('Make a second mission control somewhere else, and leave this PC working from the one it has');
   BesidePage.Values[0] := False;
 
   HubPage := CreateInputQueryPage(BesidePage.ID,
-    'Where your hub goes',
-    'This PC has not got a hub yet, so I am about to make one.',
-    'A hub is one folder holding everything your AI assistants know about you and your work.' + #13#10 + #13#10 +
+    'Where your mission control goes',
+    'This PC has not got a mission control yet, so I am about to make one.',
+    'A mission control is one folder holding everything your AI assistants know about you and your work.' + #13#10 + #13#10 +
     'The suggestion below is the top of your user folder: no administrator needed, private to you, and the same place on every computer. ' +
     'C:\hub also works if you want the shortest possible path. ' +
-    'Never Documents, Desktop or Pictures: OneDrive backs those up, and a backed-up hub gets its history corrupted, so I refuse them.' + #13#10 + #13#10 +
-    'If you already keep a hub in a git repository, paste its address in the second box and I will fetch that one instead of starting an empty one. Leave the box empty if today is day one.');
+    'Never Documents, Desktop or Pictures: OneDrive backs those up, and a backed-up mission control gets its history corrupted, so I refuse them.' + #13#10 + #13#10 +
+    'If you already keep a mission control in a git repository, paste its address in the second box and I will fetch that one instead of starting an empty one. Leave the box empty if today is day one.');
   HubPage.Add('Folder on this PC:', False);
-  HubPage.Add('Address of a hub you already have (optional):', False);
+  HubPage.Add('Address of a mission control you already have (optional):', False);
   HubPage.Values[0] := ExpandConstant('{%USERPROFILE}\hub');
   HubPage.Values[1] := '';
 
   { The choice page. Everything a ticked row means is said HERE, before it
     happens, because this is the person's one moment to say no: what you type to
-    a ticked tool, and what it answers, is copied into the hub folder and pushed
+    a ticked tool, and what it answers, is copied into the mission control folder and pushed
     to its repository.
 
     Until 2026-09-21 this page was titled "Your AI tools", asked which tools "may
     be synced", and listed the tools it could not copy as greyed-out boxes reading
     "cannot sync". Michael, installing it, read that as "these tools do not work
-    with the hub" - OpenCode among them, which the book teaches using with the
-    hub - and there was nothing he could do with a box he could not tick. So the
+    with the mission control" - OpenCode among them, which the book teaches using with the
+    mission control - and there was nothing he could do with a box he could not tick. So the
     page now says what it decides (copying conversations, nothing else), says
-    first that every tool works with the hub either way, and names the tools it
+    first that every tool works with the mission control either way, and names the tools it
     cannot copy in one sentence instead of as dead boxes. }
   Others := '';
   for i := 0 to GetArrayLength(ToolLines) - 1 do
@@ -279,15 +279,15 @@ begin
     end;
   OthersText := '';
   if Pos(',', Others) > 0 then
-    OthersText := #13#10 + #13#10 + 'Also on this PC: ' + Others + '. They work with your hub too, but their conversations cannot be copied into it yet.'
+    OthersText := #13#10 + #13#10 + 'Also on this PC: ' + Others + '. They work with your mission control too, but their conversations cannot be copied into it yet.'
   else if Others <> '' then
-    OthersText := #13#10 + #13#10 + 'Also on this PC: ' + Others + '. It works with your hub too, but its conversations cannot be copied into it yet.';
+    OthersText := #13#10 + #13#10 + 'Also on this PC: ' + Others + '. It works with your mission control too, but its conversations cannot be copied into it yet.';
 
   SyncPage := CreateInputOptionPage(HubPage.ID,
     'Your conversations',
-    'Copy your AI conversations into your hub?',
-    'Every AI tool on this PC can work with your hub, ticked or not. A tick decides one thing: '
-    + 'whether what you type to that tool, and what it answers, is also copied into your hub '
+    'Copy your AI conversations into your mission control?',
+    'Every AI tool on this PC can work with your mission control, ticked or not. A tick decides one thing: '
+    + 'whether what you type to that tool, and what it answers, is also copied into your mission control '
     + 'folder and pushed with it to its git repository, so your other computers can search it. '
     + 'For Claude Code a tick also shares its memory folder. Unticked, its files are not read '
     + 'at all. Run this installer again any time to change your mind.'
@@ -313,7 +313,7 @@ begin
   end;
 end;
 
-{ Is this run making a SECOND hub and leaving this PC working from the one it has? }
+{ Is this run making a SECOND mission control and leaving this PC working from the one it has? }
 function Beside: Boolean;
 begin
   Result := (FoundHub <> '') and BesidePage.Values[0];
@@ -329,29 +329,29 @@ begin
   { Nothing to sit beside, so nothing to ask. }
   if PageID = BesidePage.ID then
     Result := (FoundHub = '');
-  { A PC that already has a hub is not asked where to put one, unless it just said
+  { A PC that already has a mission control is not asked where to put one, unless it just said
     it wants a second one somewhere else. }
   if PageID = HubPage.ID then
     Result := (FoundHub <> '') and (not Beside);
 end;
 
-{ The folder page introduces itself differently for a second hub, because "this PC has
-  not got a hub yet" is then untrue and the reader would rightly not believe the rest. }
+{ The folder page introduces itself differently for a second mission control, because "this PC has
+  not got a mission control yet" is then untrue and the reader would rightly not believe the rest. }
 procedure CurPageChanged(CurPageID: Integer);
 begin
   if CurPageID = HubPage.ID then
   begin
     if Beside then
       WizardForm.PageDescriptionLabel.Caption :=
-        'Where the second hub goes. This PC keeps working from ' + FoundHub + '.'
+        'Where the second mission control goes. This PC keeps working from ' + FoundHub + '.'
     else
       WizardForm.PageDescriptionLabel.Caption :=
-        'This PC has not got a hub yet, so I am about to make one.';
+        'This PC has not got a mission control yet, so I am about to make one.';
   end;
 end;
 
-{ Ask the shared install code whether the typed folder is a place a hub may go, the
-  same way DetectHub asks it where the hub is. The rule lives once, in join.ps1, and
+{ Ask the shared install code whether the typed folder is a place a mission control may go, the
+  same way DetectHub asks it where the mission control is. The rule lives once, in join.ps1, and
   its tests; a second copy in Pascal is how the two would drift. }
 function HubPathRefusal(Dir: String): String;
 var
@@ -384,12 +384,12 @@ begin
   begin
     if Trim(HubPage.Values[0]) = '' then
       HubPage.Values[0] := ExpandConstant('{%USERPROFILE}\hub');
-    { A second hub cannot be the first one. Compared here rather than left to
+    { A second mission control cannot be the first one. Compared here rather than left to
       setup-hub.ps1, because a message on the page beats one in a console window
       that closes. }
     if Beside and (CompareText(Trim(HubPage.Values[0]), FoundHub) = 0) then
     begin
-      MsgBox('That is the hub this PC already works from, so it cannot sit beside itself.'
+      MsgBox('That is the mission control this PC already works from, so it cannot sit beside itself.'
         + #13#10 + #13#10 + 'Pick another folder, or go back and untick the box to bring '
         + FoundHub + ' up to date instead.', mbError, MB_OK);
       Result := False;
@@ -398,7 +398,7 @@ begin
     Why := HubPathRefusal(Trim(HubPage.Values[0]));
     if Why <> '' then
     begin
-      MsgBox('I will not put the hub there.' + #13#10 + #13#10 + Why, mbError, MB_OK);
+      MsgBox('I will not put your mission control there.' + #13#10 + #13#10 + Why, mbError, MB_OK);
       Result := False;
     end;
   end;
@@ -446,7 +446,7 @@ begin
   { Nothing ticked is the word 'none', never '-'. Windows PowerShell 5.1, which runs
     setup-hub.ps1 below with -File, reads a lone '-' as the start of a parameter name
     and stops before the first line runs. The wizard still said Finished, and a reader
-    who unticked every box had no hub. Found on a clean machine, 2026-09-21. }
+    who unticked every box had no mission control. Found on a clean machine, 2026-09-21. }
   if Result = '' then Result := 'none';
 end;
 
@@ -471,17 +471,17 @@ function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo,
   MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
 begin
   if FoundHub <> '' then
-    Result := 'This PC already has a hub, so I am going to UPDATE it:' + NewLine + NewLine
+    Result := 'This PC already has a mission control, so I am going to UPDATE it:' + NewLine + NewLine
             + Space + FoundHub + NewLine + NewLine
-            + 'I will fetch the latest of it and put the hub commands within reach here.'
+            + 'I will fetch the latest of it and put its commands within reach here.'
   else
   begin
-    Result := 'This PC has no hub, so I am going to INSTALL one:' + NewLine + NewLine
+    Result := 'This PC has no mission control, so I am going to INSTALL one:' + NewLine + NewLine
             + Space + GetHubDir('') + NewLine + NewLine;
     if GetRepoUrl('') <> '' then
       Result := Result + 'It will be fetched from:' + NewLine + Space + GetRepoUrl('') + NewLine + NewLine;
     Result := Result + 'I will also install anything missing that it needs: Git and Node.js. Windows may ask your permission for those, which is normal. Hermes itself is a separate download; if it is not on this PC yet I will say so and tell you where to get it.';
   end;
   Result := Result + NewLine + NewLine
-          + 'Conversations copied into your hub from this PC: ' + GetSyncSummary();
+          + 'Conversations copied into your mission control from this PC: ' + GetSyncSummary();
 end;

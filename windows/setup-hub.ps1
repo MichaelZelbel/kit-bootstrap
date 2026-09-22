@@ -94,7 +94,7 @@ function Stop-Setup {
 }
 
 Write-Host ""
-Write-Host "  Setting up your hub" -ForegroundColor Cyan
+Write-Host "  Setting up Godspeed Mission Control" -ForegroundColor Cyan
 Write-Host "  ==================="
 Write-Host ""
 
@@ -216,10 +216,10 @@ if ($Only) {
     if ($Beside) { $env:KB_BESIDE = '1' }
     $found = Find-KitHub -Hint $Hub
     if (-not $found) {
-        Stop-Setup "there is no hub on this PC yet, so there is nothing to connect. Run this without -Only first, and it will make one."
+        Stop-Setup "there is no mission control on this PC yet, so there is nothing to connect. Run this without -Only first, and it will make one."
     }
     if ($Hub -and -not (Test-KitSamePath $found $Hub)) {
-        Stop-Setup "you asked for the hub at $Hub, and I could not find a hub there. This PC works from $found. Leave off -Hub to connect that one."
+        Stop-Setup "you asked for the mission control at $Hub, and I could not find a mission control there. This PC works from $found. Leave off -Hub to connect that one."
     }
     if ($Only -eq 'gmail') { Connect-KitGmailOnly -Hub $found -ToolsRepo $StarterRepo }
     else { Connect-KitMenerioOnly -Hub $found -ToolsRepo $StarterRepo }
@@ -256,29 +256,29 @@ if (-not (Test-KitCommand 'git')) {
 # and at nothing else.
 if ($Beside) {
     if (-not $Hub) {
-        Stop-Setup "-Beside needs -Hub as well. It puts a hub in a place you name and leaves this PC working from the one it already has, so it has to be told where. Example: -Beside -Hub $(Get-KitDefaultHubDir)"
+        Stop-Setup "-Beside needs -Hub as well. It puts a mission control in a place you name and leaves this PC working from the one it already has, so it has to be told where. Example: -Beside -Hub $(Get-KitDefaultHubDir)"
     }
     $other = Find-KitHub
     if (-not $other) {
-        Stop-Setup "there is no hub on this PC yet, so there is nothing for a second one to sit beside. Run this without -Beside and it will make the first one."
+        Stop-Setup "there is no mission control on this PC yet, so there is nothing for a second one to sit beside. Run this without -Beside and it will make the first one."
     }
     if (Test-KitSamePath $other $Hub) {
-        Stop-Setup "$Hub is the hub this PC already works from, so it cannot sit beside itself. Run this without -Beside to bring it up to date."
+        Stop-Setup "$Hub is the mission control this PC already works from, so it cannot sit beside itself. Run this without -Beside to bring it up to date."
     }
     $env:KB_BESIDE = '1'
-    Write-KbSay "This PC works from $other and keeps working from it. The new hub will sit beside it."
+    Write-KbSay "This PC works from $other and keeps working from it. The new mission control will sit beside it."
     $found = if (Test-KitHub $Hub) { (Resolve-Path $Hub).Path } else { $null }
 } else {
     $found = Find-KitHub -Hint $Hub
     if ($found -and $Hub -and -not (Test-KitSamePath $found $Hub)) {
-        Stop-Setup "you asked for a hub at $Hub, but this PC already works from $found. To put a second hub at $Hub and leave $found in charge of this PC, add -Beside. To bring $found up to date instead, leave off -Hub."
+        Stop-Setup "you asked for a mission control at $Hub, but this PC already works from $found. To put a second mission control at $Hub and leave $found in charge of this PC, add -Beside. To bring $found up to date instead, leave off -Hub."
     }
 }
 $isNew = $false
 
 if ($found) {
     $Hub = $found
-    Write-KbSay "Found the hub already on this PC at $Hub"
+    Write-KbSay "Found your mission control already on this PC at $Hub"
     $before = (git -C $Hub rev-parse --short HEAD 2>$null)
     Update-KitHub -Hub $Hub
     $after = (git -C $Hub rev-parse --short HEAD 2>$null)
@@ -297,15 +297,15 @@ if ($found) {
     try { Copy-KitStarterHub -Path $Hub -StarterRepo $StarterRepo -StarterPath $StarterPath | Out-Null } catch {}
     $topupAfter = @(Get-ChildItem -Force -Name $Hub | Sort-Object)
     if (Compare-Object $topupBefore $topupAfter) {
-        Write-KbOk "the starter grew since this hub was made; added what was missing, touched nothing else."
+        Write-KbOk "the starter grew since this mission control was made; added what was missing, touched nothing else."
     }
 } else {
     $isNew = $true
     if (-not $Hub) { $Hub = Get-KitDefaultHubDir }
     $why = Get-KitHubPathRefusal -Path $Hub
-    if ($why) { Stop-Setup "I will not put the hub at ${Hub}: $why" }
-    if ($Beside) { Write-KbSay "Making the hub at $Hub" }
-    else          { Write-KbSay "No hub on this PC yet, so I am making one" }
+    if ($why) { Stop-Setup "I will not put your mission control at ${Hub}: $why" }
+    if ($Beside) { Write-KbSay "Making your mission control at $Hub" }
+    else          { Write-KbSay "No mission control on this PC yet, so I am making one" }
     try { New-KitHub -Path $Hub -RepoUrl $RepoUrl -StarterRepo $StarterRepo -StarterPath $StarterPath }
     catch { Stop-Setup $_.Exception.Message }
     $Hub = (Resolve-Path $Hub).Path
@@ -338,7 +338,7 @@ if ($PromptSources -ne '(auto)') {
 Write-KitSyncReport
 
 Join-KitMemory     -Hub $Hub    # the one memory every machine shares
-Install-KitHubCli  -Hub $Hub    # the hub's own commands, on PATH, from any folder
+Install-KitHubCli  -Hub $Hub    # the mission control's own commands, on PATH, from any folder
 Install-KitHubTools -Hub $Hub -ToolsRepo $StarterRepo   # the kit's own programs, on this machine
 Install-KitPromptHarvest -Hub $Hub   # the daily job that files what you type to an AI here
 # The notebook, and the one thing about it that has to travel: connect it once and the
@@ -381,15 +381,15 @@ if (-not (Test-KitBeside)) {
 # text claimed every assistant shares one memory, on machines where one tool (or
 # none) had been wired. The truth lets a person see a gap; the promise hides it.
 Write-KbSay "Done"
-if (Test-KitBeside)  { Write-Host "This second hub is ready at:" }
-elseif ($isNew)      { Write-Host "Your hub is at:" }
-else                 { Write-Host "This PC is up to date and wired in. Your hub is at:" }
+if (Test-KitBeside)  { Write-Host "This second mission control is ready at:" }
+elseif ($isNew)      { Write-Host "Your mission control is at:" }
+else                 { Write-Host "This PC is up to date and wired in. Your mission control is at:" }
 Write-Host ""
 Write-Host "  $Hub"
 Write-Host ""
 if (Test-KitBeside) {
     Write-Host "It has its own folders, its own git history and its own assistant memory."
-    Write-Host "This PC still works from $other, which keeps the hub commands, the daily"
+    Write-Host "This PC still works from $other, which keeps its commands, the daily"
     Write-Host "job, the hourly notebook job and the folder Hermes starts in. To work in"
     Write-Host "the new one, open a terminal or an assistant inside it."
     Write-Host ""
@@ -399,9 +399,9 @@ Write-Host @"
 
 Worth knowing:
 
-  * Open a NEW terminal window before you use the hub commands. Windows only
+  * Open a NEW terminal window before you use its commands. Windows only
     hands the updated list of commands to windows opened after an install.
-  * Your hub travels between machines through git. Push it from here, and run
+  * Your mission control travels between machines through git. Push it from here, and run
     this same installer on the next machine to pick it up there. To change which
     AI tools are read on this PC, run the installer again, or edit
     HUB_PROMPT_SOURCES in $HOME\.hub\device.env
