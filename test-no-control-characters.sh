@@ -7,7 +7,7 @@
 #     $installed = Join-Path $HOME '.local<0x08>in\prompt-harvest.js'
 #
 # A literal BACKSPACE byte sat where the backslash-b of '.local\bin' was meant. The path could
-# never exist. The fallback beside it does not exist for a reader's hub either, so the function
+# never exist. The fallback beside it does not exist for a reader's mission control either, so the function
 # returned before scheduling anything, and EVERY Windows reader got no prompt archive at all,
 # silently, while the installer reported success.
 #

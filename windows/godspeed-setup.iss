@@ -1,7 +1,7 @@
 ; =============================================================================
-; kit-bootstrap / windows / hub-setup.iss
+; kit-bootstrap / windows / godspeed-setup.iss
 ;
-; The wizard. Compiling this file produces HubSetup.exe, which is an ordinary
+; The wizard. Compiling this file produces GodspeedSetup.exe, which is an ordinary
 ; Windows installer: double-click it, click Next, it works out for itself
 ; whether this PC needs a first install or an update.
 ;
@@ -23,7 +23,7 @@
 ; THE PIN. The kit-bootstrap tag this .exe carries and fetches from, so a reader runs
 ; exactly the code that passed its runs. build-installer.ps1 refuses to build unless this
 ; tag exists and names the very commit being built, which is what stops it drifting from
-; the .exe it labels. install-hub.sh carries the same pin for macOS and Linux.
+; the .exe it labels. install-godspeed.sh carries the same pin for macOS and Linux.
 #define KbPin         "v2.10"
 #define AppPublisher   "Michael Zelbel"
 #define AppURL         "https://github.com/MichaelZelbel/kit-bootstrap"
@@ -38,12 +38,12 @@ AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}
 VersionInfoVersion={#AppVersion}
 VersionInfoDescription=Sets up Godspeed Mission Control on this PC
-DefaultDirName={localappdata}\Hub\installer
+DefaultDirName={localappdata}\Godspeed\installer
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 DisableDirPage=yes
 PrivilegesRequired=lowest
-OutputBaseFilename=HubSetup
+OutputBaseFilename=GodspeedSetup
 OutputDir=dist
 Compression=lzma2
 SolidCompression=yes
@@ -58,27 +58,27 @@ SetupLogging=yes
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-Source: "setup-hub.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "setup-godspeed.ps1"; DestDir: "{app}"; Flags: ignoreversion
 ; A copy of the shared install code, so a PC with no internet still gets set up.
-; At run time the network copy is preferred - see the comment in setup-hub.ps1.
+; At run time the network copy is preferred - see the comment in setup-godspeed.ps1.
 Source: "..\join.ps1";   DestDir: "{app}"; Flags: ignoreversion
-; Needed before the wizard starts, to see whether this PC already has a hub.
+; Needed before the wizard starts, to see whether this PC already has a mission control.
 Source: "..\join.ps1";   DestDir: "{tmp}";  Flags: dontcopy
 
 [Icons]
 ; So the next update is a Start Menu click and never a typed command again.
 Name: "{group}\Update my mission control"; Filename: "powershell.exe"; \
-    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-hub.ps1"" -KbBranch ""{#KbPin}"""; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-godspeed.ps1"" -KbBranch ""{#KbPin}"""; \
     Comment: "Bring this PC's mission control up to date"
-Name: "{group}\Open my mission control folder"; Filename: "{code:GetHubDir}"
+Name: "{group}\Open my mission control folder"; Filename: "{code:GetGodspeedDir}"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 
 [Run]
 Filename: "powershell.exe"; \
-    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-hub.ps1"" -NoPause -Hub ""{code:GetHubDir}"" -RepoUrl ""{code:GetRepoUrl}"" -PromptSources ""{code:GetPromptSources}"" -KbBranch ""{#KbPin}""{code:GetBesideFlag}"; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-godspeed.ps1"" -NoPause -Godspeed ""{code:GetGodspeedDir}"" -RepoUrl ""{code:GetRepoUrl}"" -PromptSources ""{code:GetPromptSources}"" -KbBranch ""{#KbPin}""{code:GetBesideFlag}"; \
     StatusMsg: "Setting up Godspeed Mission Control. This can take a few minutes, and a window will show what it is doing..."; \
     Flags: waituntilterminated
-Filename: "{code:GetHubDir}"; Description: "Open my mission control folder"; \
+Filename: "{code:GetGodspeedDir}"; Description: "Open my mission control folder"; \
     Flags: postinstall shellexec nowait unchecked
 
 [UninstallDelete]
@@ -91,9 +91,9 @@ ConfirmUninstall=This removes the setup program only.%n%nYour mission control fo
 
 [Code]
 var
-  HubPage: TInputQueryWizardPage;
+  GodspeedPage: TInputQueryWizardPage;
   BesidePage: TInputOptionWizardPage;
-  FoundHub: String;
+  FoundGodspeed: String;
   { The conversations checklist. ToolIds/ToolNames/ToolRows describe the rows,
     and every row is a tool whose conversations this kit can copy. A tool it
     cannot copy gets no row at all, only its name in the page's text. }
@@ -134,7 +134,7 @@ end;
 
 { Ask the shared install code where the mission control is, rather than writing a second
   copy of that search in Pascal. Two copies of a search is how they drift. }
-function DetectHub(): String;
+function DetectGodspeed(): String;
 var
   PsFile, OutFile, Cmd: String;
   Code: Integer;
@@ -143,11 +143,11 @@ begin
   Result := '';
   ExtractTemporaryFile('join.ps1');
   PsFile  := ExpandConstant('{tmp}\join.ps1');
-  OutFile := ExpandConstant('{tmp}\hub-found.txt');
+  OutFile := ExpandConstant('{tmp}\mc-found.txt');
 
   Cmd := '-NoProfile -ExecutionPolicy Bypass -Command "'
        + '. ''' + PsFile + ''' -AsLibrary; '
-       + '$h = Find-KitHub; '
+       + '$h = Find-KitGodspeed; '
        + 'if ($h) { Set-Content -LiteralPath ''' + OutFile + ''' -Value $h }"';
 
   if Exec('powershell.exe', Cmd, '', SW_HIDE, ewWaitUntilTerminated, Code) then
@@ -158,7 +158,7 @@ begin
 end;
 
 { Ask the shared install code which AI tools live on this PC and what this
-  device has already recorded about syncing them, same pattern as DetectHub:
+  device has already recorded about syncing them, same pattern as DetectGodspeed:
   one search, written once, in the shared code. Sources comes back as '(auto)'
   when no choice was ever recorded, else as the recorded comma list ('' = none). }
 procedure DetectTools(var Sources: String; var Lines: TArrayOfString);
@@ -175,7 +175,7 @@ begin
 
   Cmd := '-NoProfile -ExecutionPolicy Bypass -Command "'
        + '. ''' + PsFile + ''' -AsLibrary; '
-       + '$v = Get-KitDeviceEnvValue ''HUB_PROMPT_SOURCES''; '
+       + '$v = Get-KitDeviceEnvValue ''GODSPEED_PROMPT_SOURCES''; '
        + 'if ($null -eq $v) { $v = ''(auto)'' } elseif ($v.Trim() -eq ''-'') { $v = '''' }; '
        + '$out = @(''sources='' + $v) + @(Find-KitAiTools); '
        + 'Set-Content -LiteralPath ''' + OutFile + ''' -Value $out"';
@@ -210,7 +210,7 @@ begin
     that already works from a mission control, and never recorded a choice, has been copying
     since before there was one, so its boxes show exactly that. }
   if RecordedSources = '(auto)' then
-    SyncPage.Values[row] := (FoundHub <> '')
+    SyncPage.Values[row] := (FoundGodspeed <> '')
   else
     SyncPage.Values[row] := InCsv(RecordedSources, Id);
   SetArrayLength(ToolIds, ToolCount + 1);
@@ -228,7 +228,7 @@ var
   i: Integer;
   id, sync, name, Others, OthersText: String;
 begin
-  FoundHub := DetectHub();
+  FoundGodspeed := DetectGodspeed();
   DetectTools(RecordedSources, ToolLines);
 
   { Shown only on a PC that already has a mission control. Unticked, so the common path stays
@@ -244,18 +244,18 @@ begin
   BesidePage.Add('Make a second mission control somewhere else, and leave this PC working from the one it has');
   BesidePage.Values[0] := False;
 
-  HubPage := CreateInputQueryPage(BesidePage.ID,
+  GodspeedPage := CreateInputQueryPage(BesidePage.ID,
     'Where your mission control goes',
     'This PC has not got a mission control yet, so I am about to make one.',
     'A mission control is one folder holding everything your AI assistants know about you and your work.' + #13#10 + #13#10 +
     'The suggestion below is the top of your user folder: no administrator needed, private to you, and the same place on every computer. ' +
-    'C:\hub also works if you want the shortest possible path. ' +
+    'C:\godspeed also works if you want the shortest possible path. ' +
     'Never Documents, Desktop or Pictures: OneDrive backs those up, and a backed-up mission control gets its history corrupted, so I refuse them.' + #13#10 + #13#10 +
     'If you already keep a mission control in a git repository, paste its address in the second box and I will fetch that one instead of starting an empty one. Leave the box empty if today is day one.');
-  HubPage.Add('Folder on this PC:', False);
-  HubPage.Add('Address of a mission control you already have (optional):', False);
-  HubPage.Values[0] := ExpandConstant('{%USERPROFILE}\hub');
-  HubPage.Values[1] := '';
+  GodspeedPage.Add('Folder on this PC:', False);
+  GodspeedPage.Add('Address of a mission control you already have (optional):', False);
+  GodspeedPage.Values[0] := ExpandConstant('{%USERPROFILE}\godspeed');
+  GodspeedPage.Values[1] := '';
 
   { The choice page. Everything a ticked row means is said HERE, before it
     happens, because this is the person's one moment to say no: what you type to
@@ -283,7 +283,7 @@ begin
   else if Others <> '' then
     OthersText := #13#10 + #13#10 + 'Also on this PC: ' + Others + '. It works with your mission control too, but its conversations cannot be copied into it yet.';
 
-  SyncPage := CreateInputOptionPage(HubPage.ID,
+  SyncPage := CreateInputOptionPage(GodspeedPage.ID,
     'Your conversations',
     'Copy your AI conversations into your mission control?',
     'Every AI tool on this PC can work with your mission control, ticked or not. A tick decides one thing: '
@@ -316,7 +316,7 @@ end;
 { Is this run making a SECOND mission control and leaving this PC working from the one it has? }
 function Beside: Boolean;
 begin
-  Result := (FoundHub <> '') and BesidePage.Values[0];
+  Result := (FoundGodspeed <> '') and BesidePage.Values[0];
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
@@ -328,22 +328,22 @@ begin
     Result := (ToolCount = 0);
   { Nothing to sit beside, so nothing to ask. }
   if PageID = BesidePage.ID then
-    Result := (FoundHub = '');
+    Result := (FoundGodspeed = '');
   { A PC that already has a mission control is not asked where to put one, unless it just said
     it wants a second one somewhere else. }
-  if PageID = HubPage.ID then
-    Result := (FoundHub <> '') and (not Beside);
+  if PageID = GodspeedPage.ID then
+    Result := (FoundGodspeed <> '') and (not Beside);
 end;
 
 { The folder page introduces itself differently for a second mission control, because "this PC has
   not got a mission control yet" is then untrue and the reader would rightly not believe the rest. }
 procedure CurPageChanged(CurPageID: Integer);
 begin
-  if CurPageID = HubPage.ID then
+  if CurPageID = GodspeedPage.ID then
   begin
     if Beside then
       WizardForm.PageDescriptionLabel.Caption :=
-        'Where the second mission control goes. This PC keeps working from ' + FoundHub + '.'
+        'Where the second mission control goes. This PC keeps working from ' + FoundGodspeed + '.'
     else
       WizardForm.PageDescriptionLabel.Caption :=
         'This PC has not got a mission control yet, so I am about to make one.';
@@ -351,9 +351,9 @@ begin
 end;
 
 { Ask the shared install code whether the typed folder is a place a mission control may go, the
-  same way DetectHub asks it where the mission control is. The rule lives once, in join.ps1, and
+  same way DetectGodspeed asks it where the mission control is. The rule lives once, in join.ps1, and
   its tests; a second copy in Pascal is how the two would drift. }
-function HubPathRefusal(Dir: String): String;
+function GodspeedPathRefusal(Dir: String): String;
 var
   PsFile, OutFile, Cmd: String;
   Code: Integer;
@@ -362,11 +362,11 @@ begin
   Result := '';
   StringChangeEx(Dir, '''', '''''', True);
   PsFile  := ExpandConstant('{tmp}\join.ps1');
-  OutFile := ExpandConstant('{tmp}\hub-refusal.txt');
+  OutFile := ExpandConstant('{tmp}\mc-refusal.txt');
   DeleteFile(OutFile);
   Cmd := '-NoProfile -ExecutionPolicy Bypass -Command "'
        + '. ''' + PsFile + ''' -AsLibrary; '
-       + '$r = Get-KitHubPathRefusal -Path ''' + Dir + '''; '
+       + '$r = Get-KitGodspeedPathRefusal -Path ''' + Dir + '''; '
        + 'if ($r) { Set-Content -LiteralPath ''' + OutFile + ''' -Value $r }"';
   if Exec('powershell.exe', Cmd, '', SW_HIDE, ewWaitUntilTerminated, Code) then
     if FileExists(OutFile) then
@@ -380,22 +380,22 @@ var
   Why: String;
 begin
   Result := True;
-  if (CurPageID = HubPage.ID) and ((FoundHub = '') or Beside) then
+  if (CurPageID = GodspeedPage.ID) and ((FoundGodspeed = '') or Beside) then
   begin
-    if Trim(HubPage.Values[0]) = '' then
-      HubPage.Values[0] := ExpandConstant('{%USERPROFILE}\hub');
+    if Trim(GodspeedPage.Values[0]) = '' then
+      GodspeedPage.Values[0] := ExpandConstant('{%USERPROFILE}\godspeed');
     { A second mission control cannot be the first one. Compared here rather than left to
-      setup-hub.ps1, because a message on the page beats one in a console window
+      setup-godspeed.ps1, because a message on the page beats one in a console window
       that closes. }
-    if Beside and (CompareText(Trim(HubPage.Values[0]), FoundHub) = 0) then
+    if Beside and (CompareText(Trim(GodspeedPage.Values[0]), FoundGodspeed) = 0) then
     begin
       MsgBox('That is the mission control this PC already works from, so it cannot sit beside itself.'
         + #13#10 + #13#10 + 'Pick another folder, or go back and untick the box to bring '
-        + FoundHub + ' up to date instead.', mbError, MB_OK);
+        + FoundGodspeed + ' up to date instead.', mbError, MB_OK);
       Result := False;
       Exit;
     end;
-    Why := HubPathRefusal(Trim(HubPage.Values[0]));
+    Why := GodspeedPathRefusal(Trim(GodspeedPage.Values[0]));
     if Why <> '' then
     begin
       MsgBox('I will not put your mission control there.' + #13#10 + #13#10 + Why, mbError, MB_OK);
@@ -404,21 +404,21 @@ begin
   end;
 end;
 
-function GetHubDir(Param: String): String;
+function GetGodspeedDir(Param: String): String;
 begin
   if Beside then
-    Result := Trim(HubPage.Values[0])
-  else if FoundHub <> '' then
-    Result := FoundHub
+    Result := Trim(GodspeedPage.Values[0])
+  else if FoundGodspeed <> '' then
+    Result := FoundGodspeed
   else
-    Result := Trim(HubPage.Values[0]);
-  if Result = '' then Result := ExpandConstant('{%USERPROFILE}\hub');
+    Result := Trim(GodspeedPage.Values[0]);
+  if Result = '' then Result := ExpandConstant('{%USERPROFILE}\godspeed');
 end;
 
 function GetRepoUrl(Param: String): String;
 begin
-  if Beside or (FoundHub = '') then
-    Result := Trim(HubPage.Values[1])
+  if Beside or (FoundGodspeed = '') then
+    Result := Trim(GodspeedPage.Values[1])
   else
     Result := '';
 end;
@@ -430,7 +430,7 @@ begin
   if Beside then Result := ' -Beside' else Result := '';
 end;
 
-{ The ticked tools, as the comma list setup-hub.ps1 expects. '-' is NONE spelled
+{ The ticked tools, as the comma list setup-godspeed.ps1 expects. '-' is NONE spelled
   so it survives being passed as a command-line value. }
 function GetPromptSources(Param: String): String;
 var
@@ -444,7 +444,7 @@ begin
       Result := Result + ToolIds[i];
     end;
   { Nothing ticked is the word 'none', never '-'. Windows PowerShell 5.1, which runs
-    setup-hub.ps1 below with -File, reads a lone '-' as the start of a parameter name
+    setup-godspeed.ps1 below with -File, reads a lone '-' as the start of a parameter name
     and stops before the first line runs. The wizard still said Finished, and a reader
     who unticked every box had no mission control. Found on a clean machine, 2026-09-21. }
   if Result = '' then Result := 'none';
@@ -470,14 +470,14 @@ end;
 function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo,
   MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
 begin
-  if FoundHub <> '' then
+  if FoundGodspeed <> '' then
     Result := 'This PC already has a mission control, so I am going to UPDATE it:' + NewLine + NewLine
-            + Space + FoundHub + NewLine + NewLine
+            + Space + FoundGodspeed + NewLine + NewLine
             + 'I will fetch the latest of it and put its commands within reach here.'
   else
   begin
     Result := 'This PC has no mission control, so I am going to INSTALL one:' + NewLine + NewLine
-            + Space + GetHubDir('') + NewLine + NewLine;
+            + Space + GetGodspeedDir('') + NewLine + NewLine;
     if GetRepoUrl('') <> '' then
       Result := Result + 'It will be fetched from:' + NewLine + Space + GetRepoUrl('') + NewLine + NewLine;
     Result := Result + 'I will also install anything missing that it needs: Git and Node.js. Windows may ask your permission for those, which is normal. Hermes itself is a separate download; if it is not on this PC yet I will say so and tell you where to get it.';

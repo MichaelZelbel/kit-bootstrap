@@ -29,15 +29,15 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_run_interactive kb_skip_claude_first_run kb_grant_working_permissions \
          ensure_claude_signin ensure_gh_auth reexec_as_user handoff \
          kb_ai_memory_path kb_seed_memory_index kb_link_ai_memory \
-         kb_hub_looks_real kb_find_hub kb_update_hub kb_install_hub_cli kb_record_hub_dir          kb_beside kb_same_path \
-         kb_default_hub_dir kb_cloud_synced_parents kb_physical_path kb_refuse_hub_path \
+         kb_godspeed_looks_real kb_find_godspeed kb_update_godspeed kb_install_godspeed_cli kb_record_godspeed_dir          kb_beside kb_same_path \
+         kb_default_godspeed_dir kb_cloud_synced_parents kb_physical_path kb_refuse_godspeed_path \
          kb_os kb_can_sudo kb_note_missing kb_install_one kb_install_claude_code \
          kb_install_hermes \
-         kb_install_prereqs kb_copy_starter_hub kb_new_hub kb_install_prompt_harvest \
-         kb_install_hub_tools kb_ai_tool_detected kb_ai_tool_info kb_detect_ai_tools \
+         kb_install_prereqs kb_copy_starter_godspeed kb_new_godspeed kb_install_prompt_harvest \
+         kb_install_godspeed_tools kb_ai_tool_detected kb_ai_tool_info kb_detect_ai_tools \
          kb_enabled_sources kb_write_prompt_sources kb_sync_report \
-         kb_age kb_age_keygen kb_have_age kb_hub_key_path kb_notebook_state \
-         kb_unseal_hub_key kb_seal_hub_key kb_store_notebook_token kb_write_mcp_config \
+         kb_age kb_age_keygen kb_have_age kb_godspeed_key_path kb_notebook_state \
+         kb_unseal_godspeed_key kb_seal_godspeed_key kb_store_notebook_token kb_write_mcp_config \
          kb_install_notebook_sync kb_persist_notebook_env kb_connect_notebook \
          kb_ensure_age kb_connect_assistants kb_only_menerio \
          kb_offer_gmail kb_gmail_retired kb_only_gmail \
@@ -46,7 +46,7 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_seed_expiry_record kb_seed_due_folder \
          kb_json_str kb_count_recipes kb_skills_room kb_point_at_room \
          kb_hermes_skills_dir kb_wire_skills kb_hermes_bin kb_hermes_here \
-         kb_hermes_has_credential kb_hermes_reads_hub kb_point_hermes_at_hub \
+         kb_hermes_has_credential kb_hermes_reads_godspeed kb_point_hermes_at_godspeed \
          kb_hermes_deny_rules kb_hermes_approvals kb_hermes_approvals_selfcheck \
          kb_gateway_state kb_install_gateway kb_cron_has_job kb_cron_job \
          kb_hermes_signin kb_hermes_has_provider kb_room_twin; do
@@ -84,7 +84,7 @@ t "need_tools exits 0 when all present"      "$rc"  "0"
 # conditions are separate functions precisely so they can be faked.
 no_tty() { ( kb_stdin_is_tty(){ false; }; kb_can_open_tty(){ false; }; KB_TTY=""; "$@" ) }
 
-t "ask falls back to its default"      "$(no_tty ask 'Repo name' 'my-hub')" "my-hub"
+t "ask falls back to its default"      "$(no_tty ask 'Repo name' 'my-godspeed')" "my-godspeed"
 t "ask with no default returns empty"  "$(no_tty ask 'Anything')"           ""
 if no_tty ask_yes "Proceed" "y"; then t "ask_yes honours a y default" yes yes; else t "ask_yes honours a y default" no yes; fi
 if no_tty ask_yes "Proceed" "n"; then t "ask_yes honours an n default" yes no; else t "ask_yes honours an n default" no no; fi
@@ -159,8 +159,8 @@ else
   printf '%s' '{"existingKey":"keep me","theme":"light","projects":{"/other":{"allowedTools":["Read"]}}}' > "$_d/.claude.json"
   # The folder key is deliberately NOT written like a unix path here. On Git Bash
   # under Windows, jq is a native binary, so an argument that looks like an
-  # absolute unix path is rewritten on the way in ("/home/ai/hub" becomes
-  # "C:/Program Files/Git/home/ai/hub"), and turning that rewriting off breaks the
+  # absolute unix path is rewritten on the way in ("/home/ai/godspeed" becomes
+  # "C:/Program Files/Git/home/ai/godspeed"), and turning that rewriting off breaks the
   # filename argument instead. The function does not care about the format, so the
   # test uses a name MSYS leaves alone. On the Linux servers this runs on, real
   # paths are passed and nothing is rewritten.
@@ -195,55 +195,55 @@ fi
 # instead. Nothing here may ever delete a file: the whole design exists so that a
 # memory cannot be lost, and a test suite that does not check that is decoration.
 
-# The path is DERIVED from the hub location, never typed. If this is wrong the
+# The path is DERIVED from the mission control location, never typed. If this is wrong the
 # assistant writes into a folder nobody syncs and everything looks fine.
-t "the memory path is derived from the hub folder" \
-  "$(HOME=/h kb_ai_memory_path '/home/ai/my hub')" "/h/.claude/projects/-home-ai-my-hub/memory"
+t "the memory path is derived from the mission control folder" \
+  "$(HOME=/h kb_ai_memory_path '/home/ai/my godspeed')" "/h/.claude/projects/-home-ai-my-godspeed/memory"
 t "a Windows-style path mangles the same way" \
-  "$(HOME=/h kb_ai_memory_path 'C:\hub')" "/h/.claude/projects/c--hub/memory"
+  "$(HOME=/h kb_ai_memory_path 'C:\godspeed')" "/h/.claude/projects/c--godspeed/memory"
 
 # Git Bash on Windows silently turns `ln -s` into a COPY. A copy passes a naive
 # check and shares nothing, so rather than pretend, the link cases are skipped
 # here and run for real on Linux (the VPS, and any reader's server).
 _probe=$(mktemp -d); mkdir "$_probe/real"; ln -sfn "$_probe/real" "$_probe/link" 2>/dev/null
 if [ -L "$_probe/link" ]; then
-  _h=$(mktemp -d); _hub="$_h/hub"; mkdir -p "$_hub"
+  _h=$(mktemp -d); _godspeed="$_h/godspeed"; mkdir -p "$_godspeed"
 
   # Detection is FORCED to "Claude Code is here" throughout this block, because the
   # link is gated on it now and these cases are about the link itself, not the gate.
   # The gate has its own cases further down.
-  ( HOME="$_h"; KB_ASSUME_TOOLS=claude kb_link_ai_memory "$_hub" ) >/dev/null 2>&1
-  _link="$_h/.claude/projects/$(printf '%s' "$_hub" | sed 's/[^a-zA-Z0-9]/-/g' | tr 'A-Z' 'a-z')/memory"
+  ( HOME="$_h"; KB_ASSUME_TOOLS=claude kb_link_ai_memory "$_godspeed" ) >/dev/null 2>&1
+  _link="$_h/.claude/projects/$(printf '%s' "$_godspeed" | sed 's/[^a-zA-Z0-9]/-/g' | tr 'A-Z' 'a-z')/memory"
   t "a fresh machine gets the link"        "$([ -L "$_link" ] && echo yes)" "yes"
-  t "the link points at the hub's observations" "$(cd "$_link" && pwd -P)" "$(cd "$_hub/observations" && pwd -P)"
-  t "an empty observations folder is not a mystery" "$([ -s "$_hub/observations/MEMORY.md" ] && echo yes)" "yes"
+  t "the link points at the mission control's observations" "$(cd "$_link" && pwd -P)" "$(cd "$_godspeed/observations" && pwd -P)"
+  t "an empty observations folder is not a mystery" "$([ -s "$_godspeed/observations/MEMORY.md" ] && echo yes)" "yes"
   # The page must be a doorplate, not a rules list: rules belong in AGENTS.md, and a page that
-  # starts collecting them is how the always-read layer grew to 16,000 characters in the hub.
+  # starts collecting them is how the always-read layer grew to 16,000 characters in the mission control.
   t "the page sends rules to AGENTS.md instead of holding them" \
-    "$(grep -qi 'AGENTS.md' "$_hub/observations/MEMORY.md" && echo yes)" "yes"
+    "$(grep -qi 'AGENTS.md' "$_godspeed/observations/MEMORY.md" && echo yes)" "yes"
 
   # Twice must equal once, or re-running the installer is a thing people fear.
-  printf 'a real memory\n' > "$_hub/observations/fact.md"
-  ( HOME="$_h"; KB_ASSUME_TOOLS=claude kb_link_ai_memory "$_hub" ) >/dev/null 2>&1
-  t "running it again keeps the memories"  "$(cat "$_hub/observations/fact.md")" "a real memory"
+  printf 'a real memory\n' > "$_godspeed/observations/fact.md"
+  ( HOME="$_h"; KB_ASSUME_TOOLS=claude kb_link_ai_memory "$_godspeed" ) >/dev/null 2>&1
+  t "running it again keeps the memories"  "$(cat "$_godspeed/observations/fact.md")" "a real memory"
 
   # A machine that already has memories in the OLD place. They must arrive in the
-  # hub, and the old folder must survive: never delete what you cannot get back.
-  _h2=$(mktemp -d); _hub2="$_h2/hub"; mkdir -p "$_hub2"
-  _old="$_h2/.claude/projects/$(printf '%s' "$_hub2" | sed 's/[^a-zA-Z0-9]/-/g' | tr 'A-Z' 'a-z')/memory"
+  # mission control, and the old folder must survive: never delete what you cannot get back.
+  _h2=$(mktemp -d); _godspeed2="$_h2/godspeed"; mkdir -p "$_godspeed2"
+  _old="$_h2/.claude/projects/$(printf '%s' "$_godspeed2" | sed 's/[^a-zA-Z0-9]/-/g' | tr 'A-Z' 'a-z')/memory"
   mkdir -p "$_old"; printf 'learned before joining\n' > "$_old/older.md"
-  ( HOME="$_h2"; KB_ASSUME_TOOLS=claude kb_link_ai_memory "$_hub2" ) >/dev/null 2>&1
-  t "memories from before the join are carried in" "$(cat "$_hub2/observations/older.md" 2>/dev/null)" "learned before joining"
+  ( HOME="$_h2"; KB_ASSUME_TOOLS=claude kb_link_ai_memory "$_godspeed2" ) >/dev/null 2>&1
+  t "memories from before the join are carried in" "$(cat "$_godspeed2/observations/older.md" 2>/dev/null)" "learned before joining"
   t "the old folder is kept, not deleted"          "$(ls -d "$_old".replaced-* >/dev/null 2>&1 && echo yes)" "yes"
 
-  # THE ONE THAT LOOKS LIKE SUCCESS. A link left over from a hub at a different
+  # THE ONE THAT LOOKS LIKE SUCCESS. A link left over from a mission control at a different
   # path is still a link, so a check for "is it a link" reports everything fine
   # while the assistant writes into a folder nobody syncs any more.
-  _h3=$(mktemp -d); _hub3="$_h3/hub"; _stale="$_h3/somewhere-else"; mkdir -p "$_hub3" "$_stale"
-  _l3="$_h3/.claude/projects/$(printf '%s' "$_hub3" | sed 's/[^a-zA-Z0-9]/-/g' | tr 'A-Z' 'a-z')/memory"
+  _h3=$(mktemp -d); _godspeed3="$_h3/godspeed"; _stale="$_h3/somewhere-else"; mkdir -p "$_godspeed3" "$_stale"
+  _l3="$_h3/.claude/projects/$(printf '%s' "$_godspeed3" | sed 's/[^a-zA-Z0-9]/-/g' | tr 'A-Z' 'a-z')/memory"
   mkdir -p "$(dirname "$_l3")"; ln -sfn "$_stale" "$_l3"
-  ( HOME="$_h3"; KB_ASSUME_TOOLS=claude kb_link_ai_memory "$_hub3" ) >/dev/null 2>&1
-  t "a link pointing at the wrong hub is repaired" "$(cd "$_l3" && pwd -P)" "$(cd "$_hub3/observations" && pwd -P)"
+  ( HOME="$_h3"; KB_ASSUME_TOOLS=claude kb_link_ai_memory "$_godspeed3" ) >/dev/null 2>&1
+  t "a link pointing at the wrong mission control is repaired" "$(cd "$_l3" && pwd -P)" "$(cd "$_godspeed3/observations" && pwd -P)"
 
   rm -rf "$_h" "$_h2" "$_h3"
 else
@@ -297,7 +297,7 @@ t "no flag and no record means what every machine read before there was a choice
   "$(HOME="$_s" KB_ASSUME_TOOLS=claude,codex,cursor kb_enabled_sources)" "claude,codex"
 t "and never a tool this kit learned to copy later" \
   "$(HOME="$_s" KB_ASSUME_TOOLS=claude,opencode kb_enabled_sources)" "claude"
-mkdir -p "$_s/.hub"; printf 'HUB_PROMPT_SOURCES=claude\n' > "$_s/.hub/device.env"
+mkdir -p "$_s/.godspeed"; printf 'GODSPEED_PROMPT_SOURCES=claude\n' > "$_s/.godspeed/device.env"
 t "the choice recorded on the device wins over detection" \
   "$(HOME="$_s" KB_ASSUME_TOOLS=claude,codex kb_enabled_sources)" "claude"
 t "the flag this run wins over the record" \
@@ -308,105 +308,106 @@ t "dash is none, spelled so Windows can say it" \
   "$(HOME="$_s" KB_ASSUME_TOOLS=claude,codex KB_SYNC_SOURCES=- kb_enabled_sources)" ""
 
 # Recording the choice must replace, never stack, and never eat neighbours.
-_s2=$(mktemp -d); mkdir -p "$_s2/.hub"
-printf 'HUB_DIR=/somewhere\n' > "$_s2/.hub/device.env"
+_s2=$(mktemp -d); mkdir -p "$_s2/.godspeed"
+printf 'GODSPEED_DIR=/somewhere\n' > "$_s2/.godspeed/device.env"
 ( HOME="$_s2" kb_write_prompt_sources "claude,codex" ) >/dev/null 2>&1
 t "the choice is recorded on the device" \
-  "$(grep -c '^HUB_PROMPT_SOURCES=claude,codex$' "$_s2/.hub/device.env")" "1"
+  "$(grep -c '^GODSPEED_PROMPT_SOURCES=claude,codex$' "$_s2/.godspeed/device.env")" "1"
 ( HOME="$_s2" kb_write_prompt_sources "claude" ) >/dev/null 2>&1
 t "a new choice replaces the old one" \
-  "$(grep -c '^HUB_PROMPT_SOURCES=' "$_s2/.hub/device.env")" "1"
+  "$(grep -c '^GODSPEED_PROMPT_SOURCES=' "$_s2/.godspeed/device.env")" "1"
 t "and what else the file held survives" \
-  "$(grep -c '^HUB_DIR=/somewhere$' "$_s2/.hub/device.env")" "1"
+  "$(grep -c '^GODSPEED_DIR=/somewhere$' "$_s2/.godspeed/device.env")" "1"
 
 # The report is the disclosure. It must name each state in plain words.
 _rep="$(HOME="$_s2" KB_ASSUME_TOOLS=claude,codex,cursor KB_SYNC_SOURCES=claude kb_sync_report)"
 t "the report says what is copied"           "$(printf '%s' "$_rep" | grep -c 'Claude Code: its memory folder')" "1"
 t "the report says what was left off"        "$(printf '%s' "$_rep" | grep -c 'Not copied, because you left it off: Codex.')" "1"
 t "and how to switch it on"                  "$(printf '%s' "$_rep" | grep -c 'e.g. --sources claude,codex$')" "1"
-t "a tool it cannot copy is named as still working with the hub" \
-  "$(printf '%s' "$_rep" | grep -c 'Also on this machine: Cursor. You can open your hub folder in it')" "1"
+t "a tool it cannot copy is named as still working with the mission control" \
+  "$(printf '%s' "$_rep" | grep -c 'Also on this machine: Cursor. You can open your mission control folder in it')" "1"
 t "the old wording that read as 'does not work' is gone" \
   "$(printf '%s' "$_rep" | grep -c -i 'cannot sync\|not syncable\|format yet')" "0"
 t "several such tools are one sentence, in the plural" \
-  "$(KB_ASSUME_TOOLS=cursor,gemini KB_SYNC_SOURCES= kb_sync_report | grep -c 'Cursor, Gemini CLI. You can open your hub folder in them')" "1"
+  "$(KB_ASSUME_TOOLS=cursor,gemini KB_SYNC_SOURCES= kb_sync_report | grep -c 'Cursor, Gemini CLI. You can open your mission control folder in them')" "1"
 t "a machine copying nothing is told so" \
   "$(KB_ASSUME_TOOLS=- KB_SYNC_SOURCES= kb_sync_report | grep -c 'No conversations are copied')" "1"
 
-# A machine getting its FIRST hub copies nothing until its owner names tools, like the
-# Windows wizard whose boxes start unticked there. An update or a second hub beside the
-# first must never switch off what the machine already copies. setup-hub.sh reaches the
+# A machine getting its FIRST mission control copies nothing until its owner names tools, like the
+# Windows wizard whose boxes start unticked there. An update or a second mission control beside the
+# first must never switch off what the machine already copies. setup-godspeed.sh reaches the
 # network, so the rule is checked where it is written.
-_fresh="$(sed -n '/^if \[ "\$SOURCES_SET" -eq 0 \] && \[ "\$IS_NEW" -eq 1 \] && \[ "\$BESIDE" -eq 0 \]/,/^fi$/p' setup-hub.sh)"
-t "a first hub on a machine starts with nothing copied" \
-  "$(printf '%s' "$_fresh" | grep -c 'SOURCES=""\|HUB_PROMPT_SOURCES=')" "2"
+_fresh="$(sed -n '/^if \[ "\$SOURCES_SET" -eq 0 \] && \[ "\$IS_NEW" -eq 1 \] && \[ "\$BESIDE" -eq 0 \]/,/^fi$/p' setup-godspeed.sh)"
+t "a first mission control on a machine starts with nothing copied" \
+  "$(printf '%s' "$_fresh" | grep -c 'SOURCES=""\|GODSPEED_PROMPT_SOURCES=')" "2"
 t "and the rule sits before the choice is recorded" \
-  "$(awk '/"\$IS_NEW" -eq 1 \] && \[ "\$BESIDE" -eq 0 \]/{a=NR} /^  kb_write_prompt_sources "\$SOURCES"/{b=NR} END{print (a>0 && b>0 && a<b) ? "yes" : "no"}' setup-hub.sh)" "yes"
+  "$(awk '/"\$IS_NEW" -eq 1 \] && \[ "\$BESIDE" -eq 0 \]/{a=NR} /^  kb_write_prompt_sources "\$SOURCES"/{b=NR} END{print (a>0 && b>0 && a<b) ? "yes" : "no"}' setup-godspeed.sh)" "yes"
 
 # THE GATE ON THE MEMORY LINK. No Claude Code, no link, and above all no invented
 # ~/.claude folder on a machine that never had one.
-_g=$(mktemp -d); _ghub="$_g/hub"; mkdir -p "$_ghub"
-( HOME="$_g"; KB_ASSUME_TOOLS=- kb_link_ai_memory "$_ghub" ) >/dev/null 2>&1
+_g=$(mktemp -d); _ggodspeed="$_g/godspeed"; mkdir -p "$_ggodspeed"
+( HOME="$_g"; KB_ASSUME_TOOLS=- kb_link_ai_memory "$_ggodspeed" ) >/dev/null 2>&1
 t "no Claude Code means no invented ~/.claude" \
   "$([ -e "$_g/.claude" ] && echo yes || echo no)" "no"
-t "but the hub still gets its memory page" \
-  "$([ -s "$_ghub/observations/MEMORY.md" ] && echo yes)" "yes"
-_g2=$(mktemp -d); _ghub2="$_g2/hub"; mkdir -p "$_ghub2"
-( HOME="$_g2"; KB_ASSUME_TOOLS=claude KB_SYNC_SOURCES=codex kb_link_ai_memory "$_ghub2" ) >/dev/null 2>&1
+t "but the mission control still gets its memory page" \
+  "$([ -s "$_ggodspeed/observations/MEMORY.md" ] && echo yes)" "yes"
+_g2=$(mktemp -d); _ggodspeed2="$_g2/godspeed"; mkdir -p "$_ggodspeed2"
+( HOME="$_g2"; KB_ASSUME_TOOLS=claude KB_SYNC_SOURCES=codex kb_link_ai_memory "$_ggodspeed2" ) >/dev/null 2>&1
 t "Claude Code switched off means its folder is left alone" \
   "$([ -e "$_g2/.claude" ] && echo yes || echo no)" "no"
 rm -rf "$_s" "$_s2" "$_g" "$_g2"
 
-# FINDING A HUB THAT IS ALREADY INSTALLED, AND WIRING ITS COMMANDS.
-# Added 2026-08-09 after `hub map` on the work PC answered with a path from the
+# FINDING A GODSPEED THAT IS ALREADY INSTALLED, AND WIRING ITS COMMANDS.
+# Added 2026-08-09 after `mission control map` on the work PC answered with a path from the
 # rented server. Two holes: the tool did not know which copy it was reading, and
 # there was no `hub` command on that machine at all. This half is the second hole.
 
 _f=$(mktemp -d)
 _home0="${HOME:-}"
-mkdir -p "$_f/notahub" "$_f/hub/.git" "$_f/hub/memory" "$_f/hub/agents/hub-cli"
-t "a folder that is not a hub is refused"  "$(kb_hub_looks_real "$_f/notahub" && echo yes || echo no)" "no"
-t "a real hub is recognised"               "$(kb_hub_looks_real "$_f/hub" && echo yes || echo no)"     "yes"
-t "a folder that does not exist is refused" "$(kb_hub_looks_real "$_f/nope" && echo yes || echo no)"   "no"
-t "the hint is used when it is a real hub" "$(HOME="$_f" kb_find_hub "$_f/hub")" "$(cd "$_f/hub" && pwd -P)"
+mkdir -p "$_f/notagodspeed" "$_f/godspeed/.git" "$_f/godspeed/memory" "$_f/godspeed/agents/hub-cli"
+t "a folder that is not a mission control is refused"  "$(kb_godspeed_looks_real "$_f/notagodspeed" && echo yes || echo no)" "no"
+t "a real mission control is recognised"               "$(kb_godspeed_looks_real "$_f/godspeed" && echo yes || echo no)"     "yes"
+t "a folder that does not exist is refused" "$(kb_godspeed_looks_real "$_f/nope" && echo yes || echo no)"   "no"
+t "the hint is used when it is a real mission control" "$(HOME="$_f" kb_find_godspeed "$_f/godspeed")" "$(cd "$_f/godspeed" && pwd -P)"
 # A wrong hint must never be handed back as if it were right. It has to keep looking,
 # so the check is "did NOT return the bad path", not "returned nothing" - this machine
-# may well have a real hub at C:\hub for it to find instead, and that is a fine answer.
-_bad="$(HOME="$_f" HUB_DIR= HUB= kb_find_hub "$_f/notahub")"
-t "a hint that is not a hub is not trusted" "$([ "$_bad" = "$_f/notahub" ] && echo trusted || echo no)" "no"
+# may well have a real mission control at C:\godspeed for it to find instead, and that is a fine answer.
+_bad="$(HOME="$_f" GODSPEED_DIR= GODSPEED= kb_find_godspeed "$_f/notagodspeed")"
+t "a hint that is not a mission control is not trusted" "$([ "$_bad" = "$_f/notagodspeed" ] && echo trusted || echo no)" "no"
 
-# "Nothing found" only means anything on a machine that genuinely has no hub in any
+# "Nothing found" only means anything on a machine that genuinely has no mission control in any
 # of the usual homes. On Michael's own machines one is always there, so this case
 # skips itself rather than failing for the wrong reason.
 _empty=$(mktemp -d)
-if HOME="$_empty" HUB_DIR= HUB= kb_find_hub >/dev/null 2>&1; then
-  echo "  skip  the no-hub-anywhere case (this machine has a hub in a usual place)"
+if HOME="$_empty" GODSPEED_DIR= GODSPEED= kb_find_godspeed >/dev/null 2>&1; then
+  echo "  skip  the no-mc-anywhere case (this machine has a mission control in a usual place)"
 else
-  t "no hub anywhere fails, it does not guess" \
-    "$(HOME="$_empty" HUB_DIR= HUB= kb_find_hub || echo NOTFOUND)" "NOTFOUND"
+  t "no mission control anywhere fails, it does not guess" \
+    "$(HOME="$_empty" GODSPEED_DIR= GODSPEED= kb_find_godspeed || echo NOTFOUND)" "NOTFOUND"
 fi
 rm -rf "$_empty"
 
 # THE ONE THAT MATTERS. `hub memory search` is a wrapper that runs
 # `hub-memory-lookup` by bare name. Wiring only `hub` gives a command that exists
-# and then fails, which is worse than no command at all.
-printf '#!/bin/sh\necho hub\n'      > "$_f/hub/agents/hub-cli/hub"
-printf '#!/bin/sh\necho lookup\n'   > "$_f/hub/agents/hub-cli/hub-memory-lookup"
-printf 'MODEL=x\n'                  > "$_f/hub/agents/hub-cli/models.env"
-( HOME="$_f" kb_install_hub_cli "$_f/hub" ) >/dev/null 2>&1
-t "the hub command is wired"          "$([ -e "$_f/.local/bin/hub" ] && echo yes)"               "yes"
+# and then fails, which is worse than no command at all. This dispatcher belongs to
+# Michael's own engine; a reader's mission control ships none of it.
+printf '#!/bin/sh\necho hub\n'      > "$_f/godspeed/agents/hub-cli/hub"
+printf '#!/bin/sh\necho lookup\n'   > "$_f/godspeed/agents/hub-cli/hub-memory-lookup"
+printf 'MODEL=x\n'                  > "$_f/godspeed/agents/hub-cli/models.env"
+( HOME="$_f" kb_install_godspeed_cli "$_f/godspeed" ) >/dev/null 2>&1
+t "the dispatcher command is wired  "          "$([ -e "$_f/.local/bin/hub" ] && echo yes)"               "yes"
 t "the sibling tools are wired too"   "$([ -e "$_f/.local/bin/hub-memory-lookup" ] && echo yes)" "yes"
 t "a config file is not wired as a command" "$([ -e "$_f/.local/bin/models.env" ] && echo yes || echo no)" "no"
-# A hub with no tools is every reader's hub. It must not warn or half-wire.
+# A mission control with no tools is every reader's mission control. It must not warn or half-wire.
 mkdir -p "$_f/bare/.git" "$_f/bare/memory"
-( HOME="$_f" kb_install_hub_cli "$_f/bare" ) >/dev/null 2>&1
-t "a hub that ships no tools stays quiet" "$(HOME="$_f" kb_install_hub_cli "$_f/bare" 2>&1)" ""
+( HOME="$_f" kb_install_godspeed_cli "$_f/bare" ) >/dev/null 2>&1
+t "a mission control that ships no tools stays quiet" "$(HOME="$_f" kb_install_godspeed_cli "$_f/bare" 2>&1)" ""
 # Not a git folder: say so and carry on, never abort the whole install.
 t "updating a non-git folder is not fatal" \
-  "$(HOME="$_f" kb_update_hub "$_f/notahub" >/dev/null 2>&1; echo $?)" "0"
+  "$(HOME="$_f" kb_update_godspeed "$_f/notagodspeed" >/dev/null 2>&1; echo $?)" "0"
 
 # --- THE DAILY JOB THAT FILES WHAT YOU TYPE TO AN AI -------------------------
-# Added 2026-08-10. The hub keeps a drawer of everything its owner has typed to an
+# Added 2026-08-10. The mission control keeps a drawer of everything its owner has typed to an
 # assistant, and filling it needs a job on each machine. Nothing installed that job:
 # one computer had one because somebody typed it into that computer's schedule by
 # hand, and every other computer quietly kept nothing. These are the bash twins of
@@ -424,22 +425,22 @@ FAKE
 chmod +x "$_f/fakecrontab"
 export PATH="$_f:$PATH"
 
-# A hub that ships no harvester is every reader's hub. Nothing to schedule, nothing said.
-t "a hub with no harvester stays quiet" \
+# A mission control that ships no harvester is every reader's mission control. Nothing to schedule, nothing said.
+t "a mission control with no harvester stays quiet" \
   "$(HOME="$_f" KB_CRONTAB="$_f/fakecrontab" kb_install_prompt_harvest "$_f/bare" 2>&1)" ""
 t "and it schedules nothing" "$([ -s "$_cronfile" ] && echo yes || echo no)" "no"
 
-mkdir -p "$_f/hub/bin"
-printf 'console.log(1)\n' > "$_f/hub/bin/prompt-harvest.js"
-( HOME="$_f" KB_CRONTAB="$_f/fakecrontab" kb_install_prompt_harvest "$_f/hub" ) >/dev/null 2>&1
-t "a hub with a harvester gets a daily job" \
+mkdir -p "$_f/godspeed/bin"
+printf 'console.log(1)\n' > "$_f/godspeed/bin/prompt-harvest.js"
+( HOME="$_f" KB_CRONTAB="$_f/fakecrontab" kb_install_prompt_harvest "$_f/godspeed" ) >/dev/null 2>&1
+t "a mission control with a harvester gets a daily job" \
   "$(grep -c 'prompt-harvest.js' "$_cronfile")" "1"
 t "the job is told not to work twice in one day" \
   "$(grep -c ' --once-a-day' "$_cronfile")" "1"
 
 # Running the installer again is a normal thing to do. It must not stack up jobs.
 printf 'BEFORE=keep\n' >> "$_cronfile"
-( HOME="$_f" KB_CRONTAB="$_f/fakecrontab" kb_install_prompt_harvest "$_f/hub" ) >/dev/null 2>&1
+( HOME="$_f" KB_CRONTAB="$_f/fakecrontab" kb_install_prompt_harvest "$_f/godspeed" ) >/dev/null 2>&1
 t "a second run does not add a second job" \
   "$(grep -c 'prompt-harvest.js' "$_cronfile")" "1"
 t "and it keeps what was already in the schedule" \
@@ -447,40 +448,40 @@ t "and it keeps what was already in the schedule" \
 
 # A machine already carrying the server's hand-written line is already covered, whatever
 # shape that line has. Recognise it instead of writing a second one beside it.
-printf '20 4 * * * /root/hub/routines/prompt-harvest.sh\n' > "$_cronfile"
-( HOME="$_f" KB_CRONTAB="$_f/fakecrontab" kb_install_prompt_harvest "$_f/hub" ) >/dev/null 2>&1
+printf '20 4 * * * /root/godspeed/routines/prompt-harvest.sh\n' > "$_cronfile"
+( HOME="$_f" KB_CRONTAB="$_f/fakecrontab" kb_install_prompt_harvest "$_f/godspeed" ) >/dev/null 2>&1
 t "an existing hand-written job is left alone" "$(wc -l < "$_cronfile" | tr -d ' ')" "1"
 
-# A job written for a hub that has since moved names a folder that is gone. It is
+# A job written for a mission control that has since moved names a folder that is gone. It is
 # re-pointed, not kept beside a second one (D-179, 2026-09-02). The runner form carries
-# no folder at all, so only the hub's-own-copy form can go stale.
+# no folder at all, so only the mission control's-own-copy form can go stale.
 mkdir -p "$_f/elsewhere/bin"; printf 'console.log(1)\n' > "$_f/elsewhere/bin/prompt-harvest.js"
-printf '17 * * * * "/usr/bin/node" "%s/hub/bin/prompt-harvest.js" --once-a-day\n' "$_f" > "$_cronfile"
+printf '17 * * * * "/usr/bin/node" "%s/godspeed/bin/prompt-harvest.js" --once-a-day\n' "$_f" > "$_cronfile"
 ( HOME="$_f" KB_CRONTAB="$_f/fakecrontab" kb_install_prompt_harvest "$_f/elsewhere" ) >/dev/null 2>&1
-t "a job for a hub that moved is re-pointed at this hub" "$(grep -c "$_f/elsewhere/bin/prompt-harvest.js" "$_cronfile")" "1"
-t "and the old line is gone, not kept beside it"        "$(grep -c "$_f/hub/bin/prompt-harvest.js" "$_cronfile")" "0"
-# device.env is how the daily jobs find the hub, so a re-run corrects it too.
-mkdir -p "$_f/.hub"
-printf 'HUB_DIR=%s/hub\nHUB_PROMPT_SOURCES=claude\n' "$_f" > "$_f/.hub/device.env"
-( HOME="$_f" kb_record_hub_dir "$_f/elsewhere" ) >/dev/null 2>&1
-t "device.env is re-pointed when HUB_DIR names another folder" "$(sed -n 's/^HUB_DIR=//p' "$_f/.hub/device.env")" "$_f/elsewhere"
-t "and the other lines in it are kept"                         "$(grep -c '^HUB_PROMPT_SOURCES=claude' "$_f/.hub/device.env")" "1"
-( HOME="$_f" kb_record_hub_dir "$_f/elsewhere" ) >/dev/null 2>&1
-t "a second run with the same hub changes nothing"            "$(grep -c '^HUB_DIR=' "$_f/.hub/device.env")" "1"
+t "a job for a mission control that moved is re-pointed at this mission control" "$(grep -c "$_f/elsewhere/bin/prompt-harvest.js" "$_cronfile")" "1"
+t "and the old line is gone, not kept beside it"        "$(grep -c "$_f/godspeed/bin/prompt-harvest.js" "$_cronfile")" "0"
+# device.env is how the daily jobs find the mission control, so a re-run corrects it too.
+mkdir -p "$_f/.godspeed"
+printf 'GODSPEED_DIR=%s/godspeed\nGODSPEED_PROMPT_SOURCES=claude\n' "$_f" > "$_f/.godspeed/device.env"
+( HOME="$_f" kb_record_godspeed_dir "$_f/elsewhere" ) >/dev/null 2>&1
+t "device.env is re-pointed when GODSPEED_DIR names another folder" "$(sed -n 's/^GODSPEED_DIR=//p' "$_f/.godspeed/device.env")" "$_f/elsewhere"
+t "and the other lines in it are kept"                         "$(grep -c '^GODSPEED_PROMPT_SOURCES=claude' "$_f/.godspeed/device.env")" "1"
+( HOME="$_f" kb_record_godspeed_dir "$_f/elsewhere" ) >/dev/null 2>&1
+t "a second run with the same mission control changes nothing"            "$(grep -c '^GODSPEED_DIR=' "$_f/.godspeed/device.env")" "1"
 
 # --- THE PROGRAMS THEMSELVES, INSTALLED ON THE MACHINE -----------------------
-# Added 2026-08-10. The collector used to exist in exactly one person's own hub, so the
+# Added 2026-08-10. The collector used to exist in exactly one person's own mission control, so the
 # program the book promises its readers ("a program fills it") was nowhere they could get
-# it. It lives in the kit now and is installed ON THE MACHINE, never copied into the hub
-# folder, because Chapter 4 promises the hub is a folder of text files and that nothing in
+# it. It lives in the kit now and is installed ON THE MACHINE, never copied into the mission control
+# folder, because Chapter 4 promises the mission control is a folder of text files and that nothing in
 # it needs a terminal. These are the bash twins of the cases in windows/test-windows.ps1.
 # When you change one side, change both.
-_kit="$_f/kit"; mkdir -p "$_kit/tools" "$_f/hub2/memory"
+_kit="$_f/kit"; mkdir -p "$_kit/tools" "$_f/godspeed2/memory"
 printf 'console.log(1)\n'                    > "$_kit/tools/prompt-harvest.js"
 printf 'console.log(1)\n'                    > "$_kit/tools/compile-rules.js"
-printf '#!/usr/bin/env python3\nprint(1)\n'  > "$_kit/tools/hub-prompt-archive"
-printf '#!/bin/sh\nexit 0\n'                 > "$_kit/tools/hub-notebook-sync"
-printf '#!/bin/sh\nexit 0\n'                 > "$_kit/tools/hub-notebook-env"
+printf '#!/usr/bin/env python3\nprint(1)\n'  > "$_kit/tools/mc-prompt-archive"
+printf '#!/bin/sh\nexit 0\n'                 > "$_kit/tools/mc-notebook-sync"
+printf '#!/bin/sh\nexit 0\n'                 > "$_kit/tools/mc-notebook-env"
 printf '# not a program\n'                   > "$_kit/tools/README.md"
 git -C "$_kit" init -q >/dev/null 2>&1
 git -C "$_kit" add -A >/dev/null 2>&1
@@ -488,83 +489,83 @@ git -C "$_kit" -c user.email=t@t -c user.name=t commit -qm tools >/dev/null 2>&1
 
 # No kit named: nothing to fetch, nothing said. That is every other product using this file.
 t "no kit named means nothing installed and nothing said" \
-  "$(HOME="$_f" kb_install_hub_tools "$_f/hub2" "" 2>&1)" ""
+  "$(HOME="$_f" kb_install_godspeed_tools "$_f/godspeed2" "" 2>&1)" ""
 
-( HOME="$_f" kb_install_hub_tools "$_f/hub2" "$_kit" ) >/dev/null 2>&1
+( HOME="$_f" kb_install_godspeed_tools "$_f/godspeed2" "$_kit" ) >/dev/null 2>&1
 t "the collector is installed on the machine" \
-  "$([ -f "$_f/.local/bin/hub-prompt-archive" ] && echo yes || echo no)" "yes"
+  "$([ -f "$_f/.local/bin/mc-prompt-archive" ] && echo yes || echo no)" "yes"
 t "the runner is installed beside it, which is how it finds it" \
   "$([ -f "$_f/.local/bin/prompt-harvest.js" ] && echo yes || echo no)" "yes"
 t "there is one command that starts it" \
-  "$([ -x "$_f/.local/bin/hub-prompt-harvest" ] && echo yes || echo no)" "yes"
+  "$([ -x "$_f/.local/bin/mc-prompt-harvest" ] && echo yes || echo no)" "yes"
 # The rules compiler is the one program in here a reader types by hand, and until
-# 2026-08-21 it was Python and the book named a path inside the hub that nobody has.
+# 2026-08-21 it was Python and the book named a path inside the mission control that nobody has.
 t "the rules compiler is installed on the machine" \
   "$([ -f "$_f/.local/bin/compile-rules.js" ] && echo yes || echo no)" "yes"
 t "and there is one command that runs it, which is what the book prints" \
-  "$([ -x "$_f/.local/bin/hub-compile-rules" ] && echo yes || echo no)" "yes"
+  "$([ -x "$_f/.local/bin/mc-compile-rules" ] && echo yes || echo no)" "yes"
 t "a README is not installed as a program" \
   "$([ -e "$_f/.local/bin/README.md" ] && echo yes || echo no)" "no"
-# The notebook step further down schedules ~/.local/bin/hub-notebook-sync and silently
+# The notebook step further down schedules ~/.local/bin/mc-notebook-sync and silently
 # does nothing when it is missing, so THIS function is what decides whether a reader's
 # notebook ever updates itself.
 t "the notebook runner is installed on the machine with them" \
-  "$([ -f "$_f/.local/bin/hub-notebook-sync" ] && echo yes || echo no)" "yes"
+  "$([ -f "$_f/.local/bin/mc-notebook-sync" ] && echo yes || echo no)" "yes"
 t "and the credential helper it needs is beside it" \
-  "$([ -f "$_f/.local/bin/hub-notebook-env" ] && echo yes || echo no)" "yes"
+  "$([ -f "$_f/.local/bin/mc-notebook-env" ] && echo yes || echo no)" "yes"
 
-# THE ONE THAT MATTERS. Chapter 4 promises the hub is a folder of text files. A Node program
+# THE ONE THAT MATTERS. Chapter 4 promises the mission control is a folder of text files. A Node program
 # and a Python program appearing in it would be the first two things in there that are not.
-# A hub of its own, because the scheduling cases above deliberately put a harvester in $_f/hub.
-t "nothing was put inside the hub folder" \
-  "$(find "$_f/hub2" \( -name 'hub-prompt-archive' -o -name 'prompt-harvest.js' \) 2>/dev/null | grep -c .)" "0"
+# A mission control of its own, because the scheduling cases above deliberately put a harvester in $_f/godspeed.
+t "nothing was put inside the mission control folder" \
+  "$(find "$_f/godspeed2" \( -name 'mc-prompt-archive' -o -name 'prompt-harvest.js' \) 2>/dev/null | grep -c .)" "0"
 
-# A job started by the schedule gets almost no environment, so where the hub is must be
+# A job started by the schedule gets almost no environment, so where the mission control is must be
 # written down rather than guessed at.
-t "where the hub is was written down for the scheduled job" \
-  "$(grep -c "^HUB_DIR=" "$_f/.hub/device.env" 2>/dev/null)" "1"
+t "where the mission control is was written down for the scheduled job" \
+  "$(grep -c "^GODSPEED_DIR=" "$_f/.godspeed/device.env" 2>/dev/null)" "1"
 t "and a second run does not write it twice" \
-  "$(HOME="$_f" kb_install_hub_tools "$_f/hub2" "$_kit" >/dev/null 2>&1; grep -c '^HUB_DIR=' "$_f/.hub/device.env")" "1"
+  "$(HOME="$_f" kb_install_godspeed_tools "$_f/godspeed2" "$_kit" >/dev/null 2>&1; grep -c '^GODSPEED_DIR=' "$_f/.godspeed/device.env")" "1"
 
 # A JOIN names no kit (join.sh passes only KB_TOOLS_REPO, which is usually unset), so
 # the kit the tools came from is written down at install time and read back when the
 # argument is empty. Without this, a joined machine never got the runner, and the
 # notebook step found nothing to schedule.
 t "the kit the tools came from was written down beside it" \
-  "$(grep -c '^HUB_TOOLS_REPO=' "$_f/.hub/device.env" 2>/dev/null)" "1"
-rm -f "$_f/.local/bin/hub-notebook-sync"
-( HOME="$_f" kb_install_hub_tools "$_f/hub2" "" ) >/dev/null 2>&1
+  "$(grep -c '^GODSPEED_TOOLS_REPO=' "$_f/.godspeed/device.env" 2>/dev/null)" "1"
+rm -f "$_f/.local/bin/mc-notebook-sync"
+( HOME="$_f" kb_install_godspeed_tools "$_f/godspeed2" "" ) >/dev/null 2>&1
 t "a later run that names no kit refreshes from the one written down" \
-  "$([ -f "$_f/.local/bin/hub-notebook-sync" ] && echo yes || echo no)" "yes"
+  "$([ -f "$_f/.local/bin/mc-notebook-sync" ] && echo yes || echo no)" "yes"
 
-# THE ONE THAT BIT US ON THE FIRST LIVE RUN. kb_install_hub_cli puts SYMLINKS in this same
-# folder, pointing back into the hub. `cp` over a symlink writes THROUGH it, so installing a
-# program whose name matches one of those links overwrote a file inside the hub itself, and
+# THE ONE THAT BIT US ON THE FIRST LIVE RUN. kb_install_godspeed_cli puts SYMLINKS in this same
+# folder, pointing back into the mission control. `cp` over a symlink writes THROUGH it, so installing a
+# program whose name matches one of those links overwrote a file inside the mission control itself, and
 # the only sign was a git folder that had changed on its own. Both suites had passed, because
 # neither had ever put a link in the way first.
-printf 'the hub owns this file\n' > "$_f/hub2/decoy"
-rm -f "$_f/.local/bin/hub-prompt-archive"
-ln -s "$_f/hub2/decoy" "$_f/.local/bin/hub-prompt-archive" 2>/dev/null
-if [ -L "$_f/.local/bin/hub-prompt-archive" ]; then
-  ( HOME="$_f" kb_install_hub_tools "$_f/hub2" "$_kit" ) >/dev/null 2>&1
+printf 'the mission control owns this file\n' > "$_f/godspeed2/decoy"
+rm -f "$_f/.local/bin/mc-prompt-archive"
+ln -s "$_f/godspeed2/decoy" "$_f/.local/bin/mc-prompt-archive" 2>/dev/null
+if [ -L "$_f/.local/bin/mc-prompt-archive" ]; then
+  ( HOME="$_f" kb_install_godspeed_tools "$_f/godspeed2" "$_kit" ) >/dev/null 2>&1
   t "a link in the way is replaced, never written through" \
-    "$(cat "$_f/hub2/decoy")" "the hub owns this file"
+    "$(cat "$_f/godspeed2/decoy")" "the mission control owns this file"
 else
   # Loud, not silent. Git Bash on Windows makes a copy instead of a link unless it is told
   # otherwise, so this case cannot run here and must SAY it did not. A skip that reads like
   # a pass is the jq lesson further up this file, and this is exactly the case that lets a
-  # real bug through: the live run that overwrote a hub file happened on Linux.
+  # real bug through: the live run that overwrote a mission control file happened on Linux.
   printf '  skip  the symlink case (this shell cannot make one: run this suite on Linux too)\n'
 fi
 
-# With the programs on the machine, the schedule must run THOSE, not a copy inside a hub.
+# With the programs on the machine, the schedule must run THOSE, not a copy inside a mission control.
 : > "$_cronfile"
-( HOME="$_f" KB_CRONTAB="$_f/fakecrontab" kb_install_prompt_harvest "$_f/hub2" ) >/dev/null 2>&1
-t "the schedule runs the installed program, not one inside the hub" \
-  "$(grep -c 'hub-prompt-harvest' "$_cronfile")" "1"
+( HOME="$_f" KB_CRONTAB="$_f/fakecrontab" kb_install_prompt_harvest "$_f/godspeed2" ) >/dev/null 2>&1
+t "the schedule runs the installed program, not one inside the mission control" \
+  "$(grep -c 'mc-prompt-harvest' "$_cronfile")" "1"
 
 # --- THE CREATE PATH ---------------------------------------------------------
-# Added 2026-08-09 (D-105). For one day Windows could make a hub from nothing and
+# Added 2026-08-09 (D-105). For one day Windows could make a mission control from nothing and
 # this side could not, so a Mac reader on a fresh machine got an error while a
 # Windows reader got a finished setup. These are the bash twins of the cases in
 # windows/test-windows.ps1. When you change one side, change both.
@@ -573,78 +574,78 @@ t "the schedule runs the installed program, not one inside the hub" \
 # git repo made on the spot, which tests the same code path a real one would.
 _c="$(mktemp -d)"
 _starter="$_c/product"
-mkdir -p "$_starter/starter-hub/context" "$_starter/starter-hub/skills"
-printf '# the real one\n' > "$_starter/starter-hub/AGENTS.md"
-printf 'about\n'          > "$_starter/starter-hub/context/about-me.md"
-printf 'plan\n'           > "$_starter/starter-hub/skills/plan-my-day.md"
+mkdir -p "$_starter/starter-godspeed/context" "$_starter/starter-godspeed/skills"
+printf '# the real one\n' > "$_starter/starter-godspeed/AGENTS.md"
+printf 'about\n'          > "$_starter/starter-godspeed/context/about-me.md"
+printf 'plan\n'           > "$_starter/starter-godspeed/skills/plan-my-day.md"
 ( cd "$_starter" && git init -q . && git add -A && \
   git -c user.email=t@t -c user.name=t commit -q -m starter ) >/dev/null 2>&1
 
-( HOME="$_c" kb_new_hub "$_c/made" "" "$_starter" ) >/dev/null 2>&1
-t "a new hub gets the product starter files" \
+( HOME="$_c" kb_new_godspeed "$_c/made" "" "$_starter" ) >/dev/null 2>&1
+t "a new mission control gets the product starter files" \
   "$([ -f "$_c/made/profile/about-me.md" ] && [ -f "$_c/made/skills/plan-my-day.md" ] && echo yes)" "yes"
 t "the starter's own AGENTS.md is used, never an invented one" \
   "$(head -1 "$_c/made/AGENTS.md" 2>/dev/null)" "# the real one"
-t "a new hub is a real hub afterwards" \
-  "$(kb_hub_looks_real "$_c/made" && echo yes)" "yes"
+t "a new mission control is a real mission control afterwards" \
+  "$(kb_godspeed_looks_real "$_c/made" && echo yes)" "yes"
 
 # Running it twice must not tread on a sentence they have written about themselves.
 printf '# mine, edited\n' > "$_c/made/AGENTS.md"
-( HOME="$_c" kb_new_hub "$_c/made" "" "$_starter" ) >/dev/null 2>&1
+( HOME="$_c" kb_new_godspeed "$_c/made" "" "$_starter" ) >/dev/null 2>&1
 t "a second run keeps what they have written" \
   "$(head -1 "$_c/made/AGENTS.md")" "# mine, edited"
 
 # The product ships its own memory page; a blank one must not replace it.
-mkdir -p "$_starter/starter-hub/observations"
-printf '# The page the product wrote\n' > "$_starter/starter-hub/observations/MEMORY.md"
+mkdir -p "$_starter/starter-godspeed/observations"
+printf '# The page the product wrote\n' > "$_starter/starter-godspeed/observations/MEMORY.md"
 ( cd "$_starter" && git add -A && git -c user.email=t@t -c user.name=t commit -q -m mem ) >/dev/null 2>&1
-( HOME="$_c" kb_new_hub "$_c/kept" "" "$_starter" ) >/dev/null 2>&1
+( HOME="$_c" kb_new_godspeed "$_c/kept" "" "$_starter" ) >/dev/null 2>&1
 t "the starter's memory page survives" \
   "$(head -1 "$_c/kept/observations/MEMORY.md" 2>/dev/null)" "# The page the product wrote"
 
-# The recipes the starter ships (next-action and work-item since 2026-09-15) reach every hub:
+# The recipes the starter ships (next-action and work-item since 2026-09-15) reach every mission control:
 # a new one whole, and one made before they shipped by a top-up into its skills room, which
 # never touches a recipe folder the reader already has. Twins in windows/test-windows.ps1.
-mkdir -p "$_starter/starter-hub/skills/next-action"
-printf -- '---\nname: next-action\n---\nthe recipe\n' > "$_starter/starter-hub/skills/next-action/SKILL.md"
+mkdir -p "$_starter/starter-godspeed/skills/next-action"
+printf -- '---\nname: next-action\n---\nthe recipe\n' > "$_starter/starter-godspeed/skills/next-action/SKILL.md"
 ( cd "$_starter" && git add -A && git -c user.email=t@t -c user.name=t commit -q -m recipe ) >/dev/null 2>&1
-( HOME="$_c" kb_new_hub "$_c/withrecipe" "" "$_starter" ) >/dev/null 2>&1
-t "a new hub has the recipe the starter ships" \
+( HOME="$_c" kb_new_godspeed "$_c/withrecipe" "" "$_starter" ) >/dev/null 2>&1
+t "a new mission control has the recipe the starter ships" \
   "$(tail -1 "$_c/withrecipe/skills/next-action/SKILL.md" 2>/dev/null)" "the recipe"
-( HOME="$_c" kb_copy_starter_hub "$_c/made" "$_starter" ) >/dev/null 2>&1
-t "a hub made before the recipe shipped gets it on the next run" \
+( HOME="$_c" kb_copy_starter_godspeed "$_c/made" "$_starter" ) >/dev/null 2>&1
+t "a mission control made before the recipe shipped gets it on the next run" \
   "$(tail -1 "$_c/made/skills/next-action/SKILL.md" 2>/dev/null)" "the recipe"
 printf 'my own version\n' > "$_c/made/skills/next-action/SKILL.md"
-( HOME="$_c" kb_copy_starter_hub "$_c/made" "$_starter" ) >/dev/null 2>&1
+( HOME="$_c" kb_copy_starter_godspeed "$_c/made" "$_starter" ) >/dev/null 2>&1
 t "a recipe the reader has edited is never overwritten" \
   "$(cat "$_c/made/skills/next-action/SKILL.md")" "my own version"
 
 # =============================================================================
-# --- WHERE A HUB MAY GO (D-179, 2026-09-02) ----------------------------------
+# --- WHERE A GODSPEED MAY GO (D-179, 2026-09-02) ----------------------------------
 # The default is the top of the home folder on every OS, and the folders a cloud drive
 # syncs are refused with a sentence, because a synced git folder is the one thing that
-# corrupts a hub. Twins of the cases in windows/test-windows.ps1. Change both.
+# corrupts a mission control. Twins of the cases in windows/test-windows.ps1. Change both.
 _w="$(mktemp -d)"
 mkdir -p "$_w/Documents" "$_w/Desktop" "$_w/Pictures" "$_w/Documents-old" \
          "$_w/Library/CloudStorage/OneDrive-Personal"
-_r()  { HOME="$_w" OneDrive="" kb_refuse_hub_path "$1"; }
+_r()  { HOME="$_w" OneDrive="" kb_refuse_godspeed_path "$1"; }
 _v()  { case "$(_r "$1")" in *"synced by a cloud drive"*) echo refused ;; "") echo allowed ;; *) echo other ;; esac; }
-t "the default is the top of the home folder"         "$(HOME="$_w" kb_default_hub_dir)"  "$_w/hub"
-t "the home folder itself is allowed"                  "$(_v "$_w/hub")"                    "allowed"
-t "a tilde means the home folder too"                  "$(_v "~/hub")"                      "allowed"
-t "Documents is refused"                               "$(_v "$_w/Documents/hub")"          "refused"
-t "Desktop is refused"                                 "$(_v "$_w/Desktop/hub")"            "refused"
-t "Pictures is refused"                                "$(_v "$_w/Pictures/hub")"           "refused"
-t "deeper inside Documents is still refused"           "$(_v "$_w/Documents/work/hub")"     "refused"
-t "a Mac cloud drive folder is refused"                "$(_v "$_w/Library/CloudStorage/OneDrive-Personal/hub")" "refused"
-t "a folder merely named like one is allowed"          "$(_v "$_w/Documents-old/hub")"      "allowed"
-t "the refusal names the right place to go"            "$(case "$(_r "$_w/Documents/hub")" in *"$_w/hub"*) echo yes ;; esac)" "yes"
-t "the root of the disk is refused on this side"       "$(case "$(_r /hub)" in *"root of the disk"*) echo refused ;; esac)" "refused"
-t "a deeper system folder is an admin's business"      "$(_r /srv/hub)"                     ""
+t "the default is the top of the home folder"         "$(HOME="$_w" kb_default_godspeed_dir)"  "$_w/godspeed"
+t "the home folder itself is allowed"                  "$(_v "$_w/godspeed")"                    "allowed"
+t "a tilde means the home folder too"                  "$(_v "~/godspeed")"                      "allowed"
+t "Documents is refused"                               "$(_v "$_w/Documents/godspeed")"          "refused"
+t "Desktop is refused"                                 "$(_v "$_w/Desktop/godspeed")"            "refused"
+t "Pictures is refused"                                "$(_v "$_w/Pictures/godspeed")"           "refused"
+t "deeper inside Documents is still refused"           "$(_v "$_w/Documents/work/godspeed")"     "refused"
+t "a Mac cloud drive folder is refused"                "$(_v "$_w/Library/CloudStorage/OneDrive-Personal/godspeed")" "refused"
+t "a folder merely named like one is allowed"          "$(_v "$_w/Documents-old/godspeed")"      "allowed"
+t "the refusal names the right place to go"            "$(case "$(_r "$_w/Documents/godspeed")" in *"$_w/godspeed"*) echo yes ;; esac)" "yes"
+t "the root of the disk is refused on this side"       "$(case "$(_r /godspeed)" in *"root of the disk"*) echo refused ;; esac)" "refused"
+t "a deeper system folder is an admin's business"      "$(_r /srv/godspeed)"                     ""
 # Git Bash copies on ln -s unless MSYS=winsymlinks is set, so the case runs only where a
 # real link came out of it (every Linux and every Mac).
 if ln -s "$_w/Documents" "$_w/docs-link" 2>/dev/null && [ -L "$_w/docs-link" ]; then
-  t "a link into Documents is judged by where it lands" "$(_v "$_w/docs-link/hub")"          "refused"
+  t "a link into Documents is judged by where it lands" "$(_v "$_w/docs-link/godspeed")"          "refused"
 fi
 t "an empty path is refused with a sentence"           "$(case "$(_r "")" in *"needs a folder path"*) echo refused ;; esac)" "refused"
 
@@ -655,7 +656,7 @@ t "an empty path is refused with a sentence"           "$(case "$(_r "")" in *"n
 # file is read, which is the question that decides everything. A reader who installed before
 # the change has the old names, and each case below is a way the rename could lose their work.
 
-_m=$(mktemp -d); _mh="$_m/hub"; mkdir -p "$_mh/context" "$_mh/memory"
+_m=$(mktemp -d); _mh="$_m/godspeed"; mkdir -p "$_mh/context" "$_mh/memory"
 printf 'who I am\n' > "$_mh/context/about-me.md"
 printf 'a fact\n'   > "$_mh/memory/thing.md"
 kb_migrate_folder_names "$_mh" >/dev/null 2>&1
@@ -671,49 +672,49 @@ t "running the rename again changes nothing" "$(cat "$_mh/profile/about-me.md" 2
 
 # BOTH names present is the case that could silently merge two folders into one and lose
 # whichever file lost the collision. It must refuse and leave both.
-_m2=$(mktemp -d); _mh2="$_m2/hub"; mkdir -p "$_mh2/context" "$_mh2/profile"
+_m2=$(mktemp -d); _mh2="$_m2/godspeed"; mkdir -p "$_mh2/context" "$_mh2/profile"
 printf 'old\n' > "$_mh2/context/x.md"; printf 'new\n' > "$_mh2/profile/y.md"
 kb_migrate_folder_names "$_mh2" >/dev/null 2>&1
 t "both folders present means both are left alone" \
   "$([ -f "$_mh2/context/x.md" ] && [ -f "$_mh2/profile/y.md" ] && echo yes)" "yes"
 
-# A hub that never had the old names must not grow them back.
-_m3=$(mktemp -d); _mh3="$_m3/hub"; mkdir -p "$_mh3/profile" "$_mh3/observations"
+# A mission control that never had the old names must not grow them back.
+_m3=$(mktemp -d); _mh3="$_m3/godspeed"; mkdir -p "$_mh3/profile" "$_mh3/observations"
 kb_migrate_folder_names "$_mh3" >/dev/null 2>&1
-t "a hub already renamed is untouched" \
+t "a mission control already renamed is untouched" \
   "$({ [ -d "$_mh3/context" ] || [ -d "$_mh3/memory" ]; } && echo yes || echo no)" "no"
 
-# A hub from before the rename is still a hub, or discovery stops finding it and the
+# A mission control from before the rename is still a mission control, or discovery stops finding it and the
 # installer offers to build a second one beside it.
-_m4=$(mktemp -d); mkdir -p "$_m4/oldhub/memory" "$_m4/oldhub/.git"
-t "a pre-rename hub is still recognised as one" "$(kb_hub_looks_real "$_m4/oldhub" && echo yes)" "yes"
+_m4=$(mktemp -d); mkdir -p "$_m4/oldgodspeed/memory" "$_m4/oldgodspeed/.git"
+t "a pre-rename mission control is still recognised as one" "$(kb_godspeed_looks_real "$_m4/oldgodspeed" && echo yes)" "yes"
 rm -rf "$_m" "$_m2" "$_m3" "$_m4"
 
-# A folder with somebody's holiday photos in it is not a hub and must be refused.
+# A folder with somebody's holiday photos in it is not a mission control and must be refused.
 mkdir -p "$_c/occupied"; printf 'x\n' > "$_c/occupied/holiday.jpg"
 t "a folder with other files in it is refused" \
-  "$(HOME="$_c" kb_new_hub "$_c/occupied" "" "$_starter" >/dev/null 2>&1; echo $?)" "1"
+  "$(HOME="$_c" kb_new_godspeed "$_c/occupied" "" "$_starter" >/dev/null 2>&1; echo $?)" "1"
 
-# An unreachable starter still leaves a working hub, and says so.
-( HOME="$_c" kb_new_hub "$_c/nostarter" "" "$_c/does-not-exist" ) >/dev/null 2>&1
-t "an unreachable starter still leaves a usable hub" \
-  "$(kb_hub_looks_real "$_c/nostarter" && echo yes)" "yes"
+# An unreachable starter still leaves a working mission control, and says so.
+( HOME="$_c" kb_new_godspeed "$_c/nostarter" "" "$_c/does-not-exist" ) >/dev/null 2>&1
+t "an unreachable starter still leaves a usable mission control" \
+  "$(kb_godspeed_looks_real "$_c/nostarter" && echo yes)" "yes"
 t "and it warns rather than pretending it worked" \
-  "$(HOME="$_c" kb_new_hub "$_c/nostarter2" "" "$_c/does-not-exist" 2>&1 | grep -c 'does NOT have the files')" "1"
+  "$(HOME="$_c" kb_new_godspeed "$_c/nostarter2" "" "$_c/does-not-exist" 2>&1 | grep -c 'does NOT have the files')" "1"
 
-# Cloning a hub they already keep somewhere.
-( HOME="$_c" kb_new_hub "$_c/cloned" "$_starter" ) >/dev/null 2>&1
-t "an existing hub is cloned from its address" \
-  "$([ -d "$_c/cloned/.git" ] && [ -f "$_c/cloned/starter-hub/AGENTS.md" ] && echo yes)" "yes"
+# Cloning a mission control they already keep somewhere.
+( HOME="$_c" kb_new_godspeed "$_c/cloned" "$_starter" ) >/dev/null 2>&1
+t "an existing mission control is cloned from its address" \
+  "$([ -d "$_c/cloned/.git" ] && [ -f "$_c/cloned/starter-godspeed/AGENTS.md" ] && echo yes)" "yes"
 t "an address that is not a repository fails cleanly" \
-  "$(HOME="$_c" kb_new_hub "$_c/bad" "$_c/ghost" >/dev/null 2>&1; echo $?)" "1"
+  "$(HOME="$_c" kb_new_godspeed "$_c/bad" "$_c/ghost" >/dev/null 2>&1; echo $?)" "1"
 
-# A brand new hub has no remote. Saying "could not pull, you may be out of date"
+# A brand new mission control has no remote. Saying "could not pull, you may be out of date"
 # is alarming and untrue - there is nowhere to be out of date FROM.
-t "a hub with no remote is not called out of date" \
-  "$(HOME="$_c" kb_update_hub "$_c/made" 2>&1 | grep -c 'could not pull')" "0"
+t "a mission control with no remote is not called out of date" \
+  "$(HOME="$_c" kb_update_godspeed "$_c/made" 2>&1 | grep -c 'could not pull')" "0"
 t "it says the useful thing instead" \
-  "$(HOME="$_c" kb_update_hub "$_c/made" 2>&1 | grep -c 'lives only on this computer')" "1"
+  "$(HOME="$_c" kb_update_godspeed "$_c/made" 2>&1 | grep -c 'lives only on this computer')" "1"
 
 # OS detection must answer something we actually branch on.
 case "$(kb_os)" in
@@ -795,50 +796,50 @@ rm -rf "$_hm"
 # reader-facing step with no test is how the invisible backspace byte survived. These
 # are the bash twins of the cases in windows/test-windows.ps1. Change one, change both.
 _n=$(mktemp -d)
-mkdir -p "$_n/home/.hub" "$_n/hub/secrets" "$_n/home/.local/bin"
+mkdir -p "$_n/home/.godspeed" "$_n/godspeed/secrets" "$_n/home/.local/bin"
 HOME="$_n/home"; export HOME
 
-t "a hub with no notebook reports 'none'" "$(kb_notebook_state "$_n/hub")" "none"
-: > "$_n/hub/secrets/hub-key.age"
-t "a folder carrying a sealed key reports 'sealed'" "$(kb_notebook_state "$_n/hub")" "sealed"
-rm -f "$_n/hub/secrets/hub-key.age"
+t "a mission control with no notebook reports 'none'" "$(kb_notebook_state "$_n/godspeed")" "none"
+: > "$_n/godspeed/secrets/mc-key.age"
+t "a folder carrying a sealed key reports 'sealed'" "$(kb_notebook_state "$_n/godspeed")" "sealed"
+rm -f "$_n/godspeed/secrets/mc-key.age"
 
 # Refusals first, because they are what a reader hits at the worst moment.
 t "unsealing does nothing when the folder carries no key" \
-  "$(kb_unseal_hub_key "$_n/hub" >/dev/null 2>&1; echo $?)" "1"
+  "$(kb_unseal_godspeed_key "$_n/godspeed" >/dev/null 2>&1; echo $?)" "1"
 t "sealing does nothing when this computer has no key" \
-  "$(kb_seal_hub_key "$_n/hub" >/dev/null 2>&1; echo $?)" "1"
+  "$(kb_seal_godspeed_key "$_n/godspeed" >/dev/null 2>&1; echo $?)" "1"
 t "and neither of those left a file behind" \
-  "$([ -e "$_n/hub/secrets/hub-key.age" ] && echo yes || echo no)" "no"
-: > "$_n/home/.hub/age-key.txt"
-: > "$_n/hub/secrets/hub-key.age"
+  "$([ -e "$_n/godspeed/secrets/mc-key.age" ] && echo yes || echo no)" "no"
+: > "$_n/home/.godspeed/age-key.txt"
+: > "$_n/godspeed/secrets/mc-key.age"
 t "unsealing is a no-op when this computer already has a key" \
-  "$(kb_unseal_hub_key "$_n/hub" >/dev/null 2>&1; echo $?)" "0"
-rm -f "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-key.age"
+  "$(kb_unseal_godspeed_key "$_n/godspeed" >/dev/null 2>&1; echo $?)" "0"
+rm -f "$_n/home/.godspeed/age-key.txt" "$_n/godspeed/secrets/mc-key.age"
 
 # The file that tells CLAUDE CODE where the notebook is. Not "the assistant": Hermes
 # never reads a folder .mcp.json, checked in its source, so a kit that says otherwise is
-# telling a reader their hub carries configuration it does not carry.
+# telling a reader their mission control carries configuration it does not carry.
 #
 # Until 2026-09-20 the file and the installer both went on to tell the reader to run
-# `hermes mcp add` by hand. hub-menerio-connect does that now, from the same stored key,
+# `hermes mcp add` by hand. mc-menerio-connect does that now, from the same stored key,
 # so the file names THAT and nobody is handed a command to type.
-_mcpout="$(kb_write_mcp_config "$_n/hub" 2>&1)"
-t "Claude Code is given an .mcp.json" "$([ -f "$_n/hub/.mcp.json" ] && echo yes || echo no)" "yes"
+_mcpout="$(kb_write_mcp_config "$_n/godspeed" 2>&1)"
+t "Claude Code is given an .mcp.json" "$([ -f "$_n/godspeed/.mcp.json" ] && echo yes || echo no)" "yes"
 t "the file says plainly that Hermes and Codex do not read it" \
-  "$(grep -c "Hermes and Codex do not read this file" "$_n/hub/.mcp.json")" "1"
+  "$(grep -c "Hermes and Codex do not read this file" "$_n/godspeed/.mcp.json")" "1"
 t "and it names the program that gives them the same connection" \
-  "$(grep -c "hub-menerio-connect" "$_n/hub/.mcp.json")" "1"
+  "$(grep -c "mc-menerio-connect" "$_n/godspeed/.mcp.json")" "1"
 t "it no longer tells the reader to connect Hermes by hand" \
-  "$(grep -c "hermes mcp" "$_n/hub/.mcp.json")" "0"
+  "$(grep -c "hermes mcp" "$_n/godspeed/.mcp.json")" "0"
 t "nothing in it claims to configure \"your assistant\" in general" \
-  "$(grep -c "tells your assistant" "$_n/hub/.mcp.json")" "0"
+  "$(grep -c "tells your assistant" "$_n/godspeed/.mcp.json")" "0"
 t "the installer says which tool it wrote the file for" \
   "$(printf '%s' "$_mcpout" | grep -c "for Claude Code")" "1"
 t "and no longer prints a Hermes command for the reader to type" \
   "$(printf '%s' "$_mcpout" | grep -c -i "hermes")" "0"
 t "the connection NAMES the credential rather than carrying one" \
-  "$(grep -c 'Bearer \${MENERIO_API_KEY}' "$_n/hub/.mcp.json")" "1"
+  "$(grep -c 'Bearer \${MENERIO_API_KEY}' "$_n/godspeed/.mcp.json")" "1"
 # python3, then python. Git Bash on Windows ships the launcher as `python` only, and this
 # suite is run there because that is where the .exe installer is built. A test that fails for
 # want of an interpreter reads exactly like a broken installer, and it hid nothing useful.
@@ -846,14 +847,14 @@ _py=""
 for _c in python3 python; do "$_c" -c '' >/dev/null 2>&1 && { _py="$_c"; break; }; done
 if [ -n "$_py" ]; then
   t "and it is valid JSON, which is the only way an assistant will read it" \
-    "$("$_py" -c 'import json,sys;json.load(open(sys.argv[1]));print("ok")' "$_n/hub/.mcp.json" 2>/dev/null)" "ok"
+    "$("$_py" -c 'import json,sys;json.load(open(sys.argv[1]));print("ok")' "$_n/godspeed/.mcp.json" 2>/dev/null)" "ok"
 else
   echo "  skip  valid JSON: no python on this machine to read it with"
 fi
-printf 'mine\n' > "$_n/hub/.mcp.json"
-kb_write_mcp_config "$_n/hub" >/dev/null 2>&1
-t "a reader's own .mcp.json is never overwritten" "$(cat "$_n/hub/.mcp.json")" "mine"
-rm -f "$_n/hub/.mcp.json"
+printf 'mine\n' > "$_n/godspeed/.mcp.json"
+kb_write_mcp_config "$_n/godspeed" >/dev/null 2>&1
+t "a reader's own .mcp.json is never overwritten" "$(cat "$_n/godspeed/.mcp.json")" "mine"
+rm -f "$_n/godspeed/.mcp.json"
 
 # The sync: on save, and hourly. Both must be silent for a reader with no notebook,
 # which is why they are installed for everyone.
@@ -867,92 +868,92 @@ esac
 FAKE
 chmod +x "$_n/fakecrontab"
 t "no sync program on this computer means nothing is scheduled and nothing is said" \
-  "$(KB_CRONTAB="$_n/fakecrontab" kb_install_notebook_sync "$_n/hub" 2>&1)" ""
+  "$(KB_CRONTAB="$_n/fakecrontab" kb_install_notebook_sync "$_n/godspeed" 2>&1)" ""
 # A runner that reads the reader's answer, like the kit's own since 2026-09-21. One that
 # does not is never scheduled without a yes, and has its own cases further down.
-printf '#!/bin/sh\n# reads HUB_NOTEBOOK_MIRROR\nexit 0\n' > "$_n/home/.local/bin/hub-notebook-sync"
-chmod +x "$_n/home/.local/bin/hub-notebook-sync"
-git -C "$_n/hub" init -q 2>/dev/null
-( KB_CRONTAB="$_n/fakecrontab" kb_install_notebook_sync "$_n/hub" ) >/dev/null 2>&1
+printf '#!/bin/sh\n# reads GODSPEED_NOTEBOOK_MIRROR\nexit 0\n' > "$_n/home/.local/bin/mc-notebook-sync"
+chmod +x "$_n/home/.local/bin/mc-notebook-sync"
+git -C "$_n/godspeed" init -q 2>/dev/null
+( KB_CRONTAB="$_n/fakecrontab" kb_install_notebook_sync "$_n/godspeed" ) >/dev/null 2>&1
 t "a change that is saved updates the notebook" \
-  "$(grep -c 'hub-notebook-sync' "$_n/hub/.git/hooks/post-commit" 2>/dev/null)" "1"
+  "$(grep -c 'mc-notebook-sync' "$_n/godspeed/.git/hooks/post-commit" 2>/dev/null)" "1"
 t "and the hook can never fail the save" \
-  "$(grep -c '^exit 0' "$_n/hub/.git/hooks/post-commit" 2>/dev/null)" "1"
+  "$(grep -c '^exit 0' "$_n/godspeed/.git/hooks/post-commit" 2>/dev/null)" "1"
 t "there is an hourly catch-up for what happened while the computer slept" \
-  "$(grep -c 'hub-notebook-sync' "$_cronfile2")" "1"
+  "$(grep -c 'mc-notebook-sync' "$_cronfile2")" "1"
 printf 'BEFORE=keep\n' >> "$_cronfile2"
-( KB_CRONTAB="$_n/fakecrontab" kb_install_notebook_sync "$_n/hub" ) >/dev/null 2>&1
+( KB_CRONTAB="$_n/fakecrontab" kb_install_notebook_sync "$_n/godspeed" ) >/dev/null 2>&1
 t "running the installer twice does not stack up two jobs" \
-  "$(grep -c 'hub-notebook-sync' "$_cronfile2")" "1"
+  "$(grep -c 'mc-notebook-sync' "$_cronfile2")" "1"
 t "and it keeps what was already in the schedule" "$(grep -c 'BEFORE=keep' "$_cronfile2")" "1"
-printf '#!/bin/sh\n# someone elses hook\n' > "$_n/hub/.git/hooks/post-commit"
-( KB_CRONTAB="$_n/fakecrontab" kb_install_notebook_sync "$_n/hub" ) >/dev/null 2>&1
+printf '#!/bin/sh\n# someone elses hook\n' > "$_n/godspeed/.git/hooks/post-commit"
+( KB_CRONTAB="$_n/fakecrontab" kb_install_notebook_sync "$_n/godspeed" ) >/dev/null 2>&1
 t "a hook the reader wrote themselves is left exactly as it was" \
-  "$(grep -c 'someone elses hook' "$_n/hub/.git/hooks/post-commit")" "1"
+  "$(grep -c 'someone elses hook' "$_n/godspeed/.git/hooks/post-commit")" "1"
 
 # The shell start-up line that supplies the value .mcp.json only names.
-printf '#!/bin/sh\nexit 0\n' > "$_n/home/.local/bin/hub-notebook-env"
+printf '#!/bin/sh\nexit 0\n' > "$_n/home/.local/bin/mc-notebook-env"
 : > "$_n/home/.bashrc"
-kb_persist_notebook_env "$_n/hub" >/dev/null 2>&1
+kb_persist_notebook_env "$_n/godspeed" >/dev/null 2>&1
 t "new terminals are told where the credential comes from" \
-  "$(grep -c 'hub-notebook-env' "$_n/home/.bashrc")" "1"
-kb_persist_notebook_env "$_n/hub" >/dev/null 2>&1
+  "$(grep -c 'mc-notebook-env' "$_n/home/.bashrc")" "1"
+kb_persist_notebook_env "$_n/godspeed" >/dev/null 2>&1
 t "and running it twice does not write the line twice" \
-  "$(grep -c 'hub-notebook-env' "$_n/home/.bashrc")" "1"
+  "$(grep -c 'mc-notebook-env' "$_n/home/.bashrc")" "1"
 
-# Saying no has to be free, because a hub built from the book has no notebook and
+# Saying no has to be free, because a mission control built from the book has no notebook and
 # needs none. This is the case that must never nag.
 t "a reader who says no is not asked again and nothing is written" \
-  "$(KB_NOTEBOOK=skip kb_connect_notebook "$_n/hub" 2>&1)" ""
+  "$(KB_NOTEBOOK=skip kb_connect_notebook "$_n/godspeed" 2>&1)" ""
 
 # Every front door offers the notebook, not only the create path. Until 2026-08-18
-# only setup-hub.sh called the connect step: a joined second machine got the runner
+# only setup-godspeed.sh called the connect step: a joined second machine got the runner
 # installed and the credentials sitting in the folder, and nothing introduced them.
 t "join.sh offers the notebook connection" \
-  "$(grep -c '^kb_connect_notebook "\$HUB"' join.sh)" "1"
+  "$(grep -c '^kb_connect_notebook "\$GODSPEED"' join.sh)" "1"
 t "the Windows join offers it too" \
-  "$(grep -c '^Connect-KitNotebook -Hub \$Hub' join.ps1)" "1"
+  "$(grep -c '^Connect-KitNotebook -Godspeed \$Godspeed' join.ps1)" "1"
 
 # The real round trip, where age is installed. It is the mechanism the whole promise
 # rests on, so it is proven rather than assumed - and skipped OUT LOUD where it cannot be.
 if command -v age >/dev/null 2>&1 && command -v age-keygen >/dev/null 2>&1; then
-  rm -f "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-secrets.env.age"
-  ( kb_store_notebook_token "$_n/hub" "test-token-not-a-real-one-0123456789" ) >/dev/null 2>&1
+  rm -f "$_n/home/.godspeed/age-key.txt" "$_n/godspeed/secrets/mc-secrets.env.age"
+  ( kb_store_notebook_token "$_n/godspeed" "test-token-not-a-real-one-0123456789" ) >/dev/null 2>&1
   t "pasting a token makes a key and locks the token inside the folder" \
-    "$([ -f "$_n/hub/secrets/hub-secrets.env.age" ] && [ -r "$_n/home/.hub/age-key.txt" ] && echo yes || echo no)" "yes"
+    "$([ -f "$_n/godspeed/secrets/mc-secrets.env.age" ] && [ -r "$_n/home/.godspeed/age-key.txt" ] && echo yes || echo no)" "yes"
   t "the folder now reports itself connected on this computer" \
-    "$(kb_notebook_state "$_n/hub")" "connected"
+    "$(kb_notebook_state "$_n/godspeed")" "connected"
   t "the token can be read back out, exactly as it was pasted" \
-    "$(age -d -i "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-secrets.env.age" | sed -n 's/^MENERIO_API_KEY=//p')" \
+    "$(age -d -i "$_n/home/.godspeed/age-key.txt" "$_n/godspeed/secrets/mc-secrets.env.age" | sed -n 's/^MENERIO_API_KEY=//p')" \
     "test-token-not-a-real-one-0123456789"
   t "one paste leaves exactly one credential, because one key does both jobs" \
-    "$(age -d -i "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-secrets.env.age" | grep -c '^MENERIO_')" "1"
-  ( kb_store_notebook_token "$_n/hub" "second-token-still-not-real-98765" ) >/dev/null 2>&1
+    "$(age -d -i "$_n/home/.godspeed/age-key.txt" "$_n/godspeed/secrets/mc-secrets.env.age" | grep -c '^MENERIO_')" "1"
+  ( kb_store_notebook_token "$_n/godspeed" "second-token-still-not-real-98765" ) >/dev/null 2>&1
   t "connecting again replaces the credential instead of keeping two" \
-    "$(age -d -i "$_n/home/.hub/age-key.txt" "$_n/hub/secrets/hub-secrets.env.age" | grep -c '^MENERIO_API_KEY=')" "1"
-  # THE CASE THAT ALMOST DESTROYED A REAL HUB. A folder carrying credentials this
+    "$(age -d -i "$_n/home/.godspeed/age-key.txt" "$_n/godspeed/secrets/mc-secrets.env.age" | grep -c '^MENERIO_API_KEY=')" "1"
+  # THE CASE THAT ALMOST DESTROYED A REAL GODSPEED. A folder carrying credentials this
   # computer cannot open must be REFUSED, never rewritten: re-locking it to this
   # machine's key shuts every other computer out of every credential at once, silently.
-  # This is what happened on 2026-08-16, to a live hub, during a test run.
+  # This is what happened on 2026-08-16, to a live mission control, during a test run.
   _other=$(mktemp -d)
   age-keygen -o "$_other/key" 2>/dev/null
   printf 'MENERIO_API_KEY=belongs-to-someone-else-0123456789
-'     | age -r "$(age-keygen -y "$_other/key")" -o "$_n/hub/secrets/hub-secrets.env.age"
-  _before="$(sha256sum "$_n/hub/secrets/hub-secrets.env.age" | cut -d' ' -f1)"
-  t "a folder this computer cannot open reports 'locked-out', never 'none'"     "$(kb_notebook_state "$_n/hub")" "locked-out"
-  t "and pasting a token into it is refused"     "$(kb_store_notebook_token "$_n/hub" "a-new-token-0123456789" >/dev/null 2>&1; echo $?)" "1"
-  t "the other computers' credentials are byte-for-byte untouched"     "$(sha256sum "$_n/hub/secrets/hub-secrets.env.age" | cut -d' ' -f1)" "$_before"
-  t "and the whole connect step changes nothing there either"     "$(kb_connect_notebook "$_n/hub" >/dev/null 2>&1; sha256sum "$_n/hub/secrets/hub-secrets.env.age" | cut -d' ' -f1)" "$_before"
-  rm -rf "$_other" "$_n/hub/secrets/hub-secrets.env.age"
-  ( kb_store_notebook_token "$_n/hub" "test-token-not-a-real-one-0123456789" ) >/dev/null 2>&1
+'     | age -r "$(age-keygen -y "$_other/key")" -o "$_n/godspeed/secrets/mc-secrets.env.age"
+  _before="$(sha256sum "$_n/godspeed/secrets/mc-secrets.env.age" | cut -d' ' -f1)"
+  t "a folder this computer cannot open reports 'locked-out', never 'none'"     "$(kb_notebook_state "$_n/godspeed")" "locked-out"
+  t "and pasting a token into it is refused"     "$(kb_store_notebook_token "$_n/godspeed" "a-new-token-0123456789" >/dev/null 2>&1; echo $?)" "1"
+  t "the other computers' credentials are byte-for-byte untouched"     "$(sha256sum "$_n/godspeed/secrets/mc-secrets.env.age" | cut -d' ' -f1)" "$_before"
+  t "and the whole connect step changes nothing there either"     "$(kb_connect_notebook "$_n/godspeed" >/dev/null 2>&1; sha256sum "$_n/godspeed/secrets/mc-secrets.env.age" | cut -d' ' -f1)" "$_before"
+  rm -rf "$_other" "$_n/godspeed/secrets/mc-secrets.env.age"
+  ( kb_store_notebook_token "$_n/godspeed" "test-token-not-a-real-one-0123456789" ) >/dev/null 2>&1
 
   # A key that opens nothing must never be sealed: the machine that would find out is
   # the new one, at the moment it has no other way in.
-  age-keygen -o "$_n/home/.hub/age-key.txt" 2>/dev/null
+  age-keygen -o "$_n/home/.godspeed/age-key.txt" 2>/dev/null
   t "a key that does not open the folder's credentials is refused, not sealed" \
-    "$(kb_seal_hub_key "$_n/hub" >/dev/null 2>&1; echo $?)" "1"
+    "$(kb_seal_godspeed_key "$_n/godspeed" >/dev/null 2>&1; echo $?)" "1"
   t "and that refusal left no sealed key behind" \
-    "$([ -e "$_n/hub/secrets/hub-key.age" ] && echo yes || echo no)" "no"
+    "$([ -e "$_n/godspeed/secrets/mc-key.age" ] && echo yes || echo no)" "no"
 else
   echo "  skip  the real lock-and-unlock round trip (age is not on this computer)"
 fi
@@ -964,48 +965,48 @@ rm -rf "$_n"
 #
 # A key is a thing with a lifespan, and the day it dies nothing announces it.
 # This file is the only place a date is written down, so the morning brief and
-# hub-check-keys can both read it. It must never hold a key, must never
-# overwrite what the reader wrote in it, and must arrive on BOTH roads: a hub
-# made fresh by the installer, and a hub that gains keys later.
+# mc-check-keys can both read it. It must never hold a key, must never
+# overwrite what the reader wrote in it, and must arrive on BOTH roads: a mission control
+# made fresh by the installer, and a mission control that gains keys later.
 # ---------------------------------------------------------------------------
 echo
 echo "== when a key runs out (secrets/expires.txt)"
 _x="$(mktemp -d)"
-mkdir -p "$_x/hub"
+mkdir -p "$_x/godspeed"
 
-kb_seed_expiry_record "$_x/hub" >/dev/null 2>&1
-t "a hub with no record gets one" \
-  "$([ -f "$_x/hub/secrets/expires.txt" ] && echo yes || echo no)" "yes"
+kb_seed_expiry_record "$_x/godspeed" >/dev/null 2>&1
+t "a mission control with no record gets one" \
+  "$([ -f "$_x/godspeed/secrets/expires.txt" ] && echo yes || echo no)" "yes"
 t "and it explains its own three columns, so nobody has to be told twice" \
-  "$(grep -c 'the page you get a new one from' "$_x/hub/secrets/expires.txt")" "1"
+  "$(grep -c 'the page you get a new one from' "$_x/godspeed/secrets/expires.txt")" "1"
 t "and it warns against the one thing that would ruin it" \
-  "$(grep -c 'NEVER PUT A KEY ITSELF IN HERE' "$_x/hub/secrets/expires.txt")" "1"
+  "$(grep -c 'NEVER PUT A KEY ITSELF IN HERE' "$_x/godspeed/secrets/expires.txt")" "1"
 t "it holds no key of its own: every line in it is a comment" \
-  "$(grep -vc '^[[:space:]]*\(#.*\)\?$' "$_x/hub/secrets/expires.txt")" "0"
+  "$(grep -vc '^[[:space:]]*\(#.*\)\?$' "$_x/godspeed/secrets/expires.txt")" "0"
 
-printf 'MY_KEY  2027-01-01  https://example.com  # mine\n' >> "$_x/hub/secrets/expires.txt"
-kb_seed_expiry_record "$_x/hub" >/dev/null 2>&1
+printf 'MY_KEY  2027-01-01  https://example.com  # mine\n' >> "$_x/godspeed/secrets/expires.txt"
+kb_seed_expiry_record "$_x/godspeed" >/dev/null 2>&1
 t "running the installer again never touches what the reader wrote in it" \
-  "$(grep -c '^MY_KEY' "$_x/hub/secrets/expires.txt")" "1"
+  "$(grep -c '^MY_KEY' "$_x/godspeed/secrets/expires.txt")" "1"
 t "and it is silent the second time, because there was nothing to do" \
-  "$(kb_seed_expiry_record "$_x/hub" 2>&1)" ""
+  "$(kb_seed_expiry_record "$_x/godspeed" 2>&1)" ""
 
-# The other road: a hub that had no record and then gains keys. Before this, the
-# record only ever reached a hub made after the day it was written, so every
+# The other road: a mission control that had no record and then gains keys. Before this, the
+# record only ever reached a mission control made after the day it was written, so every
 # reader who already had one carried keys with no dates and nothing said so.
-rm -rf "$_x/hub2"; mkdir -p "$_x/hub2"
-kb_new_hub "$_x/hub2" >/dev/null 2>&1 || true
-t "a brand new hub carries the record from day one, not after an upgrade" \
-  "$([ -f "$_x/hub2/secrets/expires.txt" ] && echo yes || echo no)" "yes"
+rm -rf "$_x/godspeed2"; mkdir -p "$_x/godspeed2"
+kb_new_godspeed "$_x/godspeed2" >/dev/null 2>&1 || true
+t "a brand new mission control carries the record from day one, not after an upgrade" \
+  "$([ -f "$_x/godspeed2/secrets/expires.txt" ] && echo yes || echo no)" "yes"
 
 # The two roads must lay down the SAME file. The reader kit ships its own copy
-# inside starter-hub/, so a fresh hub gets it by copy and an older one gets it
+# inside starter-godspeed/, so a fresh mission control gets it by copy and an older one gets it
 # from the function above. Two copies of one file is two places to fix a typo,
 # and the one nobody edits is the one every reader ends up with.
 _starter="$(cd "$(dirname "$0")/../teach-it-once-kit" 2>/dev/null && pwd)"
-if [ -n "$_starter" ] && [ -f "$_starter/starter-hub/secrets/expires.txt" ]; then
+if [ -n "$_starter" ] && [ -f "$_starter/starter-godspeed/secrets/expires.txt" ]; then
   t "the copy in the reader kit's starter folder is the same file, to the byte" \
-    "$(cmp -s "$_starter/starter-hub/secrets/expires.txt" "$_x/hub2/secrets/expires.txt" 2>/dev/null && echo same || echo different)" "same"
+    "$(cmp -s "$_starter/starter-godspeed/secrets/expires.txt" "$_x/godspeed2/secrets/expires.txt" 2>/dev/null && echo same || echo different)" "same"
 else
   echo "  skip  the starter folder's copy is not on this computer to compare with"
 fi
@@ -1015,45 +1016,45 @@ rm -rf "$_x"
 # ---------------------------------------------------------------------------
 # WHAT RUNS OUT, AND WHEN (due/). A calendar reminder fires on a date and knows nothing
 # else, so it goes off about something already done and a person stops reading reminders.
-# This room is the other shape, and the installer has to deliver it to BOTH kinds of hub:
+# This room is the other shape, and the installer has to deliver it to BOTH kinds of mission control:
 # a brand new one and one somebody has had for months.
 # ---------------------------------------------------------------------------
 echo
 echo "== the things with a last day (due/)"
 _x="$(mktemp -d)"
-mkdir -p "$_x/hub"
+mkdir -p "$_x/godspeed"
 
-kb_seed_due_folder "$_x/hub" >/dev/null 2>&1
-t "a hub with no due room gets one" \
-  "$([ -f "$_x/hub/due/README.md" ] && echo yes || echo no)" "yes"
+kb_seed_due_folder "$_x/godspeed" >/dev/null 2>&1
+t "a mission control with no due room gets one" \
+  "$([ -f "$_x/godspeed/due/README.md" ] && echo yes || echo no)" "yes"
 t "and it teaches the window rather than a due date" \
-  "$(grep -c 'the first day you can do the thing, and the last day you' "$_x/hub/due/README.md")" "1"
+  "$(grep -c 'the first day you can do the thing, and the last day you' "$_x/godspeed/due/README.md")" "1"
 t "and it says a reader needs no calendar for any of it" \
-  "$(grep -c 'You do not need a calendar' "$_x/hub/due/README.md")" "1"
+  "$(grep -c 'You do not need a calendar' "$_x/godspeed/due/README.md")" "1"
 t "and it carries the refusal that keeps this from becoming a to-do list" \
-  "$(grep -c 'No date, not eligible' "$_x/hub/due/README.md")" "1"
+  "$(grep -c 'No date, not eligible' "$_x/godspeed/due/README.md")" "1"
 t "and it says the fourth question is the one that matters" \
-  "$(grep -c 'How could your hub tell you did it, without asking you' "$_x/hub/due/README.md")" "1"
+  "$(grep -c 'How could your mission control tell you did it, without asking you' "$_x/godspeed/due/README.md")" "1"
 
-printf 'mine\n' > "$_x/hub/due/car-service.md"
-kb_seed_due_folder "$_x/hub" >/dev/null 2>&1
+printf 'mine\n' > "$_x/godspeed/due/car-service.md"
+kb_seed_due_folder "$_x/godspeed" >/dev/null 2>&1
 t "running the installer again never touches a deadline the reader wrote" \
-  "$(cat "$_x/hub/due/car-service.md")" "mine"
+  "$(cat "$_x/godspeed/due/car-service.md")" "mine"
 t "and it is silent the second time, because there was nothing to do" \
-  "$(kb_seed_due_folder "$_x/hub" 2>&1)" ""
+  "$(kb_seed_due_folder "$_x/godspeed" 2>&1)" ""
 
-# The other road: a hub made from nothing today. Before the expiry record learned this
-# lesson, a new room only ever reached hubs made after the day it was written.
-rm -rf "$_x/hub3"; mkdir -p "$_x/hub3"
-kb_new_hub "$_x/hub3" >/dev/null 2>&1 || true
-t "a brand new hub carries the due room from day one, not after an upgrade" \
-  "$([ -f "$_x/hub3/due/README.md" ] && echo yes || echo no)" "yes"
+# The other road: a mission control made from nothing today. Before the expiry record learned this
+# lesson, a new room only ever reached mission controls made after the day it was written.
+rm -rf "$_x/godspeed3"; mkdir -p "$_x/godspeed3"
+kb_new_godspeed "$_x/godspeed3" >/dev/null 2>&1 || true
+t "a brand new mission control carries the due room from day one, not after an upgrade" \
+  "$([ -f "$_x/godspeed3/due/README.md" ] && echo yes || echo no)" "yes"
 
 # The two roads must lay down the SAME file, for the same reason the expiry record must.
 _starter="$(cd "$(dirname "$0")/../teach-it-once-kit" 2>/dev/null && pwd)"
-if [ -n "$_starter" ] && [ -f "$_starter/starter-hub/due/README.md" ]; then
+if [ -n "$_starter" ] && [ -f "$_starter/starter-godspeed/due/README.md" ]; then
   t "the copy in the reader kit's starter folder is the same file, to the byte" \
-    "$(cmp -s "$_starter/starter-hub/due/README.md" "$_x/hub3/due/README.md" 2>/dev/null && echo same || echo different)" "same"
+    "$(cmp -s "$_starter/starter-godspeed/due/README.md" "$_x/godspeed3/due/README.md" 2>/dev/null && echo same || echo different)" "same"
   t "and the card the book sends the reader to is in the kit" \
     "$([ -f "$_starter/procedures/what-runs-out-and-when.md" ] && echo yes || echo no)" "yes"
   t "and the card says in its own words that no Google account is needed" \
@@ -1067,121 +1068,121 @@ rm -rf "$_x"
 
 # ---------------------------------------------------------------------------
 # THE LAUNCHERS. Every command the book tells a reader to TYPE needs one. Before
-# 2026-08-29 only the prompt collector got one on either platform, so hub-check-keys and
-# hub-compile-rules were shell scripts with no launcher, and the book printed both.
+# 2026-08-29 only the prompt collector got one on either platform, so mc-check-keys and
+# mc-compile-rules were shell scripts with no launcher, and the book printed both.
 # ---------------------------------------------------------------------------
 echo
 echo "== a launcher for every command the book prints"
 _l="$(mktemp -d)"
-mkdir -p "$_l/kit/tools" "$_l/hub"
+mkdir -p "$_l/kit/tools" "$_l/godspeed"
 for f in prompt-harvest.js compile-rules.js check-keys.js due.js; do printf '// %s\n' "$f" > "$_l/kit/tools/$f"; done
 git -C "$_l/kit" init -q 2>/dev/null
 git -C "$_l/kit" add -A >/dev/null 2>&1
 git -C "$_l/kit" -c user.email=t@t -c user.name=t commit -q -m tools >/dev/null 2>&1
-HOME="$_l/home" kb_install_hub_tools "$_l/hub" "$_l/kit" >/dev/null 2>&1
-for cmd in hub-prompt-harvest hub-compile-rules hub-check-keys hub-due; do
+HOME="$_l/home" kb_install_godspeed_tools "$_l/godspeed" "$_l/kit" >/dev/null 2>&1
+for cmd in mc-prompt-harvest mc-compile-rules mc-check-keys mc-due; do
   t "$cmd got a launcher" "$([ -f "$_l/home/.local/bin/$cmd" ] && echo yes || echo no)" "yes"
 done
 t "and a launcher runs the program next to it, not a path baked in at install time" \
-  "$(grep -c 'dirname "\$0"' "$_l/home/.local/bin/hub-due")" "1"
+  "$(grep -c 'dirname "\$0"' "$_l/home/.local/bin/mc-due")" "1"
 # A kit that ships none of them must get none of them, silently: every other product
 # using this library ships no tools folder at all.
 rm -f "$_l/kit/tools/due.js"
 git -C "$_l/kit" add -A >/dev/null 2>&1
 git -C "$_l/kit" -c user.email=t@t -c user.name=t commit -q -m drop >/dev/null 2>&1
 rm -rf "$_l/home"
-HOME="$_l/home" kb_install_hub_tools "$_l/hub" "$_l/kit" >/dev/null 2>&1
-t "a kit that ships no due.js gets no hub-due, and says nothing about it" \
-  "$([ -f "$_l/home/.local/bin/hub-due" ] && echo yes || echo no)" "no"
+HOME="$_l/home" kb_install_godspeed_tools "$_l/godspeed" "$_l/kit" >/dev/null 2>&1
+t "a kit that ships no due.js gets no mc-due, and says nothing about it" \
+  "$([ -f "$_l/home/.local/bin/mc-due" ] && echo yes || echo no)" "no"
 
-# hub-menerio-connect and hub-search (2026-09-20). The kit ships each WITH its launcher,
+# mc-menerio-connect and mc-search (2026-09-20). The kit ships each WITH its launcher,
 # so installing them is the copy loop's job and the case is that they arrive runnable.
 # An older kit has neither: one line each, only for a kit that has the notebook programs
 # at all, and never an error.
 _lk() { git -C "$_l/kit" add -A >/dev/null 2>&1; git -C "$_l/kit" -c user.email=t@t -c user.name=t commit -q -m "$1" >/dev/null 2>&1; }
-printf '#!/bin/sh\necho connect-ran "$@"\n' > "$_l/kit/tools/hub-menerio-connect"
-printf '#!/bin/sh\necho search-ran "$@"\n'  > "$_l/kit/tools/hub-search"
+printf '#!/bin/sh\necho connect-ran "$@"\n' > "$_l/kit/tools/mc-menerio-connect"
+printf '#!/bin/sh\necho search-ran "$@"\n'  > "$_l/kit/tools/mc-search"
 _lk "the two new ones"
 rm -rf "$_l/home"
-out="$(HOME="$_l/home" kb_install_hub_tools "$_l/hub" "$_l/kit" 2>&1)"
-t "hub-menerio-connect is installed and runs" \
-  "$("$_l/home/.local/bin/hub-menerio-connect" --check 2>/dev/null)" "connect-ran --check"
-t "hub-search is installed and runs" \
-  "$("$_l/home/.local/bin/hub-search" words 2>/dev/null)" "search-ran words"
+out="$(HOME="$_l/home" kb_install_godspeed_tools "$_l/godspeed" "$_l/kit" 2>&1)"
+t "mc-menerio-connect is installed and runs" \
+  "$("$_l/home/.local/bin/mc-menerio-connect" --check 2>/dev/null)" "connect-ran --check"
+t "mc-search is installed and runs" \
+  "$("$_l/home/.local/bin/mc-search" words 2>/dev/null)" "search-ran words"
 t "and a kit that has both hears nothing about either" \
   "$(printf '%s' "$out" | grep -c 'does not have')" "0"
 # THE HALF NEITHER LAUNCHER NAMES. The real programs both start with
-# require("./hub-notebook.js"), a module with no launcher and no hub- command of its own.
+# require("./mc-notebook.js"), a module with no launcher and no mc- command of its own.
 # It arrives only because the copy loop takes every file in tools/, so a loop narrowed one
 # day to "the programs in the table" would install two commands that cannot start. The
 # case runs the installed command, because a file list would not notice.
 if command -v node >/dev/null 2>&1; then
-  printf '#!/bin/sh\nexec node "$(dirname "$0")/menerio-connect.js" "$@"\n' > "$_l/kit/tools/hub-menerio-connect"
-  printf 'const nb = require("./hub-notebook.js");\nconsole.log(nb.hello + " " + process.argv.slice(2).join(" "));\n' > "$_l/kit/tools/menerio-connect.js"
-  printf 'module.exports = { hello: "shared-module-found" };\n' > "$_l/kit/tools/hub-notebook.js"
+  printf '#!/bin/sh\nexec node "$(dirname "$0")/menerio-connect.js" "$@"\n' > "$_l/kit/tools/mc-menerio-connect"
+  printf 'const nb = require("./mc-notebook.js");\nconsole.log(nb.hello + " " + process.argv.slice(2).join(" "));\n' > "$_l/kit/tools/menerio-connect.js"
+  printf 'module.exports = { hello: "shared-module-found" };\n' > "$_l/kit/tools/mc-notebook.js"
   _lk "a program that needs the shared module"
   rm -rf "$_l/home"
-  HOME="$_l/home" kb_install_hub_tools "$_l/hub" "$_l/kit" >/dev/null 2>&1
+  HOME="$_l/home" kb_install_godspeed_tools "$_l/godspeed" "$_l/kit" >/dev/null 2>&1
   t "the module both programs share is installed beside them, so they can start" \
-    "$("$_l/home/.local/bin/hub-menerio-connect" --check 2>&1)" "shared-module-found --check"
-  rm -f "$_l/kit/tools/hub-notebook.js"
+    "$("$_l/home/.local/bin/mc-menerio-connect" --check 2>&1)" "shared-module-found --check"
+  rm -f "$_l/kit/tools/mc-notebook.js"
 else
   echo "  skip  the shared module case (no node on this computer to start the program with)"
 fi
 
 # THE MAIL TOOL (2026-09-21, email plan). Every install and every re-run tells each assistant
-# about hub-mail and connects no mailbox. The case uses the REAL kit files when this computer
+# about mc-mail and connects no mailbox. The case uses the REAL kit files when this computer
 # has a checkout beside this one, because the promise is about the real program: it installs,
 # it starts from the entry every assistant is given, it says "not connected" with nothing set
 # up, it asks nothing, and a second run changes nothing. One ordinary computer, no server.
 _mailsrc="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)/teach-it-once-kit/tools"
-if command -v node >/dev/null 2>&1 && [ -f "$_mailsrc/hub-mail.js" ]; then
-  cp "$_mailsrc/hub-mail.js" "$_mailsrc/hub-mail-gmail.js" "$_mailsrc/hub-mail-wire.js" "$_mailsrc/hub-mail-imap.js" "$_mailsrc/hub-mail-pair.js" "$_mailsrc/hub-mail-himalaya.json" "$_mailsrc/hub-mail" "$_l/kit/tools/"
+if command -v node >/dev/null 2>&1 && [ -f "$_mailsrc/mc-mail.js" ]; then
+  cp "$_mailsrc/mc-mail.js" "$_mailsrc/mc-mail-gmail.js" "$_mailsrc/mc-mail-wire.js" "$_mailsrc/mc-mail-imap.js" "$_mailsrc/mc-mail-pair.js" "$_mailsrc/mc-mail-himalaya.json" "$_mailsrc/mc-mail" "$_l/kit/tools/"
   _lk "the mail tool"
   rm -rf "$_l/home"; mkdir -p "$_l/home/.codex" "$_l/home/.hermes"
   printf 'model: x\nmcp_servers:\n  notebook:\n    url: https://mcp.menerio.com\n' > "$_l/home/.hermes/config.yaml"
-  printf '{"mcpServers":{"notebook":{"type":"http","url":"https://mcp.menerio.com"}}}\n' > "$_l/hub/.mcp.json"
-  : > "$_l/hub/AGENTS.md"
-  HOME="$_l/home" kb_install_hub_tools "$_l/hub" "$_l/kit" >/dev/null 2>&1
-  out="$(HOME="$_l/home" USERPROFILE="$_l/home" CODEX_HOME="$_l/home/.codex" HERMES_HOME="$_l/home/.hermes" kb_wire_mail "$_l/hub" 2>&1 </dev/null)"
+  printf '{"mcpServers":{"notebook":{"type":"http","url":"https://mcp.menerio.com"}}}\n' > "$_l/godspeed/.mcp.json"
+  : > "$_l/godspeed/AGENTS.md"
+  HOME="$_l/home" kb_install_godspeed_tools "$_l/godspeed" "$_l/kit" >/dev/null 2>&1
+  out="$(HOME="$_l/home" USERPROFILE="$_l/home" CODEX_HOME="$_l/home/.codex" HERMES_HOME="$_l/home/.hermes" kb_wire_mail "$_l/godspeed" 2>&1 </dev/null)"
   t "the mail tool is added to Claude Code, Codex and Hermes" \
-    "$(grep -c 'hub-mail' "$_l/hub/.mcp.json" "$_l/home/.codex/config.toml" "$_l/home/.hermes/config.yaml" | grep -c ':[1-9]')" "3"
-  t "and what was there stays" "$(grep -c notebook "$_l/hub/.mcp.json" "$_l/home/.hermes/config.yaml" | grep -c ':[1-9]')" "2"
-  out2="$(HOME="$_l/home" USERPROFILE="$_l/home" CODEX_HOME="$_l/home/.codex" HERMES_HOME="$_l/home/.hermes" kb_wire_mail "$_l/hub" 2>&1 </dev/null)"
+    "$(grep -c 'mc-mail' "$_l/godspeed/.mcp.json" "$_l/home/.codex/config.toml" "$_l/home/.hermes/config.yaml" | grep -c ':[1-9]')" "3"
+  t "and what was there stays" "$(grep -c notebook "$_l/godspeed/.mcp.json" "$_l/home/.hermes/config.yaml" | grep -c ':[1-9]')" "2"
+  out2="$(HOME="$_l/home" USERPROFILE="$_l/home" CODEX_HOME="$_l/home/.codex" HERMES_HOME="$_l/home/.hermes" kb_wire_mail "$_l/godspeed" 2>&1 </dev/null)"
   t "a second run changes nothing" "$(printf '%s' "$out2" | grep -c 'already has the mail tool')" "3"
-  launch="$(node -e 'const j=require(process.argv[1]);console.log(j.mcpServers["hub-mail"].args[1])' "$_l/hub/.mcp.json")"
-  st="$(cd "$_l/hub" && HOME="$_l/home" USERPROFILE="$_l/home" HUB_DIR="$_l/hub" HUB_MAIL_HOME="$_l/home" node -e "$launch" status 2>&1 </dev/null)"; rc=$?
+  launch="$(node -e 'const j=require(process.argv[1]);console.log(j.mcpServers["mc-mail"].args[1])' "$_l/godspeed/.mcp.json")"
+  st="$(cd "$_l/godspeed" && HOME="$_l/home" USERPROFILE="$_l/home" GODSPEED_DIR="$_l/godspeed" GODSPEED_MAIL_HOME="$_l/home" node -e "$launch" status 2>&1 </dev/null)"; rc=$?
   t "the entry every assistant is given starts the tool, and with nothing connected it says so" \
     "$(printf '%s' "$st" | grep -c 'not connected')" "2"
   t "and not being connected is not an error" "$rc" "0"
   t "installing it asked nothing and connected nothing" "$(printf '%s' "$out" | grep -ci 'client id\|password\|connected:')" "0"
-  rm -f "$_l/kit/tools/hub-mail.js" "$_l/kit/tools/hub-mail-gmail.js" "$_l/kit/tools/hub-mail-wire.js" "$_l/kit/tools/hub-mail-imap.js" "$_l/kit/tools/hub-mail-pair.js" "$_l/kit/tools/hub-mail-himalaya.json" "$_l/kit/tools/hub-mail" "$_l/hub/AGENTS.md"
+  rm -f "$_l/kit/tools/mc-mail.js" "$_l/kit/tools/mc-mail-gmail.js" "$_l/kit/tools/mc-mail-wire.js" "$_l/kit/tools/mc-mail-imap.js" "$_l/kit/tools/mc-mail-pair.js" "$_l/kit/tools/mc-mail-himalaya.json" "$_l/kit/tools/mc-mail" "$_l/godspeed/AGENTS.md"
   _lk "mail tool case done"
 else
   echo "  skip  the mail tool case (needs node and a teach-it-once-kit checkout beside this one)"
 fi
-rm -f "$_l/kit/tools/hub-menerio-connect" "$_l/kit/tools/hub-search"
+rm -f "$_l/kit/tools/mc-menerio-connect" "$_l/kit/tools/mc-search"
 printf '// mc\n' > "$_l/kit/tools/menerio-connect.js"
 _lk "program without a launcher"
 rm -rf "$_l/home"
-HOME="$_l/home" kb_install_hub_tools "$_l/hub" "$_l/kit" >/dev/null 2>&1
+HOME="$_l/home" kb_install_godspeed_tools "$_l/godspeed" "$_l/kit" >/dev/null 2>&1
 t "a program shipped without its launcher is given one" \
-  "$(grep -c 'dirname "\$0")/menerio-connect.js' "$_l/home/.local/bin/hub-menerio-connect" 2>/dev/null)" "1"
+  "$(grep -c 'dirname "\$0")/menerio-connect.js' "$_l/home/.local/bin/mc-menerio-connect" 2>/dev/null)" "1"
 rm -f "$_l/kit/tools/menerio-connect.js"
 _lk "older kit, no notebook programs"
 rm -rf "$_l/home"
-out="$(HOME="$_l/home" kb_install_hub_tools "$_l/hub" "$_l/kit" 2>&1; echo "rc=$?")"
+out="$(HOME="$_l/home" kb_install_godspeed_tools "$_l/godspeed" "$_l/kit" 2>&1; echo "rc=$?")"
 t "an older kit with no notebook programs hears nothing about Menerio" \
-  "$(printf '%s' "$out" | grep -c -e 'hub-menerio-connect' -e 'hub-search')" "0"
-printf '#!/bin/sh\nexit 0\n' > "$_l/kit/tools/hub-notebook-sync"
+  "$(printf '%s' "$out" | grep -c -e 'mc-menerio-connect' -e 'mc-search')" "0"
+printf '#!/bin/sh\nexit 0\n' > "$_l/kit/tools/mc-notebook-sync"
 _lk "older kit, with the notebook programs"
 rm -rf "$_l/home"
-out="$(HOME="$_l/home" kb_install_hub_tools "$_l/hub" "$_l/kit" 2>&1; echo "rc=$?")"
+out="$(HOME="$_l/home" kb_install_godspeed_tools "$_l/godspeed" "$_l/kit" 2>&1; echo "rc=$?")"
 t "an older book kit is told in one line each that the two are not in it yet" \
-  "$(printf '%s' "$out" | grep -c 'does not have hub-.* yet, so it was skipped')" "2"
+  "$(printf '%s' "$out" | grep -c 'does not have mc-.* yet, so it was skipped')" "2"
 t "and that is not an error" "$(printf '%s' "$out" | grep -c '^rc=0')" "1"
 t "and nothing half-made is left on the PATH" \
-  "$([ -e "$_l/home/.local/bin/hub-menerio-connect" ] || [ -e "$_l/home/.local/bin/hub-search" ] && echo yes || echo no)" "no"
+  "$([ -e "$_l/home/.local/bin/mc-menerio-connect" ] || [ -e "$_l/home/.local/bin/mc-search" ] && echo yes || echo no)" "no"
 rm -rf "$_l"
 
 rm -rf "$_f"
@@ -1191,10 +1192,10 @@ echo
 echo "== one skills room, and the installer proves it wired something"
 #
 # THE BUG THESE EXIST FOR. Until 2026-09-01 the installer linked .agents/skills to
-# .claude/skills whenever .claude/skills existed. On a hub whose recipes live in
+# .claude/skills whenever .claude/skills existed. On a mission control whose recipes live in
 # the visible skills/ room, the top-up had just created .claude/skills EMPTY, so
 # every non-Claude assistant was pointed at an empty folder while six recipes sat
-# unreachable, under a green tick. Measured on a real hub, not imagined.
+# unreachable, under a green tick. Measured on a real mission control, not imagined.
 #
 # Every case below drives Hermes through a STUB. That is not tidiness: an early
 # run of kb_wire_skills from a scratch folder wrote a temp path into the author's
@@ -1214,9 +1215,9 @@ t "a folder recipe with a SKILL.md counts"  "$(kb_count_recipes "$_sk/nested")" 
 _r1=$(mktemp -d); mkdir -p "$_r1/skills" "$_r1/.claude/skills"; : > "$_r1/skills/a.md"
 t "the visible room wins when it holds the recipes" "$(kb_skills_room "$_r1")" "$_r1/skills"
 _r2=$(mktemp -d); mkdir -p "$_r2/.claude/skills"; : > "$_r2/.claude/skills/a.md"
-t "a Claude-era hub keeps its recipes where they are" "$(kb_skills_room "$_r2")" "$_r2/.claude/skills"
+t "a Claude-era mission control keeps its recipes where they are" "$(kb_skills_room "$_r2")" "$_r2/.claude/skills"
 _r3=$(mktemp -d)
-t "a brand new hub is given the visible room" "$(kb_skills_room "$_r3")" "$_r3/skills"
+t "a brand new mission control is given the visible room" "$(kb_skills_room "$_r3")" "$_r3/skills"
 
 # THE UNQUOTING, WITH EXACT BYTES. Every rule the kit ships starts with `*`, which YAML
 # reads as an ALIAS, so Hermes hands them all back QUOTED. Reading them raw is how a
@@ -1246,7 +1247,7 @@ _m=$(mktemp -d); mkdir -p "$_m/skills"; : > "$_m/skills/a.md"
 kb_wire_skills "$_m" >/dev/null 2>&1
 t "an entry already in external_dirs survives" \
   "$(grep -c '"/existing/team-skills"' "$_sk/calls.log")" "1"
-t "and the hub's room is added, not substituted" \
+t "and the mission control's room is added, not substituted" \
   "$(grep -c "\"$_m/skills\"\]" "$_sk/calls.log")" "1"
 
 # Never write when nothing needs writing.
@@ -1312,11 +1313,11 @@ if [ -L "$_skprobe/link" ]; then
     "$(kb_count_recipes "$_d1/.claude/skills")" "6"
   t "and so does everything that is not Claude Code" \
     "$(kb_count_recipes "$_d1/.agents/skills")" "6"
-  t "exactly one real skills folder exists in the hub" \
+  t "exactly one real skills folder exists in the mission control" \
     "$(find "$_d1" -name skills -type d | grep -c .)" "1"
 
   # GIT AND THE DOORS (2026-09-02). On Windows a junction looks like a folder to git,
-  # so a reader who commits their hub commits the recipes twice; a Linux clone then
+  # so a reader who commits their mission control commits the recipes twice; a Linux clone then
   # holds two real rooms. The doors are ignored and untracked; the real room stays.
   _g1=$(mktemp -d); git -C "$_g1" init -q -b main 2>/dev/null || git -C "$_g1" init -q
   mkdir -p "$_g1/skills/one" "$_g1/.claude/skills/one"; : > "$_g1/skills/one/SKILL.md"; : > "$_g1/.claude/skills/one/SKILL.md"
@@ -1329,23 +1330,23 @@ if [ -L "$_skprobe/link" ]; then
   t "and git no longer tracks the door's copy of the recipes" "$(git -C "$_g1" ls-files .claude/skills | grep -c .)" "0"
   t "while the real room stays tracked" "$(git -C "$_g1" ls-files skills | grep -c .)" "1"
   t "and the reader's own ignore line survives" "$(grep -cxF 'node_modules/' "$_g1/.gitignore")" "1"
-  # A Claude-era git hub: the real room is .claude/skills and must stay tracked.
+  # A Claude-era git mission control: the real room is .claude/skills and must stay tracked.
   _g2=$(mktemp -d); git -C "$_g2" init -q -b main 2>/dev/null || git -C "$_g2" init -q
   mkdir -p "$_g2/.claude/skills/one"; : > "$_g2/.claude/skills/one/SKILL.md"
   git -C "$_g2" add -A >/dev/null 2>&1; git -C "$_g2" -c user.name=t -c user.email=t@t commit -qm "before" >/dev/null 2>&1
   kb_wire_skills "$_g2" >/dev/null 2>&1
-  t "a Claude-era hub keeps its real room tracked" "$(git -C "$_g2" ls-files .claude/skills | grep -c .)" "1"
+  t "a Claude-era mission control keeps its real room tracked" "$(git -C "$_g2" ls-files .claude/skills | grep -c .)" "1"
   # `grep -c` PRINTS 0 and then FAILS when nothing matches, so `|| echo 0` answered "0" twice and
   # this case could never pass. It only runs where symlinks are real, so Git Bash never saw it.
   t "and does not ignore it" "$(grep -cxF '.claude/skills' "$_g2/.gitignore" 2>/dev/null || true)" "0"
   t "but its .agents/skills door is ignored" "$(grep -cxF '.agents/skills' "$_g2/.gitignore")" "1"
 
-  # A hub whose recipes really do live in .claude/skills must not be fed to
+  # A mission control whose recipes really do live in .claude/skills must not be fed to
   # itself. Getting this wrong copies a folder into itself and moves it aside.
   _d2=$(mktemp -d); mkdir -p "$_d2/.claude/skills"
   for _n in x y z; do : > "$_d2/.claude/skills/$_n.md"; done
   kb_wire_skills "$_d2" >/dev/null 2>&1
-  t "a Claude-era hub keeps its three recipes" "$(kb_count_recipes "$_d2/.claude/skills")" "3"
+  t "a Claude-era mission control keeps its three recipes" "$(kb_count_recipes "$_d2/.claude/skills")" "3"
   t "and nothing was moved aside behind its back" \
     "$(find "$_d2" -name '*.replaced-*' | grep -c .)" "0"
 
@@ -1384,7 +1385,7 @@ rm -rf "$_sk"
 echo
 echo "== where Hermes works, and proving it rather than reading the setting back"
 #
-# WHAT THESE GUARD. The kit shipped `hermes config set workspace "$HUB"`, which is not
+# WHAT THESE GUARD. The kit shipped `hermes config set workspace "$GODSPEED"`, which is not
 # a recognised key: Hermes warned, the warning went to /dev/null, and the reader was
 # told the workspace was set. Four of the six known ways to point Hermes at a folder
 # are silent no-ops like that one, so v2 sets terminal.cwd and then PROVES the folder
@@ -1428,21 +1429,21 @@ export STUB_LOG="$_hb/calls.log" STUB_CWDFILE="$_hb/terminal-cwd"
 export STUB_ELSEWHERE="$_hb/elsewhere"
 mkdir -p "$STUB_ELSEWHERE"; : > "$STUB_LOG"
 
-_hh=$(mktemp -d)/hub; mkdir -p "$_hh"; _hhr=$(cd "$_hh" && pwd -P)
-kb_point_hermes_at_hub "$_hh" >/dev/null 2>&1; _rc=$?
+_hh=$(mktemp -d)/godspeed; mkdir -p "$_hh"; _hhr=$(cd "$_hh" && pwd -P)
+kb_point_hermes_at_godspeed "$_hh" >/dev/null 2>&1; _rc=$?
 
-t "terminal.cwd is set to the hub's absolute path" "$(cat "$STUB_CWDFILE")" "$_hhr"
+t "terminal.cwd is set to the mission control's absolute path" "$(cat "$STUB_CWDFILE")" "$_hhr"
 t "and the whole thing succeeds when the folder is readable" "$_rc" "0"
 t "workspace is never set, because it is not a key" \
   "$(grep -c 'config set workspace' "$STUB_LOG")" "0"
 t "the proof asks for the file by a RELATIVE name, or it proves nothing" \
-  "$(grep -c 'Read the file \.hub-reachable-check in' "$STUB_LOG")" "1"
-t "the marker file is not left behind in the reader's hub" \
-  "$(find "$_hhr" -name '.hub-reachable-check' | grep -c .)" "0"
+  "$(grep -c 'Read the file \.mc-reachable-check in' "$STUB_LOG")" "1"
+t "the marker file is not left behind in the reader's mission control" \
+  "$(find "$_hhr" -name '.mc-reachable-check' | grep -c .)" "0"
 
-# Twice equals once: a hub already pointed at is not written again.
+# Twice equals once: a mission control already pointed at is not written again.
 : > "$STUB_LOG"
-kb_point_hermes_at_hub "$_hh" >/dev/null 2>&1
+kb_point_hermes_at_godspeed "$_hh" >/dev/null 2>&1
 t "a second run does not set terminal.cwd again" \
   "$(grep -c 'config set terminal.cwd' "$STUB_LOG")" "0"
 
@@ -1451,8 +1452,8 @@ t "a second run does not set terminal.cwd again" \
 : > "$STUB_LOG"
 STUB_MODE=ignore
 export STUB_MODE
-_hi=$(mktemp -d)/hub; mkdir -p "$_hi"
-out="$(kb_point_hermes_at_hub "$_hi" 2>&1)"; _rc=$?
+_hi=$(mktemp -d)/godspeed; mkdir -p "$_hi"
+out="$(kb_point_hermes_at_godspeed "$_hi" 2>&1)"; _rc=$?
 t "an agent that ignores terminal.cwd is caught, not congratulated" "$_rc" "1"
 t "and it is named as the half-connected shape rather than as a mystery" \
   "$(printf '%s' "$out" | grep -c 'could not read a file')" "1"
@@ -1460,39 +1461,39 @@ t "and it is named as the half-connected shape rather than as a mystery" \
 # ask" look identical from the outside and only the reply itself tells them apart.
 # A real Windows e2e burned a round trip on exactly this.
 t "and the reader is shown what Hermes answered, not left to guess" \
-  "$(printf '%s' "$out" | grep -c 'File not found: .hub-reachable-check')" "1"
+  "$(printf '%s' "$out" | grep -c 'File not found: .mc-reachable-check')" "1"
 
-# A PROVIDER FAILURE IS NOT A FOLDER FAILURE, and telling a reader their hub is half
+# A PROVIDER FAILURE IS NOT A FOLDER FAILURE, and telling a reader their mission control is half
 # connected because their model is misconfigured is the workspace lie pointed the other
 # way. Found by running the installer on hardware: the test account default was a model
 # its own subscription cannot serve, so every one-shot came back HTTP 400 and the
 # installer blamed terminal.cwd.
 : > "$STUB_LOG"
 STUB_MODE=http400; export STUB_MODE
-_hu=$(mktemp -d)/hub; mkdir -p "$_hu"
-t "a one-shot that reached no model is unreachable, not a failed read"   "$(kb_hermes_reads_hub "$_hu")" "unreachable"
-out="$(kb_point_hermes_at_hub "$_hu" 2>&1)"; _rc=$?
-t "and that is not reported as a broken hub" "$_rc" "0"
+_hu=$(mktemp -d)/godspeed; mkdir -p "$_hu"
+t "a one-shot that reached no model is unreachable, not a failed read"   "$(kb_hermes_reads_godspeed "$_hu")" "unreachable"
+out="$(kb_point_hermes_at_godspeed "$_hu" 2>&1)"; _rc=$?
+t "and that is not reported as a broken mission control" "$_rc" "0"
 t "the reader is told it is a provider problem"   "$(printf '%s' "$out" | grep -c 'provider problem and not a folder problem')" "1"
 t "and is shown what Hermes actually said"   "$(printf '%s' "$out" | grep -c 'HTTP 400')" "1"
 t "the half-connected warning is NOT printed for a provider error"   "$(printf '%s' "$out" | grep -c 'could not read a file')" "0"
 STUB_MODE=ratelimit
-t "a rate limit is the same story" "$(kb_hermes_reads_hub "$_hu")" "unreachable"
+t "a rate limit is the same story" "$(kb_hermes_reads_godspeed "$_hu")" "unreachable"
 # Hermes 0.20.0's wording for the same condition. A credential can be present
 # (a gh CLI token is auto-detected as one) while no model is configured, so the
 # credential gate passes and only this net catches it. Measured on the book's
-# own rehearsal server, where the miss called a correctly wired hub broken.
+# own rehearsal server, where the miss called a correctly wired mission control broken.
 STUB_MODE=noprovider
 t "a missing inference provider is unreachable, not a broken folder" \
-  "$(kb_hermes_reads_hub "$_hu")" "unreachable"
+  "$(kb_hermes_reads_godspeed "$_hu")" "unreachable"
 unset STUB_MODE
 
 # A parrot passes nothing. The token lives only in the file, never in the prompt, so an
 # agent that echoes the prompt straight back cannot fake a read.
 STUB_MODE=parrot
-_hp=$(mktemp -d)/hub; mkdir -p "$_hp"
+_hp=$(mktemp -d)/godspeed; mkdir -p "$_hp"
 t "an agent that only echoes the prompt back does not count as reading the file" \
-  "$(kb_hermes_reads_hub "$_hp")" "no"
+  "$(kb_hermes_reads_godspeed "$_hp")" "no"
 unset STUB_MODE
 
 # A first install, before the reader has signed in anywhere. Crying wolf here is how an
@@ -1500,29 +1501,29 @@ unset STUB_MODE
 : > "$STUB_LOG"
 STUB_NO_CREDENTIAL=1
 export STUB_NO_CREDENTIAL
-_hn=$(mktemp -d)/hub; mkdir -p "$_hn"
-out="$(kb_point_hermes_at_hub "$_hn" 2>&1)"; _rc=$?
+_hn=$(mktemp -d)/godspeed; mkdir -p "$_hn"
+out="$(kb_point_hermes_at_godspeed "$_hn" 2>&1)"; _rc=$?
 t "no provider yet is not a failure" "$_rc" "0"
 t "the setting still lands with no provider" \
   "$(grep -c 'config set terminal.cwd' "$STUB_LOG")" "1"
 t "and no one-shot is attempted with nothing to call" "$(grep -c -- '-z' "$STUB_LOG")" "0"
 t "a folder cannot be proved readable with no credential" \
-  "$(kb_hermes_reads_hub "$_hn")" "unavailable"
+  "$(kb_hermes_reads_godspeed "$_hn")" "unavailable"
 unset STUB_NO_CREDENTIAL
 
 # The escape hatch, for the test matrix and for a reader on a metered plan.
 : > "$STUB_LOG"
-_hs=$(mktemp -d)/hub; mkdir -p "$_hs"
-KB_SKIP_HUB_PROOF=1 kb_point_hermes_at_hub "$_hs" >/dev/null 2>&1
-t "KB_SKIP_HUB_PROOF spends no request" "$(grep -c -- '-z' "$STUB_LOG")" "0"
+_hs=$(mktemp -d)/godspeed; mkdir -p "$_hs"
+KB_SKIP_GODSPEED_PROOF=1 kb_point_hermes_at_godspeed "$_hs" >/dev/null 2>&1
+t "KB_SKIP_GODSPEED_PROOF spends no request" "$(grep -c -- '-z' "$STUB_LOG")" "0"
 t "but still sets the folder" "$(grep -c 'config set terminal.cwd' "$STUB_LOG")" "1"
 
 t "a folder that is not there is unavailable, not a failed read" \
-  "$(kb_hermes_reads_hub "$_hb/no-such-hub")" "unavailable"
+  "$(kb_hermes_reads_godspeed "$_hb/no-such-godspeed")" "unavailable"
 
 # And with no Hermes at all, which is every machine before the install finishes.
 KB_HERMES_BIN="$_hb/bin/no-such-hermes"
-out="$(kb_point_hermes_at_hub "$_hh" 2>&1)"; _rc=$?
+out="$(kb_point_hermes_at_godspeed "$_hh" 2>&1)"; _rc=$?
 t "no Hermes on the machine is not a failure" "$_rc" "0"
 t "and it says so plainly instead of going quiet" \
   "$(printf '%s' "$out" | grep -c 'Hermes is not on this machine yet')" "1"
@@ -1752,7 +1753,7 @@ else
 fi
 
 # The clock.
-_ch=$(mktemp -d)/hub; mkdir -p "_ch" 2>/dev/null; mkdir -p "$_ch"
+_ch=$(mktemp -d)/godspeed; mkdir -p "_ch" 2>/dev/null; mkdir -p "$_ch"
 : > "$STUB_LOG"; : > "$STUB_JOBS"
 out="$(STUB_GW=running kb_cron_job "$_ch" morning-brief "0 7 * * *" "write my brief" telegram 2>&1)"; _rc=$?
 t "a job the kit creates always carries --workdir, or it has no house rules at all" \
@@ -1847,7 +1848,7 @@ rm -rf "$_gw"
 echo
 echo "== one room, one name"
 #
-# THE BUG THESE EXIST FOR. Measured on a real existing hub during Run 2: the top-up
+# THE BUG THESE EXIST FOR. Measured on a real existing mission control during Run 2: the top-up
 # found no profile/, so it copied the starter's in beside a context/ that already held
 # the same four filenames. The next run then warned "you have both, delete the empty
 # one" at a reader whose folders both had four files in them. The installer built the
@@ -1855,14 +1856,14 @@ echo "== one room, one name"
 
 _rm=$(mktemp -d)
 mkdir -p "$_rm/h1/context"
-t "a hub with context/ is told profile/ is the same room"  "$(kb_room_twin "$_rm/h1" profile)" "context"
+t "a mission control with context/ is told profile/ is the same room"  "$(kb_room_twin "$_rm/h1" profile)" "context"
 t "and the question answers in the other direction too"    "$(kb_room_twin "$_rm/h1" context)" ""
 mkdir -p "$_rm/h2/observations"
 t "memory/ and observations/ are the same pair"            "$(kb_room_twin "$_rm/h2" memory)" "observations"
 t "a room with no older name has no twin"                  "$(kb_room_twin "$_rm/h1" rules)"   ""
-t "and neither does a hub that has neither spelling"       "$(kb_room_twin "$_rm/h2" profile)" ""
+t "and neither does a mission control that has neither spelling"       "$(kb_room_twin "$_rm/h2" profile)" ""
 
-# The rename, which is what SHOULD happen to a hub that only has the old name.
+# The rename, which is what SHOULD happen to a mission control that only has the old name.
 _r1=$(mktemp -d); mkdir -p "$_r1/context"; : > "$_r1/context/about-me.md"
 kb_migrate_folder_names "$_r1" >/dev/null 2>&1
 t "context/ becomes profile/ rather than gaining a sibling" \
@@ -1873,7 +1874,7 @@ t "and the reader's file came with it" \
 # THE LINE THAT MADE THE DUPLICATE. It used to be an unconditional mkdir.
 _r2=$(mktemp -d); mkdir -p "$_r2/context" "$_r2/profile"; : > "$_r2/context/a.md"; : > "$_r2/profile/b.md"
 out="$(kb_migrate_folder_names "$_r2" 2>&1)"
-t "a hub that really has both keeps both, untouched" \
+t "a mission control that really has both keeps both, untouched" \
   "$([ -f "$_r2/context/a.md" ] && [ -f "$_r2/profile/b.md" ] && echo yes)" "yes"
 t "and it is never told to delete the empty one, because neither is empty" \
   "$(printf '%s' "$out" | grep -c 'delete the empty one')" "0"
@@ -1889,29 +1890,29 @@ t "rules/ is made whatever else is going on" "$([ -d "$_r3/rules" ] && echo yes)
 
 # The top-up. A local starter repo, so this stays off the network like everything else
 # in this file.
-_st=$(mktemp -d)/starter; mkdir -p "$_st/starter-hub/profile" "$_st/starter-hub/observations"
-: > "$_st/starter-hub/profile/about-me.md"
-: > "$_st/starter-hub/observations/MEMORY.md"
-: > "$_st/starter-hub/AGENTS.md"
+_st=$(mktemp -d)/starter; mkdir -p "$_st/starter-godspeed/profile" "$_st/starter-godspeed/observations"
+: > "$_st/starter-godspeed/profile/about-me.md"
+: > "$_st/starter-godspeed/observations/MEMORY.md"
+: > "$_st/starter-godspeed/AGENTS.md"
 git -C "$_st" init -q 2>/dev/null
 git -C "$_st" add -A >/dev/null 2>&1
 git -C "$_st" -c user.email=t@t -c user.name=t commit -q -m starter >/dev/null 2>&1
 
 _r4=$(mktemp -d); mkdir -p "$_r4/context"; : > "$_r4/context/about-me.md"
-kb_copy_starter_hub "$_r4" "$_st" starter-hub >/dev/null 2>&1
+kb_copy_starter_godspeed "$_r4" "$_st" starter-godspeed >/dev/null 2>&1
 t "the top-up does NOT drop profile/ beside an existing context/" \
   "$([ -d "$_r4/profile" ] && echo made || echo no)" "no"
 t "the reader's own room is untouched" \
   "$([ -f "$_r4/context/about-me.md" ] && echo yes)" "yes"
 t "and everything that is genuinely new still arrives" \
   "$([ -f "$_r4/AGENTS.md" ] && echo yes)" "yes"
-t "including the other room, which this hub does not have under either name" \
+t "including the other room, which this mission control does not have under either name" \
   "$([ -d "$_r4/observations" ] && echo yes)" "yes"
 
-# And a hub with neither spelling gets the room, or the guard has gone too far.
+# And a mission control with neither spelling gets the room, or the guard has gone too far.
 _r5=$(mktemp -d)
-kb_copy_starter_hub "$_r5" "$_st" starter-hub >/dev/null 2>&1
-t "a hub with neither name still gets profile/" "$([ -d "$_r5/profile" ] && echo yes)" "yes"
+kb_copy_starter_godspeed "$_r5" "$_st" starter-godspeed >/dev/null 2>&1
+t "a mission control with neither name still gets profile/" "$([ -d "$_r5/profile" ] && echo yes)" "yes"
 
 rm -rf "$_rm"
 
@@ -1919,10 +1920,10 @@ echo
 echo "== a kit ships products, not its own test suite"
 #
 # Measured on a real install during Run 2: test-notebook-sync.sh and
-# test-prompt-archive.sh were copied onto the reader's PATH beside hub-due and
-# hub-check-keys.
+# test-prompt-archive.sh were copied onto the reader's PATH beside mc-due and
+# mc-check-keys.
 _tk=$(mktemp -d)/kit; mkdir -p "$_tk/tools"
-for _f in due.js check-keys.js hub-notebook-sync test-notebook-sync.sh test-prompt-archive.sh README.md; do
+for _f in due.js check-keys.js mc-notebook-sync test-notebook-sync.sh test-prompt-archive.sh README.md; do
   printf '#!/bin/sh\necho %s\n' "$_f" > "$_tk/tools/$_f"
 done
 git -C "$_tk" init -q 2>/dev/null
@@ -1930,29 +1931,29 @@ git -C "$_tk" add -A >/dev/null 2>&1
 git -C "$_tk" -c user.email=t@t -c user.name=t commit -q -m tools >/dev/null 2>&1
 
 _th=$(mktemp -d); _thome=$(mktemp -d)
-HOME="$_thome" kb_install_hub_tools "$_th" "$_tk" >/dev/null 2>&1
+HOME="$_thome" kb_install_godspeed_tools "$_th" "$_tk" >/dev/null 2>&1
 t "the products a reader types are installed" \
-  "$([ -f "$_thome/.local/bin/due.js" ] && [ -f "$_thome/.local/bin/hub-notebook-sync" ] && echo yes)" "yes"
+  "$([ -f "$_thome/.local/bin/due.js" ] && [ -f "$_thome/.local/bin/mc-notebook-sync" ] && echo yes)" "yes"
 t "and the kit's own tests are NOT" \
   "$(find "$_thome/.local/bin" -name 'test-*' 2>/dev/null | grep -c .)" "0"
 t "the README does not become a command either" \
   "$([ -f "$_thome/.local/bin/README.md" ] && echo shipped || echo no)" "no"
 t "the launcher for a real command is still made" \
-  "$([ -f "$_thome/.local/bin/hub-due" ] && echo yes)" "yes"
+  "$([ -f "$_thome/.local/bin/mc-due" ] && echo yes)" "yes"
 
-# --- A SECOND HUB BESIDE THE FIRST (2026-09-03) -------------------------------
+# --- A SECOND GODSPEED BESIDE THE FIRST (2026-09-03) -------------------------------
 # The twins of the cases in windows/test-windows.ps1. Only a handful of things on an
-# account answer "which hub does this computer work from": the HUB_DIR line in
+# account answer "which mission control does this computer work from": the GODSPEED_DIR line in
 # device.env, the two cron jobs, and Hermes' terminal.cwd. A beside run takes none of
-# them, and everything else it wires is either inside the hub folder or keyed by the
-# hub's path. Before this existed, a second hub took all of them and the first hub's
+# them, and everything else it wires is either inside the mission control folder or keyed by the
+# mission control's path. Before this existed, a second mission control took all of them and the first mission control's
 # daily jobs went quiet with nothing on screen to say so.
 #
 # Its own fixture folder and its own fake crontab on purpose: $_f and $_cronfile have
 # both been reused by cases further up, and borrowing them here made four of these
 # write into a folder that no longer existed and pass or fail for the wrong reason.
 _bd="$(mktemp -d)"; _bh="$_bd/home"; _bcron="$_bd/crontab.txt"
-mkdir -p "$_bd/one" "$_bd/two/bin" "$_bh/.hub" "$_bh/.local/bin"
+mkdir -p "$_bd/one" "$_bd/two/bin" "$_bh/.godspeed" "$_bh/.local/bin"
 : > "$_bcron"
 cat > "$_bd/fakecrontab" <<FAKE
 #!/bin/sh
@@ -1975,18 +1976,18 @@ t "two folders are two folders" \
 t "a missing side is never a match" \
   "$(kb_same_path "" "$_bd/one" && echo yes || echo no)" "no"
 
-# device.env is how the daily jobs find the hub. A hub sitting beside another one must
-# not touch that line, or the first hub's jobs file into the second one.
-printf 'HUB_DIR=%s/one\nHUB_PROMPT_SOURCES=claude\n' "$_bd" > "$_bh/.hub/device.env"
-_bbefore="$(cat "$_bh/.hub/device.env")"
-( HOME="$_bh" KB_BESIDE=1 kb_record_hub_dir "$_bd/two" ) >/dev/null 2>&1
-t "beside leaves the HUB_DIR line exactly as it was" \
-  "$(cat "$_bh/.hub/device.env")" "$_bbefore"
+# device.env is how the daily jobs find the mission control. A mission control sitting beside another one must
+# not touch that line, or the first mission control's jobs file into the second one.
+printf 'GODSPEED_DIR=%s/one\nGODSPEED_PROMPT_SOURCES=claude\n' "$_bd" > "$_bh/.godspeed/device.env"
+_bbefore="$(cat "$_bh/.godspeed/device.env")"
+( HOME="$_bh" KB_BESIDE=1 kb_record_godspeed_dir "$_bd/two" ) >/dev/null 2>&1
+t "beside leaves the GODSPEED_DIR line exactly as it was" \
+  "$(cat "$_bh/.godspeed/device.env")" "$_bbefore"
 # The same call without beside is what re-points it, so the guard is what made the
 # difference and not a fixture that could not be written to either way.
-( HOME="$_bh" kb_record_hub_dir "$_bd/two" ) >/dev/null 2>&1
+( HOME="$_bh" kb_record_godspeed_dir "$_bd/two" ) >/dev/null 2>&1
 t "and the same call without beside does re-point it" \
-  "$(sed -n 's/^HUB_DIR=//p' "$_bh/.hub/device.env")" "$_bd/two"
+  "$(sed -n 's/^GODSPEED_DIR=//p' "$_bh/.godspeed/device.env")" "$_bd/two"
 
 # The daily job is one cron line for the whole account, so beside adds none.
 printf 'console.log(1)\n' > "$_bd/two/bin/prompt-harvest.js"
@@ -1996,54 +1997,54 @@ t "beside schedules no daily job" "$(grep -c 'prompt-harvest.js' "$_bcron")" "0"
 t "and the same call without beside does schedule one" \
   "$(grep -c 'prompt-harvest.js' "$_bcron")" "1"
 
-# The save hook lives INSIDE this hub, so beside still gets its own. The hourly cron
+# The save hook lives INSIDE this mission control, so beside still gets its own. The hourly cron
 # line does not, so beside adds none.
 : > "$_bcron"
-printf '#!/bin/sh\n# reads HUB_NOTEBOOK_MIRROR\nexit 0\n' > "$_bh/.local/bin/hub-notebook-sync"
-chmod +x "$_bh/.local/bin/hub-notebook-sync"
+printf '#!/bin/sh\n# reads GODSPEED_NOTEBOOK_MIRROR\nexit 0\n' > "$_bh/.local/bin/mc-notebook-sync"
+chmod +x "$_bh/.local/bin/mc-notebook-sync"
 git -C "$_bd/two" init -q >/dev/null 2>&1
 ( HOME="$_bh" KB_BESIDE=1 KB_CRONTAB="$_bd/fakecrontab" kb_install_notebook_sync "$_bd/two" ) >/dev/null 2>&1
-t "beside still gives THIS hub its own save hook" \
-  "$(grep -c 'hub-notebook-sync' "$_bd/two/.git/hooks/post-commit" 2>/dev/null || echo 0)" "1"
+t "beside still gives THIS mission control its own save hook" \
+  "$(grep -c 'mc-notebook-sync' "$_bd/two/.git/hooks/post-commit" 2>/dev/null || echo 0)" "1"
 t "and adds no hourly line to the account's crontab" \
-  "$(grep -c 'hub-notebook-sync' "$_bcron")" "0"
+  "$(grep -c 'mc-notebook-sync' "$_bcron")" "0"
 
 t "beside leaves Hermes pointing where it was, and says so" \
-  "$(HOME="$_bh" KB_BESIDE=1 kb_point_hermes_at_hub "$_bd/two" 2>&1 | grep -c 'left Hermes pointing where it was')" "1"
+  "$(HOME="$_bh" KB_BESIDE=1 kb_point_hermes_at_godspeed "$_bd/two" 2>&1 | grep -c 'left Hermes pointing where it was')" "1"
 rm -rf "$_bd"
 
 # The installer's own half, read as text: these lines are the whole contract, and a
 # refactor that drops one puts the collision back without failing anything above.
-t "the installer takes --beside"          "$(grep -c -- '--beside)       BESIDE=1' setup-hub.sh)" "1"
-t "--beside without --hub stops"          "$(grep -c -- '--beside needs --hub as well' setup-hub.sh)" "1"
+t "the installer takes --beside"          "$(grep -c -- '--beside)       BESIDE=1' setup-godspeed.sh)" "1"
+t "--beside without --godspeed stops"          "$(grep -c -- '--beside needs --godspeed as well' setup-godspeed.sh)" "1"
 t "--beside with nothing to sit beside stops" \
-  "$(grep -c 'nothing for a second one to sit beside' setup-hub.sh)" "1"
-# THE BUG: until 2026-09-03 asking for one hub while this computer worked from another
+  "$(grep -c 'nothing for a second one to sit beside' setup-godspeed.sh)" "1"
+# THE BUG: until 2026-09-03 asking for one mission control while this computer worked from another
 # brought the OTHER one up to date under a green tick, and the folder asked for was
-# never made. kb_find_hub reads $HUB_DIR before it looks anywhere else, which is why
-# --hub alone could never reach a folder that did not exist yet.
-t "asking for one hub while this computer works from another now stops" \
-  "$(grep -c 'already works from \$FOUND' setup-hub.sh)" "1"
-_bsrc="$(declare -f kb_find_hub)"
-_bneedle='$HOME/hub'
-_bpre_env="${_bsrc%%HUB_DIR*}"
+# never made. kb_find_godspeed reads $GODSPEED_DIR before it looks anywhere else, which is why
+# --godspeed alone could never reach a folder that did not exist yet.
+t "asking for one mission control while this computer works from another now stops" \
+  "$(grep -c 'already works from \$FOUND' setup-godspeed.sh)" "1"
+_bsrc="$(declare -f kb_find_godspeed)"
+_bneedle='$HOME/godspeed'
+_bpre_env="${_bsrc%%GODSPEED_DIR*}"
 _bpre_home="${_bsrc%%$_bneedle*}"
-t "and kb_find_hub really does read HUB_DIR before the usual homes" \
+t "and kb_find_godspeed really does read GODSPEED_DIR before the usual homes" \
   "$([ ${#_bpre_env} -lt ${#_bpre_home} ] && echo yes || echo no)" "yes"
 
 
-# THE LIST THAT STOPPED EVERY RUN. setup-hub.sh checks that the library it loaded has
+# THE LIST THAT STOPPED EVERY RUN. setup-godspeed.sh checks that the library it loaded has
 # every function it is about to call. From 2026-09-03 that list carried a backslash
 # followed by the LETTER n where a line break belonged, which bash reads as the word
 # "n": so the check looked for a function called n, never found one, and every run of
 # the macOS and Linux installer stopped with "(n is missing)" before doing anything.
-# Nothing here runs setup-hub.sh, because it reaches the network, so nothing saw it.
+# Nothing here runs setup-godspeed.sh, because it reaches the network, so nothing saw it.
 # The list is read the way bash reads it, and every word has to be a real function.
-_need="$(sed -n '/^for fn in kb_install_prereqs/,/; do$/p' setup-hub.sh | sed 's/^for fn in//; s/; do$//')"
+_need="$(sed -n '/^for fn in kb_install_prereqs/,/; do$/p' setup-godspeed.sh | sed 's/^for fn in//; s/; do$//')"
 eval "set -- $_need"
 _nomatch=""
 for _fn in "$@"; do declare -F "$_fn" >/dev/null || _nomatch="$_nomatch $_fn"; done
-t "every function setup-hub.sh insists on is one the library really has" "$_nomatch" ""
+t "every function setup-godspeed.sh insists on is one the library really has" "$_nomatch" ""
 t "and that list is not empty, so the case above is looking at something" \
   "$([ "$#" -gt 10 ] && echo yes || echo no)" "yes"
 set --
@@ -2053,9 +2054,9 @@ set --
 #
 # Before this, the connect step stored the key, wrote .mcp.json for Claude Code, and
 # printed a `hermes mcp add` command for the reader to type. Codex got nothing. The work
-# now belongs to the kit's hub-menerio-connect, and what is tested here is everything
+# now belongs to the kit's mc-menerio-connect, and what is tested here is everything
 # the installer owns around it: that it is installed, that it is called on every road
-# (a key just pasted, a hub connected already), that it is told which hub, that its
+# (a key just pasted, a mission control connected already), that it is told which mission control, that its
 # report reaches the reader, and that an older kit without it still leaves Claude Code
 # connected. The program itself is a stand-in, because the kit's own suite tests the
 # real one. These are the bash twins of the cases in windows/test-windows.ps1.
@@ -2063,94 +2064,94 @@ set --
 echo
 echo "== connect Menerio once: every assistant, and a way back in"
 _m="$(mktemp -d)"
-mkdir -p "$_m/home/.hub" "$_m/home/.local/bin" "$_m/hub/secrets"
+mkdir -p "$_m/home/.godspeed" "$_m/home/.local/bin" "$_m/godspeed/secrets"
 _mstub() {   # _mstub <exit code>: a stand-in that reports, and writes down how it was called
-  cat > "$_m/home/.local/bin/hub-menerio-connect" <<STUB
+  cat > "$_m/home/.local/bin/mc-menerio-connect" <<STUB
 #!/bin/sh
 printf 'args=%s\n' "\$*" > "$_m/called.txt"
 printf 'cwd=%s\n' "\$(pwd -P)" >> "$_m/called.txt"
-printf 'hubdir=%s\n' "\${HUB_DIR:-}" >> "$_m/called.txt"
+printf 'godspeeddir=%s\n' "\${GODSPEED_DIR:-}" >> "$_m/called.txt"
 [ -n "\${MENERIO_API_KEY:-}" ] && printf 'envkey=set\n' >> "$_m/called.txt"
-[ -f "$_m/hub/secrets/hub-secrets.env.age" ] && printf 'store=yes\n' >> "$_m/called.txt"
+[ -f "$_m/godspeed/secrets/mc-secrets.env.age" ] && printf 'store=yes\n' >> "$_m/called.txt"
 echo "Claude Code: connected"
 echo "Hermes: connected"
 echo "Codex: not on this computer"
 exit $1
 STUB
-  chmod +x "$_m/home/.local/bin/hub-menerio-connect"
+  chmod +x "$_m/home/.local/bin/mc-menerio-connect"
 }
-_mphys="$(cd "$_m/hub" && pwd -P)"
+_mphys="$(cd "$_m/godspeed" && pwd -P)"
 
 # An older kit: no such program. Claude Code still gets its file, one line says what is
 # missing, and nobody is sent off to type a Hermes command.
 out="$( ( HOME="$_m/home"; kb_notebook_state() { printf connected; }
-          kb_connect_assistants "$_m/hub" ) 2>&1 )"
+          kb_connect_assistants "$_m/godspeed" ) 2>&1 )"
 t "an older kit with no connect program still leaves Claude Code its file" \
-  "$([ -f "$_m/hub/.mcp.json" ] && echo yes || echo no)" "yes"
+  "$([ -f "$_m/godspeed/.mcp.json" ] && echo yes || echo no)" "yes"
 t "and says in one line that Hermes and Codex come with the next kit" \
   "$(printf '%s' "$out" | grep -c 'cannot connect Hermes and Codex for you yet')" "1"
 t "and never sends the reader off to type a Hermes command" \
   "$(printf '%s' "$out" | grep -c 'hermes mcp')" "0"
-rm -f "$_m/hub/.mcp.json"
+rm -f "$_m/godspeed/.mcp.json"
 
-# The program is there and the hub is connected: it runs, and its words reach the reader.
+# The program is there and the mission control is connected: it runs, and its words reach the reader.
 _mstub 0
 out="$( ( HOME="$_m/home"; kb_notebook_state() { printf connected; }
-          MENERIO_API_KEY="a-key-from-another-hub-not-real"; export MENERIO_API_KEY
-          kb_connect_assistants "$_m/hub" ) 2>&1 )"
+          MENERIO_API_KEY="a-key-from-another-mc-not-real"; export MENERIO_API_KEY
+          kb_connect_assistants "$_m/godspeed" ) 2>&1 )"
 # The real program takes the key from the environment BEFORE it opens the store. A shell
-# still holding another hub's key would have it written into Hermes over the one just pasted.
+# still holding another mission control's key would have it written into Hermes over the one just pasted.
 t "a key left in this shell never reaches the connect program, so it reads the store" \
   "$(grep -c '^envkey=set' "$_m/called.txt")" "0"
 t "the connect program's report reaches the reader, one line for each assistant" \
   "$(printf '%s' "$out" | grep -c -e 'Claude Code: connected' -e 'Hermes: connected' -e 'Codex: not on this computer')" "3"
-t "it is told which hub with --hub" \
-  "$(grep -c -- "^args=--hub " "$_m/called.txt")" "1"
-t "and it starts inside that hub" \
+t "it is told which mission control with --godspeed" \
+  "$(grep -c -- "^args=--godspeed " "$_m/called.txt")" "1"
+t "and it starts inside that mission control" \
   "$(sed -n 's/^cwd=//p' "$_m/called.txt")" "$_mphys"
-t "and HUB_DIR names that hub too, because device.env may name another one" \
-  "$([ -n "$(sed -n 's/^hubdir=//p' "$_m/called.txt")" ] && echo yes || echo no)" "yes"
+t "and GODSPEED_DIR names that mission control too, because device.env may name another one" \
+  "$([ -n "$(sed -n 's/^godspeeddir=//p' "$_m/called.txt")" ] && echo yes || echo no)" "yes"
 t "a program that reported and wrote no file still leaves Claude Code the floor" \
-  "$([ -f "$_m/hub/.mcp.json" ] && echo yes || echo no)" "yes"
+  "$([ -f "$_m/godspeed/.mcp.json" ] && echo yes || echo no)" "yes"
 
 # A program that reports a problem must be heard, and must never stop the install. The
 # real one prints its whole report and THEN exits 1 when anything failed, a refused key
 # included, so the sentence may not say it "stopped early": it did not.
 _mstub 1
 out="$( ( HOME="$_m/home"; kb_notebook_state() { printf connected; }
-          kb_connect_assistants "$_m/hub"; echo "rc=$? problem=$KB_MENERIO_PROBLEM" ) 2>&1 )"
+          kb_connect_assistants "$_m/godspeed"; echo "rc=$? problem=$KB_MENERIO_PROBLEM" ) 2>&1 )"
 t "a connect program that reports a problem is heard, in words that fit a refused key" \
   "$(printf '%s' "$out" | grep -c 'found a problem')" "1"
 t "its whole report still reaches the reader" "$(printf '%s' "$out" | grep -c 'Hermes: connected')" "1"
 t "and the install carries on, knowing about it" "$(printf '%s' "$out" | grep -c '^rc=0 problem=1')" "1"
 # Forced headless, like every case here that would otherwise wait for an answer on a real terminal.
-out="$( ( HOME="$_m/home"; kb_install_hub_tools() { :; }; kb_notebook_state() { printf connected; }
+out="$( ( HOME="$_m/home"; kb_install_godspeed_tools() { :; }; kb_notebook_state() { printf connected; }
           have_tty() { return 1; }
           kb_connect_notebook() { kb_connect_assistants "$1"; }
-          kb_only_menerio "$_m/hub" "" ) 2>&1 )"
+          kb_only_menerio "$_m/godspeed" "" ) 2>&1 )"
 t "the single step never says 'connected' straight under a problem" \
   "$(printf '%s' "$out" | grep -c 'Menerio: connected')" "0"
 t "it says the key is stored and the check found a problem" \
   "$(printf '%s' "$out" | grep -c 'your key is stored, and the check above found a problem')" "1"
-# A KEY MENERIO REFUSES HAD NO WAY OUT: a connected hub is never asked for a key again. With
+# A KEY MENERIO REFUSES HAD NO WAY OUT: a connected mission control is never asked for a key again. With
 # somebody at the keyboard the single step offers to store a new one, and connects again.
 _only_with() {   # _only_with <answer to the question>: the connect program fails once, then is happy
   ( HOME="$_m/home"; _calls=0
     have_tty() { return 0; }; kb_tell() { printf '%s\n' "$*"; }
     ask_yes() { printf 'ASKED: %s\n' "$1"; [ "$_answer" = y ]; }
     ask_secret() { printf 'a-new-key-not-real-0123456789'; }
-    kb_install_hub_tools() { :; }; kb_notebook_state() { printf connected; }
+    kb_install_godspeed_tools() { :; }; kb_notebook_state() { printf connected; }
     kb_store_notebook_token() { printf 'STORED a new key for %s\n' "$1"; }
     kb_connect_notebook() { kb_connect_assistants "$1"; }
     kb_connect_assistants() { _calls=$((_calls + 1)); printf 'CONNECT %s\n' "$_calls"
                               if [ "$_calls" -eq 1 ]; then KB_MENERIO_PROBLEM=1; else KB_MENERIO_PROBLEM=0; fi; }
-    _answer="$1"; kb_only_menerio "$_m/hub" "" ) 2>&1
+    _answer="$1"; kb_only_menerio "$_m/godspeed" "" ) 2>&1
 }
 out="$(_only_with y)"
 t "with a problem and a reader at the keyboard, the single step offers to store a new key" \
   "$(printf '%s' "$out" | grep -c 'ASKED: Store a new Menerio key?')" "1"
 t "a yes stores it and connects every assistant again" \
-  "$(printf '%s\n' "$out" | grep -e '^STORED' -e '^CONNECT' | tr '\n' '|')" "CONNECT 1|STORED a new key for $_m/hub|CONNECT 2|"
+  "$(printf '%s\n' "$out" | grep -e '^STORED' -e '^CONNECT' | tr '\n' '|')" "CONNECT 1|STORED a new key for $_m/godspeed|CONNECT 2|"
 t "and the last line then says connected, because it now is" \
   "$(printf '%s' "$out" | grep -c 'Menerio: connected')" "1"
 t "the new key is never shown" "$(printf '%s' "$out" | grep -c 'a-new-key-not-real')" "0"
@@ -2158,29 +2159,29 @@ out="$(_only_with n)"
 t "a no stores nothing and connects nothing again" \
   "$(printf '%s\n' "$out" | grep -e '^STORED' -e '^CONNECT' | tr '\n' '|')" "CONNECT 1|"
 out="$( ( HOME="$_m/home"; have_tty() { return 1; }; ask_yes() { echo ASKED; }
-          kb_install_hub_tools() { :; }; kb_notebook_state() { printf connected; }
+          kb_install_godspeed_tools() { :; }; kb_notebook_state() { printf connected; }
           kb_connect_notebook() { KB_MENERIO_PROBLEM=1; }
-          kb_only_menerio "$_m/hub" "" ) 2>&1 )"
+          kb_only_menerio "$_m/godspeed" "" ) 2>&1 )"
 t "with nobody at the keyboard it asks nothing, and a one-line run stays one line" \
   "$(printf '%s' "$out" | grep -c ASKED)" "0"
 
 # No key on this computer: the program has nothing to read, so it is not run at all.
 rm -f "$_m/called.txt"; _mstub 0
-( HOME="$_m/home"; kb_notebook_state() { printf none; }; kb_connect_assistants "$_m/hub" ) >/dev/null 2>&1
-t "a hub with no key on this computer does not run the connect program" \
+( HOME="$_m/home"; kb_notebook_state() { printf none; }; kb_connect_assistants "$_m/godspeed" ) >/dev/null 2>&1
+t "a mission control with no key on this computer does not run the connect program" \
   "$([ -f "$_m/called.txt" ] && echo ran || echo no)" "no"
 
 # The starter ships {"mcpServers": {}}. "Already there, left as you have it" over that
 # file meant a connected reader whose Claude Code had no connection at all.
-printf '{\n  "mcpServers": {}\n}\n' > "$_m/hub/.mcp.json"
-kb_write_mcp_config "$_m/hub" >/dev/null 2>&1
+printf '{\n  "mcpServers": {}\n}\n' > "$_m/godspeed/.mcp.json"
+kb_write_mcp_config "$_m/godspeed" >/dev/null 2>&1
 t "the starter's empty .mcp.json is filled in, not left empty" \
-  "$(grep -c 'mcp.menerio.com' "$_m/hub/.mcp.json")" "1"
-printf '{"mcpServers": {"mine": {"url": "https://example.invalid"}}}\n' > "$_m/hub/.mcp.json"
-kb_write_mcp_config "$_m/hub" >/dev/null 2>&1
+  "$(grep -c 'mcp.menerio.com' "$_m/godspeed/.mcp.json")" "1"
+printf '{"mcpServers": {"mine": {"url": "https://example.invalid"}}}\n' > "$_m/godspeed/.mcp.json"
+kb_write_mcp_config "$_m/godspeed" >/dev/null 2>&1
 t "one that names a server of the reader's own is still never touched" \
-  "$(grep -c 'mcp.menerio.com' "$_m/hub/.mcp.json")" "0"
-rm -f "$_m/hub/.mcp.json"
+  "$(grep -c 'mcp.menerio.com' "$_m/godspeed/.mcp.json")" "0"
+rm -f "$_m/godspeed/.mcp.json"
 
 # The whole step, both roads, with the real lock where age is installed.
 if command -v age >/dev/null 2>&1 && command -v age-keygen >/dev/null 2>&1; then
@@ -2190,7 +2191,7 @@ if command -v age >/dev/null 2>&1 && command -v age-keygen >/dev/null 2>&1; then
   chmod +x "$_m/fakecrontab"
   out="$( ( HOME="$_m/home"; export HOME; kb_stdin_is_tty(){ false; }; kb_can_open_tty(){ false; }; KB_TTY=""
             KB_CRONTAB="$_m/fakecrontab" KB_NOTEBOOK_TOKEN="test-token-not-a-real-one-0123456789" \
-              kb_connect_notebook "$_m/hub" ) 2>&1 )"
+              kb_connect_notebook "$_m/godspeed" ) 2>&1 )"
   t "a key just pasted: the connect program runs, and only after the key is in the store" \
     "$(grep -c '^store=yes' "$_m/called.txt" 2>/dev/null)" "1"
   t "and the reader sees its report in the same run" \
@@ -2199,8 +2200,8 @@ if command -v age >/dev/null 2>&1 && command -v age-keygen >/dev/null 2>&1; then
     "$(printf '%s' "$out" | grep -c 'test-token-not-a-real-one')" "0"
   rm -f "$_m/called.txt"
   out="$( ( HOME="$_m/home"; export HOME; kb_stdin_is_tty(){ false; }; kb_can_open_tty(){ false; }; KB_TTY=""
-            KB_CRONTAB="$_m/fakecrontab" kb_connect_notebook "$_m/hub" ) 2>&1 )"
-  t "a hub connected already: a re-run connects the assistants again, asking nothing" \
+            KB_CRONTAB="$_m/fakecrontab" kb_connect_notebook "$_m/godspeed" ) 2>&1 )"
+  t "a mission control connected already: a re-run connects the assistants again, asking nothing" \
     "$([ -f "$_m/called.txt" ] && printf '%s' "$out" | grep -c 'already connected')" "1"
 else
   echo "  skip  the whole connect step on both roads (age is not on this computer)"
@@ -2216,35 +2217,35 @@ t "a stand-in named by KB_AGE is never 'fixed' by installing the real one" \
 
 # THE WAY BACK IN. --only menerio runs the kit's programs and the connect step, and
 # nothing else, and it asks even when an install was told not to.
-out="$( ( kb_install_hub_tools() { echo "tools hub=$1 repo=$2"; }
-          kb_copy_starter_hub() { echo "recipes hub=$1 repo=$2 sub=$3" >&2; }
-          kb_connect_notebook() { echo "connect hub=$1 skip=[${KB_NOTEBOOK:-}]"; }
+out="$( ( kb_install_godspeed_tools() { echo "tools godspeed=$1 repo=$2"; }
+          kb_copy_starter_godspeed() { echo "recipes godspeed=$1 repo=$2 sub=$3" >&2; }
+          kb_connect_notebook() { echo "connect godspeed=$1 skip=[${KB_NOTEBOOK:-}]"; }
           kb_notebook_state() { printf none; }
-          kb_update_hub() { echo UPDATE; }; kb_install_prereqs() { echo PREREQS; }
-          kb_link_ai_memory() { echo MEMORY; }; kb_point_hermes_at_hub() { echo HERMES; }
-          KB_NOTEBOOK=skip kb_only_menerio "$_m/hub" "kit-url" ) 2>&1 )"
+          kb_update_godspeed() { echo UPDATE; }; kb_install_prereqs() { echo PREREQS; }
+          kb_link_ai_memory() { echo MEMORY; }; kb_point_hermes_at_godspeed() { echo HERMES; }
+          KB_NOTEBOOK=skip kb_only_menerio "$_m/godspeed" "kit-url" ) 2>&1 )"
 t "the single step installs the kit's programs first, then connects" \
-  "$(printf '%s\n' "$out" | grep -e '^tools' -e '^connect' | tr '\n' '|')" "tools hub=$_m/hub repo=kit-url|connect hub=$_m/hub skip=[]|"
+  "$(printf '%s\n' "$out" | grep -e '^tools' -e '^connect' | tr '\n' '|')" "tools godspeed=$_m/godspeed repo=kit-url|connect godspeed=$_m/godspeed skip=[]|"
 t "and it tops up the recipes the kit ships, because \"make a note\" is one of them" \
-  "$(grep -c 'kb_copy_starter_hub "$hub" "$repo"' lib.sh)" "1"
+  "$(grep -c 'kb_copy_starter_godspeed "$godspeed" "$repo"' lib.sh)" "1"
 t "and runs none of the rest of the installer" \
   "$(printf '%s' "$out" | grep -c -e UPDATE -e PREREQS -e MEMORY -e HERMES)" "0"
 t "and says plainly when nothing was connected" \
   "$(printf '%s' "$out" | grep -c 'not connected. Nothing else on this computer was changed')" "1"
-t "setup-hub.sh takes --only"  "$(grep -c -- '--only)         ONLY=' setup-hub.sh)" "1"
+t "setup-godspeed.sh takes --only"  "$(grep -c -- '--only)         ONLY=' setup-godspeed.sh)" "1"
 t "and hands it to the single step before it checks a single prerequisite" \
-  "$(awk '/kb_only_menerio "\$FOUND"/{a=NR} /^\[ "\$SKIP_PREREQS" -eq 1 \] \|\| kb_install_prereqs/{b=NR} END{print (a>0 && b>0 && a<b) ? "yes" : "no"}' setup-hub.sh)" "yes"
+  "$(awk '/kb_only_menerio "\$FOUND"/{a=NR} /^\[ "\$SKIP_PREREQS" -eq 1 \] \|\| kb_install_prereqs/{b=NR} END{print (a>0 && b>0 && a<b) ? "yes" : "no"}' setup-godspeed.sh)" "yes"
 t "join.sh takes --only too"   "$(grep -c -- '--only)      ONLY=' join.sh)" "1"
 t "an unknown step is refused by name on both front doors" \
-  "$(cat setup-hub.sh join.sh | grep -c -- '--only knows two steps: menerio and gmail')" "2"
+  "$(cat setup-godspeed.sh join.sh | grep -c -- '--only knows two steps: menerio and gmail')" "2"
 
 # THE SAME QUESTION ON BOTH PLATFORMS. lib.sh said Menerio from 2026-09-05 while
 # join.ps1 still asked about "a notebook". The two texts are compared, not eyeballed.
 _q_sh="$(sed -n 's/^ *kb_tell "\(.*\)"$/\1/p' lib.sh | sed -n '/^Menerio is optional/,/^A free account is enough/p')"
 _q_ps="$(tr -d '\r' < join.ps1 | sed -n 's/^ *Write-Host "\(.*\)"$/\1/p' | sed -n '/^Menerio is optional/,/^A free account is enough/p')"
 t "the Menerio question has six lines"   "$(printf '%s\n' "$_q_sh" | grep -c .)" "6"
-t "and it says that connecting sends none of the hub's files anywhere" \
-  "$(printf '%s' "$_q_sh" | tr '\n' ' ' | grep -c "Connecting sends none of your hub's files anywhere")" "1"
+t "and it says that connecting sends none of the mission control's files anywhere" \
+  "$(printf '%s' "$_q_sh" | tr '\n' ' ' | grep -c "Connecting sends none of your mission control's files anywhere")" "1"
 t "and Windows asks it in the same words" "$_q_ps" "$_q_sh"
 t "it says where a free account is made" \
   "$(printf '%s' "$_q_sh" | grep -c 'https://menerio.com/auth?tab=signup')" "1"
@@ -2263,25 +2264,25 @@ rm -rf "$_m"
 # It never quietly starts another step in its place.
 # ---------------------------------------------------------------------------
 echo "-- the Gmail step, retired"
-_g="$(mktemp -d)"; mkdir -p "$_g/home/.local/bin" "$_g/hub"; echo "# hub" > "$_g/hub/AGENTS.md"
-out="$( ( kb_install_hub_tools() { echo "tools hub=$1 repo=$2"; }
-          kb_copy_starter_hub() { echo "recipes hub=$1 repo=$2" > "$_g/recipes.log"; }
-          kb_wire_mail() { echo "wire hub=$1"; }
-          kb_update_hub() { echo UPDATE; }; kb_install_prereqs() { echo PREREQS; }
+_g="$(mktemp -d)"; mkdir -p "$_g/home/.local/bin" "$_g/godspeed"; echo "# mission control" > "$_g/godspeed/AGENTS.md"
+out="$( ( kb_install_godspeed_tools() { echo "tools godspeed=$1 repo=$2"; }
+          kb_copy_starter_godspeed() { echo "recipes godspeed=$1 repo=$2" > "$_g/recipes.log"; }
+          kb_wire_mail() { echo "wire godspeed=$1"; }
+          kb_update_godspeed() { echo UPDATE; }; kb_install_prereqs() { echo PREREQS; }
           kb_link_ai_memory() { echo MEMORY; }; kb_connect_notebook() { echo MENERIO; }
-          kb_only_gmail "$_g/hub" "kit-url" ) 2>&1 )"
+          kb_only_gmail "$_g/godspeed" "kit-url" ) 2>&1 )"
 t "--only gmail refreshes the programs and the recipes, tells the assistants, and says it is retired" \
-  "$(printf '%s\n' "$out" | grep -e '^tools' -e '^wire' | tr '\n' '|')$(cat "$_g/recipes.log")" "tools hub=$_g/hub repo=kit-url|wire hub=$_g/hub|recipes hub=$_g/hub repo=kit-url"
+  "$(printf '%s\n' "$out" | grep -e '^tools' -e '^wire' | tr '\n' '|')$(cat "$_g/recipes.log")" "tools godspeed=$_g/godspeed repo=kit-url|wire godspeed=$_g/godspeed|recipes godspeed=$_g/godspeed repo=kit-url"
 t "and the reader is told the old step is retired, nothing changed, and what to ask instead" \
   "$(printf '%s' "$out" | grep -c -e 'is retired, and nothing was changed' -e 'Connect Gmail for me')" "2"
 t "and runs none of the rest of the installer, and asks nothing" \
   "$(printf '%s' "$out" | grep -c -e UPDATE -e PREREQS -e MEMORY -e MENERIO -e '?')" "0"
-t "setup-hub.sh still hands --only gmail over before it checks a single prerequisite" \
-  "$(awk '/kb_only_gmail "\$FOUND"/{a=NR} /^\[ "\$SKIP_PREREQS" -eq 1 \] \|\| kb_install_prereqs/{b=NR} END{print (a>0 && b>0 && a<b) ? "yes" : "no"}' setup-hub.sh)" "yes"
+t "setup-godspeed.sh still hands --only gmail over before it checks a single prerequisite" \
+  "$(awk '/kb_only_gmail "\$FOUND"/{a=NR} /^\[ "\$SKIP_PREREQS" -eq 1 \] \|\| kb_install_prereqs/{b=NR} END{print (a>0 && b>0 && a<b) ? "yes" : "no"}' setup-godspeed.sh)" "yes"
 t "an install or an update never asks about Gmail, on either platform" \
-  "$(cat setup-hub.sh windows/setup-hub.ps1 | grep -v '^ *#' | grep -c -e 'kb_offer_gmail' -e 'Request-KitGmail -Hub')" "0"
+  "$(cat setup-godspeed.sh windows/setup-godspeed.ps1 | grep -v '^ *#' | grep -c -e 'kb_offer_gmail' -e 'Request-KitGmail -Godspeed')" "0"
 t "and the offer itself is silent even with a person there" \
-  "$( ( have_tty() { return 0; }; ask_yes() { echo ASKED; }; kb_offer_gmail "$_g/hub" ) 2>&1 | grep -c .)" "0"
+  "$( ( have_tty() { return 0; }; ask_yes() { echo ASKED; }; kb_offer_gmail "$_g/godspeed" ) 2>&1 | grep -c .)" "0"
 _q_sh="$(sed -n 's/^ *echo "\(.*\)"$/\1/p' lib.sh | sed -n '/^The Gmail step that registered/,/^assistant: Connect Gmail/p')"
 _q_ps="$(tr -d '\r' < join.ps1 | sed -n 's/^ *Write-Host "\(.*\)"$/\1/p' | sed -n '/^The Gmail step that registered/,/^assistant: Connect Gmail/p')"
 t "the retirement note has three lines" "$(printf '%s\n' "$_q_sh" | grep -c .)" "3"
@@ -2289,32 +2290,32 @@ t "and Windows says it in the same words" "$_q_ps" "$_q_sh"
 t "no installer asks 'Connect Gmail now?' any more" "$(cat lib.sh join.ps1 | grep -v '^ *#' | grep -c 'Connect Gmail now?')" "0"
 t "the installers carry none of the Google console sentences" \
   "$(cat lib.sh join.ps1 | grep -c -e 'Client ID' -e 'Client secret' -e 'Is this the one')" "0"
-t "no reader is told to type hub-mail connect gmail" \
-  "$(cat lib.sh join.ps1 setup-hub.sh windows/setup-hub.ps1 | grep -v '^ *#' | grep -c 'hub-mail connect gmail')" "0"
+t "no reader is told to type mc-mail connect gmail" \
+  "$(cat lib.sh join.ps1 setup-godspeed.sh windows/setup-godspeed.ps1 | grep -v '^ *#' | grep -c 'mc-mail connect gmail')" "0"
 t "the note at the end of an install names the new way" "$(grep -c 'Connect Gmail for me. Chapter 30 shows it' lib.sh join.ps1 | grep -c ':1')" "2"
 rm -rf "$_g"
 
 # ---------------------------------------------------------------------------
-# THE NOTEBOOK AND THE COPY OF YOUR HUB ARE TWO CHOICES (2026-09-21).
+# THE NOTEBOOK AND THE COPY OF YOUR GODSPEED ARE TWO CHOICES (2026-09-21).
 #
 # Two readers given the Menerio chapter cold both refused to connect, for one reason:
-# connecting quietly started copying the whole hub, client notes and patient notes
+# connecting quietly started copying the whole mission control, client notes and patient notes
 # included, into an online account. So the copy is its own question with "no" as its
-# answer, recorded per computer as HUB_NOTEBOOK_MIRROR in ~/.hub/device.env, and the
+# answer, recorded per computer as GODSPEED_NOTEBOOK_MIRROR in ~/.godspeed/device.env, and the
 # passphrase for a second computer is a question too. The bash twins of the block with
 # the same name in windows/test-windows.ps1.
 # ---------------------------------------------------------------------------
 echo
-echo "== the copy of the hub is its own choice, and so is the passphrase"
+echo "== the copy of the mission control is its own choice, and so is the passphrase"
 _c="$(mktemp -d)"
-mkdir -p "$_c/home/.hub" "$_c/home/.local/bin" "$_c/hub/secrets"
-git -C "$_c/hub" init -q 2>/dev/null
+mkdir -p "$_c/home/.godspeed" "$_c/home/.local/bin" "$_c/godspeed/secrets"
+git -C "$_c/godspeed" init -q 2>/dev/null
 : > "$_c/cron.txt"
 printf '#!/bin/sh\ncase "$1" in -l) cat "%s" ;; -) cat > "%s" ;; esac\n' "$_c/cron.txt" "$_c/cron.txt" > "$_c/fakecrontab"
 chmod +x "$_c/fakecrontab"
-_new_runner() { printf '#!/bin/sh\n# reads HUB_NOTEBOOK_MIRROR from device.env before it sends anything\nexit 0\n' > "$_c/home/.local/bin/hub-notebook-sync"; }
-_old_runner() { printf '#!/bin/sh\n# an older job: it copies the hub up whatever anybody said\nexit 0\n' > "$_c/home/.local/bin/hub-notebook-sync"; }
-_line() { sed -n 's/^HUB_NOTEBOOK_MIRROR=//p' "$_c/home/.hub/device.env" 2>/dev/null | tr '\n' ','; }
+_new_runner() { printf '#!/bin/sh\n# reads GODSPEED_NOTEBOOK_MIRROR from device.env before it sends anything\nexit 0\n' > "$_c/home/.local/bin/mc-notebook-sync"; }
+_old_runner() { printf '#!/bin/sh\n# an older job: it copies the mission control up whatever anybody said\nexit 0\n' > "$_c/home/.local/bin/mc-notebook-sync"; }
+_line() { sed -n 's/^GODSPEED_NOTEBOOK_MIRROR=//p' "$_c/home/.godspeed/device.env" 2>/dev/null | tr '\n' ','; }
 # _choose <tty yes|no> <typed answer> [VAR=value ...]: run the question in a sandbox home
 _choose() {
   local tty="$1" typed="$2"; shift 2
@@ -2324,16 +2325,16 @@ _choose() {
     have_tty() { [ "$tty" = yes ]; }
     kb_tell() { printf 'TELL %s\n' "$*"; }
     ask_yes() { printf 'ASKED %s default=%s\n' "$1" "$2"; case "${typed:-$2}" in y*) return 0 ;; *) return 1 ;; esac; }
-    kb_choose_notebook_mirror "$_c/hub" ) 2>&1
+    kb_choose_notebook_mirror "$_c/godspeed" ) 2>&1
 }
 
-printf 'HUB_DIR=/somewhere/hub\nHUB_TOOLS_REPO=kit\n' > "$_c/home/.hub/device.env"
+printf 'GODSPEED_DIR=/somewhere/godspeed\nGODSPEED_TOOLS_REPO=kit\n' > "$_c/home/.godspeed/device.env"
 out="$(_choose yes "")"
 t "the copy is asked about in its own question" \
-  "$(printf '%s' "$out" | grep -c "ASKED Copy your hub's files to Menerio for search? default=n")" "1"
+  "$(printf '%s' "$out" | grep -c "ASKED Copy your mission control's files to Menerio for search? default=n")" "1"
 t "pressing Enter means no, and the no is written down for this computer" "$(_line)" "0,"
 t "every other line of device.env is kept" \
-  "$(grep -c -e '^HUB_DIR=/somewhere/hub$' -e '^HUB_TOOLS_REPO=kit$' "$_c/home/.hub/device.env")" "2"
+  "$(grep -c -e '^GODSPEED_DIR=/somewhere/godspeed$' -e '^GODSPEED_TOOLS_REPO=kit$' "$_c/home/.godspeed/device.env")" "2"
 t "after a no the reader is told nothing moves in either direction, and nothing runs in the background" \
   "$(printf '%s' "$out" | grep -c "nothing is copied in either direction.*nothing is sent to Menerio or fetched from it in the background")" "1"
 t "and what follows a no never mentions a safety copy coming down"   "$(printf '%s
@@ -2343,8 +2344,8 @@ t "once answered, a full install never asks again" "$(printf '%s' "$out" | grep 
 out="$(_choose yes y KB_ONLY_MENERIO=1)"
 t "the Menerio step asks again, with the old answer as the default" \
   "$(printf '%s' "$out" | grep -c 'ASKED .* default=n')" "1"
-t "after a yes: up when the hub saves a version and once an hour, and the safety copy down once an hour" \
-  "$(printf '%s' "$out" | grep -c "copied to Menerio when your hub saves a version and once an hour. The people and facts Menerio holds for you come down into world/ once an hour")" "1"
+t "after a yes: up when the mission control saves a version and once an hour, and the safety copy down once an hour" \
+  "$(printf '%s' "$out" | grep -c "copied to Menerio when your mission control saves a version and once an hour. The people and facts Menerio holds for you come down into world/ once an hour")" "1"
 t "a yes replaces the line and leaves exactly one" "$(_line)" "1,"
 out="$(_choose yes "" KB_ONLY_MENERIO=1)"
 t "and after a yes the default is yes, so Enter keeps it" \
@@ -2354,67 +2355,67 @@ t "KB_NOTEBOOK_MIRROR=no answers it with nobody at the keyboard, asking nothing"
   "$(printf '%s' "$out" | grep -c ASKED):$(_line)" "0:0,"
 _choose no "" KB_NOTEBOOK_MIRROR=yes >/dev/null
 t "and KB_NOTEBOOK_MIRROR=yes turns it on" "$(_line)" "1,"
-rm -f "$_c/home/.hub/device.env"
+rm -f "$_c/home/.godspeed/device.env"
 out="$(_choose no "")"
 t "no keyboard and no answer means no, and nothing is written, so it can still be asked" \
-  "$(printf '%s' "$out" | grep -c ASKED):$([ -f "$_c/home/.hub/device.env" ] && echo written || echo nothing)" "0:nothing"
+  "$(printf '%s' "$out" | grep -c ASKED):$([ -f "$_c/home/.godspeed/device.env" ] && echo written || echo nothing)" "0:nothing"
 _choose yes "" >/dev/null
 t "device.env is made when there is none" "$(_line)" "0,"
 out="$( ( HOME="$_c/home"; kb_notebook_state() { printf none; }; have_tty() { return 0; }
-          ask_yes() { echo ASKED; }; rm -f "$_c/home/.hub/device.env"; kb_choose_notebook_mirror "$_c/hub" ) 2>&1 )"
-t "a hub with no notebook is never asked about a copy" "$out" ""
+          ask_yes() { echo ASKED; }; rm -f "$_c/home/.godspeed/device.env"; kb_choose_notebook_mirror "$_c/godspeed" ) 2>&1 )"
+t "a mission control with no notebook is never asked about a copy" "$out" ""
 
 # THE MIGRATION. A computer that has the hourly job from before there was a question WAS
 # copying. It is written down as 1 without asking, and one line says so.
-rm -f "$_c/home/.hub/device.env"
-printf '37 * * * * "/x/.local/bin/hub-notebook-sync" >> "/x/.hub/notebook-sync.log" 2>&1\n' > "$_c/cron.txt"
+rm -f "$_c/home/.godspeed/device.env"
+printf '37 * * * * "/x/.local/bin/mc-notebook-sync" >> "/x/.godspeed/notebook-sync.log" 2>&1\n' > "$_c/cron.txt"
 out="$(_choose yes "")"
 t "a computer that was already copying is written down as 1, without being asked" \
   "$(printf '%s' "$out" | grep -c ASKED):$(_line)" "0:1,"
 t "and one line says so, and says how to turn it off" \
-  "$(printf '%s' "$out" | grep -c 'was already copying your hub.s files to Menerio for search, so that stays on')" "1"
+  "$(printf '%s' "$out" | grep -c 'was already copying your mission control.s files to Menerio for search, so that stays on')" "1"
 : > "$_c/cron.txt"
 
 # WHAT THE JOB'S LINES SAY HAS TO BE TRUE FOR THE ANSWER GIVEN.
-_sync() { ( HOME="$_c/home"; export HOME; KB_CRONTAB="$_c/fakecrontab" kb_install_notebook_sync "$_c/hub" ) 2>&1; }
+_sync() { ( HOME="$_c/home"; export HOME; KB_CRONTAB="$_c/fakecrontab" kb_install_notebook_sync "$_c/godspeed" ) 2>&1; }
 _new_runner
-printf 'HUB_NOTEBOOK_MIRROR=0\n' > "$_c/home/.hub/device.env"
+printf 'GODSPEED_NOTEBOOK_MIRROR=0\n' > "$_c/home/.godspeed/device.env"
 out="$(_sync)"
 t "after a no, the job is still installed, because copying is not all it does" \
-  "$(grep -c hub-notebook-sync "$_c/cron.txt"):$(grep -c hub-notebook-sync "$_c/hub/.git/hooks/post-commit")" "1:1"
+  "$(grep -c mc-notebook-sync "$_c/cron.txt"):$(grep -c mc-notebook-sync "$_c/godspeed/.git/hooks/post-commit")" "1:1"
 t "and its line says it copies nothing to Menerio and fetches nothing from it" \
   "$(printf '%s' "$out" | grep -c "It copies nothing to Menerio and fetches nothing from it")" "1"
 t "and after a no, nothing describes the job as Menerio copying, in either direction" \
-  "$(printf '%s' "$out" | grep -c -e 'updates the notebook' -e 'copies your hub' -e 'safety copy' -e 'down into world')" "0"
-printf 'HUB_NOTEBOOK_MIRROR=1\n' > "$_c/home/.hub/device.env"
+  "$(printf '%s' "$out" | grep -c -e 'updates the notebook' -e 'copies your mission control' -e 'safety copy' -e 'down into world')" "0"
+printf 'GODSPEED_NOTEBOOK_MIRROR=1\n' > "$_c/home/.godspeed/device.env"
 out="$(_sync)"
 t "after a yes, the line says the files go up and the people and facts come down" \
-  "$(printf '%s' "$out" | grep -c "copies your hub's files up to Menerio and brings your people and facts down into world/")" "1"
+  "$(printf '%s' "$out" | grep -c "copies your mission control's files up to Menerio and brings your people and facts down into world/")" "1"
 
-# A NO HAS TO BE A NO. An older job never reads the setting and copies the hub regardless.
+# A NO HAS TO BE A NO. An older job never reads the setting and copies the mission control regardless.
 _old_runner
-printf 'HUB_NOTEBOOK_MIRROR=0\n' > "$_c/home/.hub/device.env"
+printf 'GODSPEED_NOTEBOOK_MIRROR=0\n' > "$_c/home/.godspeed/device.env"
 printf 'BEFORE=keep\n' >> "$_c/cron.txt"
 out="$(_sync)"
 t "an older job that always copies is taken OUT of the schedule after a no" \
-  "$(grep -c hub-notebook-sync "$_c/cron.txt")" "0"
+  "$(grep -c mc-notebook-sync "$_c/cron.txt")" "0"
 t "and so is the save hook this installer wrote" \
-  "$([ -e "$_c/hub/.git/hooks/post-commit" ] && echo there || echo gone)" "gone"
+  "$([ -e "$_c/godspeed/.git/hooks/post-commit" ] && echo there || echo gone)" "gone"
 t "the rest of the schedule is kept" "$(grep -c 'BEFORE=keep' "$_c/cron.txt")" "1"
 t "and the reader is told why, and what brings it back" \
-  "$(printf '%s' "$out" | grep -c 'always copies your hub.s files to Menerio, and you have not said yes to that')" "1"
-rm -f "$_c/home/.hub/device.env"
+  "$(printf '%s' "$out" | grep -c 'always copies your mission control.s files to Menerio, and you have not said yes to that')" "1"
+rm -f "$_c/home/.godspeed/device.env"
 _sync >/dev/null
 t "a computer nobody has asked yet is treated as a no, never as a yes" \
-  "$(grep -c hub-notebook-sync "$_c/cron.txt")" "0"
-printf '#!/bin/sh\n# mine\n' > "$_c/hub/.git/hooks/post-commit"
-printf 'HUB_NOTEBOOK_MIRROR=0\n' > "$_c/home/.hub/device.env"
+  "$(grep -c mc-notebook-sync "$_c/cron.txt")" "0"
+printf '#!/bin/sh\n# mine\n' > "$_c/godspeed/.git/hooks/post-commit"
+printf 'GODSPEED_NOTEBOOK_MIRROR=0\n' > "$_c/home/.godspeed/device.env"
 _sync >/dev/null
-t "a hook the reader wrote is never removed" "$(grep -c '# mine' "$_c/hub/.git/hooks/post-commit")" "1"
-rm -f "$_c/hub/.git/hooks/post-commit"
-printf 'HUB_NOTEBOOK_MIRROR=1\n' > "$_c/home/.hub/device.env"
+t "a hook the reader wrote is never removed" "$(grep -c '# mine' "$_c/godspeed/.git/hooks/post-commit")" "1"
+rm -f "$_c/godspeed/.git/hooks/post-commit"
+printf 'GODSPEED_NOTEBOOK_MIRROR=1\n' > "$_c/home/.godspeed/device.env"
 _sync >/dev/null
-t "after a yes the older job is scheduled as it always was" "$(grep -c hub-notebook-sync "$_c/cron.txt")" "1"
+t "after a yes the older job is scheduled as it always was" "$(grep -c mc-notebook-sync "$_c/cron.txt")" "1"
 
 # THE PASSPHRASE, ONLY WHEN IT IS WANTED.
 # _pass <tty yes|no> <typed> [VAR=value ...]
@@ -2425,29 +2426,29 @@ _pass() {
     have_tty() { [ "$tty" = yes ]; }
     kb_tell() { printf 'TELL %s\n' "$*"; }
     ask_yes() { printf 'ASKED %s default=%s\n' "$1" "$2"; case "${typed:-$2}" in y*) return 0 ;; *) return 1 ;; esac; }
-    kb_seal_hub_key() { echo "SEALING $1"; }
-    kb_offer_passphrase "$_c/hub" ) 2>&1
+    kb_seal_godspeed_key() { echo "SEALING $1"; }
+    kb_offer_passphrase "$_c/godspeed" ) 2>&1
 }
-: > "$_c/home/.hub/age-key.txt"
+: > "$_c/home/.godspeed/age-key.txt"
 out="$(_pass yes "")"
 t "a first connect asks whether a second computer is coming, and Enter means no" \
   "$(printf '%s' "$out" | grep -c 'ASKED Set a passphrase for a second computer now? default=n')" "1"
 t "a no asks for no passphrase" "$(printf '%s' "$out" | grep -c SEALING)" "0"
 t "and says the key is stored for this computer, and how to add the passphrase later" \
   "$(printf '%s' "$out" | grep -c 'your key is stored for this computer. For a second computer later, run the Menerio step again')" "1"
-t "a yes goes on to the passphrase" "$(_pass yes y | grep -c "SEALING $_c/hub")" "1"
+t "a yes goes on to the passphrase" "$(_pass yes y | grep -c "SEALING $_c/godspeed")" "1"
 out="$(_pass no "")"
 t "with nobody at the keyboard it is a quiet no, where it used to be a yellow warning" \
   "$(printf '%s' "$out" | grep -c -e ASKED -e SEALING -e warn):$(printf '%s' "$out" | grep -c 'stored for this computer')" "0:1"
 t "KB_NOTEBOOK_PASSPHRASE=skip says no without asking" \
   "$(_pass yes y KB_NOTEBOOK_PASSPHRASE=skip | grep -c -e ASKED -e SEALING)" "0"
 t "KB_NOTEBOOK_PASSPHRASE=ask says yes without asking" \
-  "$(_pass no "" KB_NOTEBOOK_PASSPHRASE=ask | grep -e ASKED -e SEALING | tr '\n' '|')" "SEALING $_c/hub|"
-: > "$_c/hub/secrets/hub-key.age"
-t "a hub that already carries its passphrase is never asked again" "$(_pass yes y)" ""
-rm -f "$_c/hub/secrets/hub-key.age"
+  "$(_pass no "" KB_NOTEBOOK_PASSPHRASE=ask | grep -e ASKED -e SEALING | tr '\n' '|')" "SEALING $_c/godspeed|"
+: > "$_c/godspeed/secrets/mc-key.age"
+t "a mission control that already carries its passphrase is never asked again" "$(_pass yes y)" ""
+rm -f "$_c/godspeed/secrets/mc-key.age"
 
-# Where the two questions sit in the whole step: a connected hub with no passphrase is a
+# Where the two questions sit in the whole step: a connected mission control with no passphrase is a
 # finished state, and only the reader who came back for the Menerio step is offered one.
 _step() {   # _step <only 0|1>
   ( HOME="$_c/home"; export HOME
@@ -2455,18 +2456,18 @@ _step() {   # _step <only 0|1>
     kb_offer_passphrase() { echo PASSPHRASE; }; kb_seed_expiry_record() { :; }; kb_seed_due_folder() { :; }
     kb_persist_notebook_env() { :; }; kb_connect_assistants() { echo ASSISTANTS; }
     kb_choose_notebook_mirror() { echo MIRROR; }; kb_install_notebook_sync() { echo JOB; }
-    KB_NOTEBOOK="" KB_ONLY_MENERIO="$1" kb_connect_notebook "$_c/hub" ) 2>&1 | grep -e PASSPHRASE -e ASSISTANTS -e MIRROR -e JOB | tr '\n' '|'
+    KB_NOTEBOOK="" KB_ONLY_MENERIO="$1" kb_connect_notebook "$_c/godspeed" ) 2>&1 | grep -e PASSPHRASE -e ASSISTANTS -e MIRROR -e JOB | tr '\n' '|'
 }
-t "a full install over a connected hub with no passphrase says nothing about one" \
+t "a full install over a connected mission control with no passphrase says nothing about one" \
   "$(_step 0)" "ASSISTANTS|MIRROR|JOB|"
 t "the Menerio step offers it again, and the copy is asked about before the job is installed" \
   "$(_step 1)" "PASSPHRASE|ASSISTANTS|MIRROR|JOB|"
 t "the Menerio step tells the connect step who is asking" \
-  "$( ( kb_install_hub_tools() { :; }; kb_copy_starter_hub() { :; }; kb_notebook_state() { printf none; }
-        kb_connect_notebook() { echo "only=${KB_ONLY_MENERIO:-0}"; }; kb_only_menerio "$_c/hub" "" ) 2>&1 | grep -c '^only=1$')" "1"
-t "an unsealed, connected hub is 'connected', which is a finished state and not a warning" \
+  "$( ( kb_install_godspeed_tools() { :; }; kb_copy_starter_godspeed() { :; }; kb_notebook_state() { printf none; }
+        kb_connect_notebook() { echo "only=${KB_ONLY_MENERIO:-0}"; }; kb_only_menerio "$_c/godspeed" "" ) 2>&1 | grep -c '^only=1$')" "1"
+t "an unsealed, connected mission control is 'connected', which is a finished state and not a warning" \
   "$( ( HOME="$_c/home"; kb_have_age() { return 0; }; kb_age() { printf true; }
-        : > "$_c/hub/secrets/hub-secrets.env.age"; kb_notebook_state "$_c/hub" ) )" "connected"
+        : > "$_c/godspeed/secrets/mc-secrets.env.age"; kb_notebook_state "$_c/godspeed" ) )" "connected"
 
 # THE SAME WORDS ON BOTH PLATFORMS, compared and not eyeballed.
 _words() { sed -n "s/^ *$2 \"\\(.*\\)\"\$/\\1/p" "$1" | tr -d '\r' | sed -n "/^$3/,/$4/p"; }
@@ -2474,30 +2475,30 @@ t "the copy question has six lines" \
   "$(_words lib.sh kb_tell 'One more choice' '^works either way' | grep -c .)" "6"
 t "and it is the agreed text, word for word, covering both directions" \
   "$(_words lib.sh kb_tell 'One more choice' '^works either way' | tr '\n' ' ')" \
-  "One more choice. Menerio can keep a copy of your hub's text files, so your assistant can search them by meaning and not only by exact word. The copy holds everything in your hub except dev/ and your locked keys. In return, the people and facts Menerio holds for you are copied into your hub's world/ folder as a safety copy. Say yes only if you are happy for your hub's files to be in your Menerio account. Your notebook works either way. "
+  "One more choice. Menerio can keep a copy of your mission control's text files, so your assistant can search them by meaning and not only by exact word. The copy holds everything in your mission control except dev/ and your locked keys. In return, the people and facts Menerio holds for you are copied into your mission control's world/ folder as a safety copy. Say yes only if you are happy for your mission control's files to be in your Menerio account. Your notebook works either way. "
 t "and Windows asks it in the same words" \
   "$(_words join.ps1 Write-Host 'One more choice' '^works either way')" \
   "$(_words lib.sh kb_tell 'One more choice' '^works either way')"
 t "the passphrase question has three lines" \
-  "$(_words lib.sh kb_tell 'Will you use this hub on a second computer' 'later by running this step again' | grep -c .)" "3"
+  "$(_words lib.sh kb_tell 'Will you use this mission control on a second computer' 'later by running this step again' | grep -c .)" "3"
 t "and Windows asks that in the same words too" \
-  "$(_words join.ps1 Write-Host 'Will you use this hub on a second computer' 'later by running this step again')" \
-  "$(_words lib.sh kb_tell 'Will you use this hub on a second computer' 'later by running this step again')"
+  "$(_words join.ps1 Write-Host 'Will you use this mission control on a second computer' 'later by running this step again')" \
+  "$(_words lib.sh kb_tell 'Will you use this mission control on a second computer' 'later by running this step again')"
 t "both platforms ask the copy question with no as the answer" \
-  "$(grep -c "ask_yes \"Copy your hub's files to Menerio for search?\" \"\$default\"" lib.sh):$(grep -c "Read-Host \"Copy your hub's files to Menerio for search? (y/N)\"" join.ps1)" "1:1"
+  "$(grep -c "ask_yes \"Copy your mission control's files to Menerio for search?\" \"\$default\"" lib.sh):$(grep -c "Read-Host \"Copy your mission control's files to Menerio for search? (y/N)\"" join.ps1)" "1:1"
 t "and the passphrase question too" \
   "$(grep -c 'ask_yes "Set a passphrase for a second computer now?" "n"' lib.sh):$(grep -c 'Read-Host "Set a passphrase for a second computer now? (y/N)"' join.ps1)" "1:1"
-for _w in "nothing is copied in either direction. Your hub's files stay on this computer, and nothing is sent to Menerio or fetched from it in the background." \
-          "your hub's files are copied to Menerio when your hub saves a version and once an hour. The people and facts Menerio holds for you come down into world/ once an hour." \
-          "was already copying your hub's files to Menerio for search, so that stays on. To turn it off, run the Menerio step again." \
+for _w in "nothing is copied in either direction. Your mission control's files stay on this computer, and nothing is sent to Menerio or fetched from it in the background." \
+          "your mission control's files are copied to Menerio when your mission control saves a version and once an hour. The people and facts Menerio holds for you come down into world/ once an hour." \
+          "was already copying your mission control's files to Menerio for search, so that stays on. To turn it off, run the Menerio step again." \
           "your key is stored for this computer. For a second computer later, run the Menerio step again and set a passphrase then." \
           "It copies nothing to Menerio and fetches nothing from it." \
-          "copies your hub's files up to Menerio and brings your people and facts down into world/." \
-          "always copies your hub's files to Menerio, and you have not said yes to that."; do
+          "copies your mission control's files up to Menerio and brings your people and facts down into world/." \
+          "always copies your mission control's files to Menerio, and you have not said yes to that."; do
   t "both platforms say: ${_w%% *} ... ${_w##* }" "$(grep -cF "$_w" lib.sh):$(grep -cF "$_w" join.ps1)" "1:1"
 done
-t "the first question no longer promises that the whole hub becomes searchable" \
-  "$(cat lib.sh join.ps1 | grep -c 'Your whole hub also')" "0"
+t "the first question no longer promises that the whole mission control becomes searchable" \
+  "$(cat lib.sh join.ps1 | grep -c 'Your whole mission control also')" "0"
 rm -rf "$_c"
 
 echo

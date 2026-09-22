@@ -4,7 +4,7 @@ Lifted from the Hermes DevOps Kit's own watchdog playbook, which is where this
 text was proven. Changed only where it named that kit's own file paths.
 
 The caller sets `KB_TELEGRAM_ENV` to where the credentials should be written
-(for example `$HOME/.hub-env`). If it is unset, ask the caller, do not guess.
+(for example `$HOME/.mc-env`). If it is unset, ask the caller, do not guess.
 
 ## The one rule that matters most
 

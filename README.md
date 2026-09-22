@@ -104,7 +104,7 @@ Every installer built on this floor answers one question: *build me a thing from
 nothing.* That is the CREATE job, and it is the right one for a freshly rented
 server. It is not the only job.
 
-The other one is JOIN: *I already have a hub, this is another machine.* Until
+The other one is JOIN: *I already have a mission control, this is another machine.* Until
 2026-08-09 nothing here answered it. So the wiring was written once inside the
 author's private repo, and a reader who bought a second laptop got nothing at
 all. That is the same drift this repo exists to prevent, one level up: the split
@@ -116,8 +116,8 @@ look at the machine, then install or update without asking which is needed.
 
 | File | Runs on | What it is |
 |---|---|---|
-| `windows/HubSetup.exe` | Windows | the front door: an ordinary installer, double-click it |
-| `setup-hub.sh` | macOS, Linux | the front door: one command, the native way there |
+| `windows/GodspeedSetup.exe` | Windows | the front door: an ordinary installer, double-click it |
+| `setup-godspeed.sh` | macOS, Linux | the front door: one command, the native way there |
 | `join.ps1` / `join.sh` | both | the join-only half, and the library the two front doors call |
 
 All of them are safe to run again and none ever deletes a memory.
@@ -131,32 +131,32 @@ decisions, it works out the rest.
 
 Getting that wrong once already cost a day. On 2026-08-09 the Windows side gained
 two abilities the bash side did not get: installing prerequisites, and creating a
-hub from nothing. `join.sh` only ever joined, and stopped with an error when there
-was no hub to join. So a Mac reader on a fresh machine got an error while a
+mission control from nothing. `join.sh` only ever joined, and stopped with an error when there
+was no mission control to join. So a Mac reader on a fresh machine got an error while a
 Windows reader got a finished setup. The two halves are twins now, function for
 function, and both test suites carry the same cases. **Change one, change the
 other.**
 
-## macOS and Linux: setup-hub.sh
+## macOS and Linux: setup-godspeed.sh
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v1/setup-hub.sh | bash
+curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v1/setup-godspeed.sh | bash
 ```
 
 Options, all optional, after `bash -s --`:
 
 | Option | What it does |
 |---|---|
-| `--hub <path>` | where the hub is, or should go (default `~/hub`) |
-| `--repo <git url>` | a hub you already keep somewhere, to fetch |
-| `--starter-repo <url>` | the product whose starter folder a brand-new hub begins as |
-| `--starter-path <name>` | the folder inside that repo (default `starter-hub`) |
+| `--godspeed <path>` | where the mission control is, or should go (default `~/godspeed`) |
+| `--repo <git url>` | a mission control you already keep somewhere, to fetch |
+| `--starter-repo <url>` | the product whose starter folder a brand-new mission control begins as |
+| `--starter-path <name>` | the folder inside that repo (default `starter-godspeed`) |
 | `--skip-prereqs` | install nothing, just wire it up |
 | `--only menerio` | run the Menerio step and nothing else (see below) |
 | `--only gmail` | retired: refreshes the mail tool and says how Gmail is connected now (see below) |
 
 A product points the last two at itself and ships a one-line wrapper under its own
-name, the same way the `.exe` does. `teach-it-once-kit/install-hub.sh` is that
+name, the same way the `.exe` does. `teach-it-once-kit/install-godspeed.sh` is that
 wrapper for the book.
 
 **macOS is handled rather than assumed away.** `need_tools` only knows `apt-get`
@@ -171,20 +171,20 @@ Menerio is the author's online notebook, and it is optional. The installer asks
 about it once, with "no" as the answer unless the reader says yes.
 
 When the reader says yes, the installer stores the pasted key as `MENERIO_API_KEY`
-in the locked store inside the hub (`secrets/hub-secrets.env.age`), makes it
+in the locked store inside the mission control (`secrets/mc-secrets.env.age`), makes it
 available to programs on the computer, and then runs the kit's
-`hub-menerio-connect`. That program reads the key from the store and gives Claude
+`mc-menerio-connect`. That program reads the key from the store and gives Claude
 Code, Hermes and Codex the same connection. Its one line for each assistant is
 shown to the reader as it comes. Nobody is told to run `hermes mcp add` by hand any
 more.
 
-**The notebook and the copy of the hub are two choices, not one.** Two readers given
+**The notebook and the copy of the mission control are two choices, not one.** Two readers given
 the chapter cold both refused to connect, because connecting quietly started copying
-their whole hub, client notes and patient notes included, into an online account. So
+their whole mission control, client notes and patient notes included, into an online account. So
 after the assistants are connected the installer asks a second question, "Copy your
-hub's files to Menerio for search?", and Enter means no. The answer is a fact about
-one computer, so it is the line `HUB_NOTEBOOK_MIRROR=1` or `=0` in
-`~/.hub/device.env`, and the kit's hourly runner obeys it in BOTH directions: after a
+mission control's files to Menerio for search?", and Enter means no. The answer is a fact about
+one computer, so it is the line `GODSPEED_NOTEBOOK_MIRROR=1` or `=0` in
+`~/.godspeed/device.env`, and the kit's hourly runner obeys it in BOTH directions: after a
 no, nothing is sent to Menerio and nothing is fetched from it in the background.
 
 - A full install asks once for each computer. `--only menerio` asks again, with the
@@ -194,7 +194,7 @@ no, nothing is sent to Menerio and nothing is fetched from it in the background.
   somebody is at the keyboard.
 - A computer that already had the hourly job before 2026-09-21 WAS copying. It is
   written down as 1 without being asked, and one line says so.
-- The hub job (on save, and once an hour) is installed either way, because it also
+- The mission control job (on save, and once an hour) is installed either way, because it also
   keeps the folder fresh from its repository and hands a replaced key to Hermes. Its
   lines never describe it as Menerio copying after a no.
 - A job from an older copy of the kit never reads the setting. After anything but a
@@ -202,16 +202,16 @@ no, nothing is sent to Menerio and nothing is fetched from it in the background.
   says so. A no has to be a no.
 
 **The passphrase is a question too.** A first connect used to end in "Choose a
-passphrase", which locks this computer's key into the hub folder so a second computer
+passphrase", which locks this computer's key into the mission control folder so a second computer
 can open it. A reader with one computer does not need it. Now the installer asks "Set
 a passphrase for a second computer now?", Enter means no, and a no is a finished
 state: nothing warns about it on later runs. `--only menerio` offers it again.
 `KB_NOTEBOOK_PASSPHRASE=skip|ask` answers without asking.
 
-It runs on every road into the step: a key pasted a moment ago, a hub that was
+It runs on every road into the step: a key pasted a moment ago, a mission control that was
 connected already, and a second computer that has just typed its passphrase. So
 running the installer again is also how an assistant installed later gets the
-connection. A kit too old to have `hub-menerio-connect` still leaves Claude Code
+connection. A kit too old to have `mc-menerio-connect` still leaves Claude Code
 its `.mcp.json`, and one line says what is missing.
 
 `age`, the program that locks the key, is fetched at the moment a key needs
@@ -221,20 +221,20 @@ installed for it.
 **The way back in**, for the reader who said no on the day:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v2/setup-hub.sh | bash -s -- --only menerio
+curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v2/setup-godspeed.sh | bash -s -- --only menerio
 ```
 
 ```powershell
-iwr https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v2/windows/setup-hub.ps1 -OutFile "$env:TEMP\setup-hub.ps1"
-powershell -ExecutionPolicy Bypass -File "$env:TEMP\setup-hub.ps1" -Only menerio
+iwr https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v2/windows/setup-godspeed.ps1 -OutFile "$env:TEMP\setup-godspeed.ps1"
+powershell -ExecutionPolicy Bypass -File "$env:TEMP\setup-godspeed.ps1" -Only menerio
 ```
 
-It needs a hub already on the computer. It fetches the kit's programs and runs the
+It needs a mission control already on the computer. It fetches the kit's programs and runs the
 Menerio step, and it leaves everything else alone: no pull, no prerequisite check,
 no re-wiring. `join.sh --only menerio` and `join.ps1 -Only menerio` do the same.
 `KB_NOTEBOOK=skip` and `KB_NOTEBOOK_TOKEN` still answer the question without
 asking, except that `--only menerio` ignores `skip`, because somebody who typed it
-has asked to be asked. The HubSetup.exe wizard has no page for the single step.
+has asked to be asked. The GodspeedSetup.exe wizard has no page for the single step.
 
 `steps/menerio.md` is the sheet an assistant follows to walk somebody through it.
 
@@ -246,7 +246,7 @@ and the reviewed email plan replaced the route: the kit connects Gmail with a Go
 password and a free mail program (Himalaya), started when the reader asks their assistant
 *Connect Gmail for me*. That needs nothing from the installer, so:
 
-- An install and an update (**Update my hub** on Windows) ask nothing about email.
+- An install and an update (**Update my mission control** on Windows) ask nothing about email.
 - `--only gmail` (and `-Only gmail`) still works: it refreshes the kit's programs and recipes,
   tells every assistant about the mail tool, and says the old step is retired and what to ask
   instead. It never quietly starts something else. `test.sh` checks both platforms say it in
@@ -254,9 +254,9 @@ password and a free mail program (Himalaya), started when the reader asks their 
 - A Gmail connection someone made the old way keeps working; the kit's mail tool reads it.
 
 The mail tool itself, and the whole Gmail journey, live in the kit
-(`teach-it-once-kit/tools/hub-mail.js`, `hub-mail-imap.js`, `mail/README.md`).
+(`teach-it-once-kit/tools/mc-mail.js`, `mc-mail-imap.js`, `mail/README.md`).
 
-## Windows: HubSetup.exe
+## Windows: GodspeedSetup.exe
 
 **This repository holds the source. It is not where anybody downloads it from.**
 
@@ -276,8 +276,8 @@ Download and double-click. There is nothing to type.
 
 It works out which of the two jobs this PC needs by looking, and never by asking:
 
-- **a hub is already here** → brings it up to date, re-checks the wiring
-- **no hub here** → asks where to put one, and whether to fetch a repository you
+- **a mission control is already here** → brings it up to date, re-checks the wiring
+- **no mission control here** → asks where to put one, and whether to fetch a repository you
   already have, then makes it
 
 It also installs what is missing underneath: Git, Node.js and Claude Code.
@@ -308,7 +308,7 @@ telling readers about it up front is better than letting it frighten them.
 
 ```powershell
 cd windows
-powershell -ExecutionPolicy Bypass -File build-installer.ps1   # -> dist\HubSetup.exe
+powershell -ExecutionPolicy Bypass -File build-installer.ps1   # -> dist\GodspeedSetup.exe
 ```
 
 The compiler is [Inno Setup](https://jrsoftware.org/isinfo.php), free, and the
@@ -318,7 +318,7 @@ Publish it as a release asset on **the product's** repository, never as a file
 committed here:
 
 ```powershell
-gh release create v1.0.0 dist\HubSetup.exe --repo MichaelZelbel/teach-it-once-kit `
+gh release create v1.0.0 dist\GodspeedSetup.exe --repo MichaelZelbel/teach-it-once-kit `
   --title "Windows installer v1.0.0" --notes "..."
 ```
 
@@ -326,8 +326,8 @@ A second kit that wants its own Windows installer builds from this same floor an
 overrides two parameters, changing nothing else:
 
 ```powershell
-# in that kit's own hub-setup.iss, on the [Run] line
--StarterRepo "https://github.com/MichaelZelbel/<their-kit>.git" -StarterPath "starter-hub"
+# in that kit's own godspeed-setup.iss, on the [Run] line
+-StarterRepo "https://github.com/MichaelZelbel/<their-kit>.git" -StarterPath "starter-godspeed"
 ```
 
 Publish it on *their* repository under *their* name. One .exe per product, each
@@ -356,24 +356,24 @@ which reaches every reader and never the author.
 To test the installer itself without a wizard appearing:
 
 ```powershell
-.\dist\HubSetup.exe /VERYSILENT /SUPPRESSMSGBOXES
-type "$env:LOCALAPPDATA\Hub\setup-log.txt"
+.\dist\GodspeedSetup.exe /VERYSILENT /SUPPRESSMSGBOXES
+type "$env:LOCALAPPDATA\Godspeed\setup-log.txt"
 ```
 
 ### What joining actually does
 
-It points the AI tool's private memory folder at `memory/` inside the hub.
+It points the AI tool's private memory folder at `memory/` inside the mission control.
 
 An AI assistant keeps what it learns about you in a folder belonging to the
 TOOL, on ONE machine. Nothing else can read it: not your other assistants, not
-your other computers. Linking that folder into the hub makes one memory that
+your other computers. Linking that folder into the mission control makes one memory that
 every machine and every assistant shares, carried by the same git sync that
 already carries the rest of the folder. `kb_link_ai_memory` is the function;
 `join.sh` and `join.ps1` are the two front doors to it.
 
 It never deletes anything. Notes already in the old place are copied into the
-hub first, and the old folder is kept with a timestamp on it. A link left
-pointing at a hub that has moved is repaired rather than reported as fine, which
+mission control first, and the old folder is kept with a timestamp on it. A link left
+pointing at a mission control that has moved is repaired rather than reported as fine, which
 is the failure that otherwise looks exactly like success.
 
 ## Why not just put this inside the Hermes kit

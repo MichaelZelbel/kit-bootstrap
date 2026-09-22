@@ -64,7 +64,7 @@ to reply or wait.
 
 ```bash
 cd "$HOME"
-gh repo clone "<owner>/<name>" hub
+gh repo clone "<owner>/<name>" mission control
 ```
 
 Then check what actually arrived, because an empty or wrong repository is the
@@ -72,8 +72,8 @@ failure that shows up three days later as "the assistant does not know anything
 about me":
 
 ```bash
-ls -A "$HOME/hub"
-[ -f "$HOME/hub/AGENTS.md" ] && echo "has-brain" || echo "no-brain"
+ls -A "$HOME/godspeed"
+[ -f "$HOME/godspeed/AGENTS.md" ] && echo "has-brain" || echo "no-brain"
 ```
 
 If it cloned but there is no `AGENTS.md`, say so plainly rather than carrying
@@ -87,7 +87,7 @@ Create it private, from whatever their folder should start as. Private is not a
 default you may change: this folder is going to hold notes about their life.
 
 ```bash
-cd "$HOME/hub"
+cd "$HOME/godspeed"
 git init -b main
 git add -A
 git commit -m "My folder"
@@ -98,8 +98,8 @@ Confirm it landed, because `gh repo create` can report success while the push
 behind it failed:
 
 ```bash
-git -C "$HOME/hub" remote -v
-git -C "$HOME/hub" log --oneline -1
+git -C "$HOME/godspeed" remote -v
+git -C "$HOME/godspeed" log --oneline -1
 gh repo view "<name>" --json name,isPrivate,pushedAt
 ```
 
@@ -112,7 +112,7 @@ The sign-in already did this, but confirm it rather than assume, because the
 first time it matters is at three in the morning when nobody is watching:
 
 ```bash
-cd "$HOME/hub"
+cd "$HOME/godspeed"
 git config user.name  >/dev/null 2>&1 || git config user.name  "$(gh api user --jq .name // .login)"
 git config user.email >/dev/null 2>&1 || git config user.email "$(gh api user --jq '.email // "noreply@users.noreply.github.com"')"
 git pull --rebase --autostash 2>&1 | tail -2

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # =============================================================================
-# kit-bootstrap / setup-hub.sh   -   the macOS and Linux twin of HubSetup.exe
+# kit-bootstrap / setup-godspeed.sh   -   the macOS and Linux twin of GodspeedSetup.exe
 #
-# One command that sets up a hub, whatever state this computer is in. It decides
+# One command that sets up a mission control, whatever state this computer is in. It decides
 # between the two jobs by LOOKING, never by asking:
 #
-#   nothing here yet  -> INSTALL   (fetch what is missing, then make the hub)
+#   nothing here yet  -> INSTALL   (fetch what is missing, then make the mission control)
 #   already have one  -> UPDATE    (bring it current, then re-check the wiring)
 #
 # Why this file exists. On 2026-08-09 Windows got a real installer, and the same
 # morning the Windows side quietly grew two abilities this side never had:
-# installing prerequisites, and creating a hub from nothing. join.sh only ever
-# JOINED, and stopped with an error when there was no hub to join. So for a day a
+# installing prerequisites, and creating a mission control from nothing. join.sh only ever
+# JOINED, and stopped with an error when there was no mission control to join. So for a day a
 # Mac reader on a fresh machine got an error and a Windows reader got a finished
 # setup. Michael saw the asymmetry and asked whether the .exe was the odd one out.
 # It was not. This is the other half catching up.
@@ -21,31 +21,31 @@
 # itself exactly this way - and it is NOT the native way on Windows. What is kept
 # identical is the promise: one thing to run, no decisions, it works out the rest.
 #
-#   curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v2/setup-hub.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/v2/setup-godspeed.sh | bash
 #
 # Options (all optional):
-#   --hub <path>            where the hub is, or should go     (default: ~/hub)
+#   --godspeed <path>            where the mission control is, or should go     (default: ~/godspeed)
 #                           Not under Documents, Desktop, Pictures or any cloud drive
 #                           folder: those are refused, with the reason.
-#   --repo <git url>        a hub you already keep, to fetch
-#   --starter-repo <url>    the product whose starter folder a new hub begins as
-#   --starter-path <name>   the folder inside that repo        (default: starter-hub)
+#   --repo <git url>        a mission control you already keep, to fetch
+#   --starter-repo <url>    the product whose starter folder a new mission control begins as
+#   --starter-path <name>   the folder inside that repo        (default: starter-godspeed)
 #   --skip-prereqs          do not install anything, just wire it up
 #   --sources <list>        which AI tools have their conversations copied into the
-#                           hub from this machine, as a comma list (claude, codex,
+#                           mission control from this machine, as a comma list (claude, codex,
 #                           hermes, opencode). "" means none. Without it, a machine
-#                           getting its first hub copies nothing, and a machine that
+#                           getting its first mission control copies nothing, and a machine that
 #                           already has one keeps the choice it made before.
-#   --beside                put a SECOND hub at --hub and leave this computer working
-#                           from the one it already has. Needs --hub, and needs a hub
-#                           already here to sit beside. For a work hub next to a
-#                           personal one, for trying a hub before moving into it, and
-#                           for a clean hub to record on a machine that carries a full
+#   --beside                put a SECOND mission control at --godspeed and leave this computer working
+#                           from the one it already has. Needs --godspeed, and needs a mission control
+#                           already here to sit beside. For a work mission control next to a
+#                           personal one, for trying a mission control before moving into it, and
+#                           for a clean mission control to record on a machine that carries a full
 #                           one. kb_beside in lib.sh lists what it leaves alone.
 #   --only menerio          run ONE step and leave the rest of this computer alone: ask
 #                           about Menerio, store the key, and give every assistant here
 #                           the connection. For the reader who said no on the day. It
-#                           needs a hub already on this computer.
+#                           needs a mission control already on this computer.
 #   --only gmail            retired (2026-09-22): refreshes the mail tool and says that
 #                           Gmail is now connected by asking an assistant "Connect Gmail
 #                           for me". It connects nothing itself.
@@ -64,13 +64,13 @@ export KB_TAG
 # branch without editing this file.
 KB_BRANCH="${KB_BRANCH:-v2}"
 
-HUB=""
+GODSPEED=""
 REPO_URL=""
-# The book's kit, matching the default windows/setup-hub.ps1 has carried since it
+# The book's kit, matching the default windows/setup-godspeed.ps1 has carried since it
 # existed. Without one, an update run fetched no tools, so the notebook step further
 # down had no runner to schedule. Another product overrides it with --starter-repo.
 STARTER_REPO="https://github.com/MichaelZelbel/teach-it-once-kit.git"
-STARTER_PATH="starter-hub"
+STARTER_PATH="starter-godspeed"
 SKIP_PREREQS=0
 SOURCES=""
 SOURCES_SET=0
@@ -79,10 +79,10 @@ ONLY=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --hub)          HUB="${2:-}";          shift 2 ;;
+    --godspeed)          GODSPEED="${2:-}";          shift 2 ;;
     --repo)         REPO_URL="${2:-}";     shift 2 ;;
     --starter-repo) STARTER_REPO="${2:-}"; shift 2 ;;
-    --starter-path) STARTER_PATH="${2:-starter-hub}"; shift 2 ;;
+    --starter-path) STARTER_PATH="${2:-starter-godspeed}"; shift 2 ;;
     --skip-prereqs) SKIP_PREREQS=1;        shift ;;
     --beside)       BESIDE=1;              shift ;;
     --only)         ONLY="${2:-}";         shift 2 ;;
@@ -90,8 +90,8 @@ while [ $# -gt 0 ]; do
     --sources)      SOURCES="${2:-}"; SOURCES_SET=1; shift 2 ;;
     --sources=*)    SOURCES="${1#--sources=}"; SOURCES_SET=1; shift ;;
     -h|--help)      sed -n '2,51p' "$0" 2>/dev/null; exit 0 ;;
-    # A bare path, so `... | bash -s -- ~/hub` keeps working the way join.sh did.
-    *)              [ -z "$HUB" ] && HUB="$1"; shift ;;
+    # A bare path, so `... | bash -s -- ~/godspeed` keeps working the way join.sh did.
+    *)              [ -z "$GODSPEED" ] && GODSPEED="$1"; shift ;;
   esac
 done
 
@@ -124,7 +124,7 @@ elif [ -n "$KB_SELF" ] && [ -f "$KB_SELF/lib.sh" ]; then
   printf '[setup] no network, so I am using the copy beside this script. It may be behind.\n' >&2
 fi
 
-if [ "$KB_LOADED" -ne 1 ] || ! command -v kb_find_hub >/dev/null 2>&1; then
+if [ "$KB_LOADED" -ne 1 ] || ! command -v kb_find_godspeed >/dev/null 2>&1; then
   echo "[stop] I could not load the install code." >&2
   echo "       Check this computer can reach the internet, then run it again." >&2
   exit 1
@@ -132,10 +132,10 @@ fi
 
 # Newer than the network copy is a real state, not a theoretical one: this script
 # and the published branch are published by two separate acts, so either can be ahead.
-for fn in kb_install_prereqs kb_new_hub kb_copy_starter_hub kb_link_ai_memory kb_install_hub_cli \
-          kb_install_hub_tools kb_install_prompt_harvest kb_sync_report kb_write_prompt_sources \
-          kb_update_hub kb_connect_notebook kb_wire_skills kb_point_hermes_at_hub \
-          kb_hermes_approvals kb_refuse_hub_path kb_default_hub_dir \
+for fn in kb_install_prereqs kb_new_godspeed kb_copy_starter_godspeed kb_link_ai_memory kb_install_godspeed_cli \
+          kb_install_godspeed_tools kb_install_prompt_harvest kb_sync_report kb_write_prompt_sources \
+          kb_update_godspeed kb_connect_notebook kb_wire_skills kb_point_hermes_at_godspeed \
+          kb_hermes_approvals kb_refuse_godspeed_path kb_default_godspeed_dir \
           kb_beside kb_same_path kb_only_menerio kb_only_gmail kb_gmail_retired; do
   if ! command -v "$fn" >/dev/null 2>&1; then
     echo "[stop] the install code on this computer is incomplete ($fn is missing)." >&2
@@ -148,17 +148,17 @@ done
 # 1b. One step only, when that is what was asked for.
 #
 # Sits BEFORE the prerequisites on purpose. A reader who comes back for Menerio has a
-# working hub already, and re-checking Git, Node and Hermes, pulling the folder and
+# working mission control already, and re-checking Git, Node and Hermes, pulling the folder and
 # re-running every wiring step is not what they came for. kb_only_menerio in lib.sh
-# says what the one step runs. It needs a hub to connect, so it never makes one.
+# says what the one step runs. It needs a mission control to connect, so it never makes one.
 # -----------------------------------------------------------------------------
 if [ -n "$ONLY" ]; then
   case "$ONLY" in menerio|gmail) ;; *) die "--only knows two steps: menerio and gmail. You typed: $ONLY" ;; esac
   if [ "$BESIDE" -eq 1 ]; then KB_BESIDE=1; export KB_BESIDE; fi
-  FOUND="$(kb_find_hub "$HUB" 2>/dev/null || true)"
+  FOUND="$(kb_find_godspeed "$GODSPEED" 2>/dev/null || true)"
   [ -n "$FOUND" ] || die "there is no mission control on this computer yet, so there is nothing to connect. Run this without --only first, and it will make one."
-  if [ -n "$HUB" ] && ! kb_same_path "$FOUND" "$HUB"; then
-    die "you asked for the mission control at $HUB, and I could not find a mission control there. This computer works from $FOUND. Leave off --hub to connect that one."
+  if [ -n "$GODSPEED" ] && ! kb_same_path "$FOUND" "$GODSPEED"; then
+    die "you asked for the mission control at $GODSPEED, and I could not find a mission control there. This computer works from $FOUND. Leave off --godspeed to connect that one."
   fi
   if [ "$ONLY" = "gmail" ]; then kb_only_gmail "$FOUND" "$STARTER_REPO"
   else kb_only_menerio "$FOUND" "$STARTER_REPO"; fi
@@ -173,7 +173,7 @@ say "Setting up Godspeed Mission Control"
 KB_MISSING=""
 [ "$SKIP_PREREQS" -eq 1 ] || kb_install_prereqs
 
-# git is the one thing nothing else can work around: a hub is a git folder.
+# git is the one thing nothing else can work around: a mission control is a git folder.
 if ! command -v git >/dev/null 2>&1; then
   die "Git is not on this computer and I could not install it.
    On a Mac:   install Homebrew from https://brew.sh then run this again
@@ -183,65 +183,65 @@ fi
 # -----------------------------------------------------------------------------
 # 3. Install or update? Look, do not ask.
 # -----------------------------------------------------------------------------
-# BESIDE means "do not ask this machine where its hub is". kb_find_hub answers that
+# BESIDE means "do not ask this machine where its mission control is". kb_find_godspeed answers that
 # question, and on a machine that already works from one it answers with THAT one: it
-# reads $HUB_DIR before it looks at anything else. So an explicit --hub naming a folder
-# that did not exist yet used to fall straight through to the hub already here, which
+# reads $GODSPEED_DIR before it looks at anything else. So an explicit --godspeed naming a folder
+# that did not exist yet used to fall straight through to the mission control already here, which
 # was then brought up to date under a green tick while the folder actually asked for was
 # never made and nothing said why. A beside run looks at the path it was given and at
 # nothing else.
 OTHER=""
 if [ "$BESIDE" -eq 1 ]; then
-  [ -n "$HUB" ] || die "--beside needs --hub as well. It puts a mission control in a place you name and leaves this computer working from the one it already has, so it has to be told where. Example: --beside --hub $(kb_default_hub_dir)"
-  OTHER="$(kb_find_hub 2>/dev/null || true)"
+  [ -n "$GODSPEED" ] || die "--beside needs --godspeed as well. It puts a mission control in a place you name and leaves this computer working from the one it already has, so it has to be told where. Example: --beside --godspeed $(kb_default_godspeed_dir)"
+  OTHER="$(kb_find_godspeed 2>/dev/null || true)"
   [ -n "$OTHER" ] || die "there is no mission control on this computer yet, so there is nothing for a second one to sit beside. Run this without --beside and it will make the first one."
-  ! kb_same_path "$OTHER" "$HUB" || die "$HUB is the mission control this computer already works from, so it cannot sit beside itself. Run this without --beside to bring it up to date."
+  ! kb_same_path "$OTHER" "$GODSPEED" || die "$GODSPEED is the mission control this computer already works from, so it cannot sit beside itself. Run this without --beside to bring it up to date."
   KB_BESIDE=1
   export KB_BESIDE
   say "This computer works from $OTHER and keeps working from it. The new mission control will sit beside it."
   FOUND=""
-  kb_hub_looks_real "$HUB" && FOUND="$(cd "$HUB" && pwd -P)"
+  kb_godspeed_looks_real "$GODSPEED" && FOUND="$(cd "$GODSPEED" && pwd -P)"
 else
-  FOUND="$(kb_find_hub "$HUB" 2>/dev/null || true)"
-  if [ -n "$FOUND" ] && [ -n "$HUB" ] && ! kb_same_path "$FOUND" "$HUB"; then
-    die "you asked for a mission control at $HUB, but this computer already works from $FOUND. To put a second mission control at $HUB and leave $FOUND in charge of this computer, add --beside. To bring $FOUND up to date instead, leave off --hub."
+  FOUND="$(kb_find_godspeed "$GODSPEED" 2>/dev/null || true)"
+  if [ -n "$FOUND" ] && [ -n "$GODSPEED" ] && ! kb_same_path "$FOUND" "$GODSPEED"; then
+    die "you asked for a mission control at $GODSPEED, but this computer already works from $FOUND. To put a second mission control at $GODSPEED and leave $FOUND in charge of this computer, add --beside. To bring $FOUND up to date instead, leave off --godspeed."
   fi
 fi
 IS_NEW=0
 
 if [ -n "$FOUND" ]; then
-  HUB="$FOUND"
-  say "Found your mission control already on this computer at $HUB"
-  BEFORE="$(git -C "$HUB" rev-parse --short HEAD 2>/dev/null || true)"
-  kb_update_hub "$HUB"
-  AFTER="$(git -C "$HUB" rev-parse --short HEAD 2>/dev/null || true)"
+  GODSPEED="$FOUND"
+  say "Found your mission control already on this computer at $GODSPEED"
+  BEFORE="$(git -C "$GODSPEED" rev-parse --short HEAD 2>/dev/null || true)"
+  kb_update_godspeed "$GODSPEED"
+  AFTER="$(git -C "$GODSPEED" rev-parse --short HEAD 2>/dev/null || true)"
   if [ -n "$BEFORE" ] && [ -n "$AFTER" ] && [ "$BEFORE" != "$AFTER" ]; then
     ok "it was out of date. Brought it up to date ($BEFORE to $AFTER)."
   fi
-  # The starter can grow after a hub is born (dev/ and its .gitignore arrived
+  # The starter can grow after a mission control is born (dev/ and its .gitignore arrived
   # 2026-08-19). Top up whatever is missing, top level only and never over
   # anything already there, so a re-run delivers new rooms without treading on
   # a word the person wrote. The one exception is .gitignore, which is merged
-  # line-by-line inside kb_copy_starter_hub: every hub already has one, and
-  # skip-if-present would keep the dev/ fence from ever reaching an old hub.
+  # line-by-line inside kb_copy_starter_godspeed: every mission control already has one, and
+  # skip-if-present would keep the dev/ fence from ever reaching an old mission control.
   # Before this line, an update run never looked at the starter at all, so a
-  # new room only ever reached new hubs.
-  TOPUP_BEFORE="$(ls -A "$HUB" 2>/dev/null | sort)"
-  kb_copy_starter_hub "$HUB" "$STARTER_REPO" "$STARTER_PATH" || true
-  TOPUP_AFTER="$(ls -A "$HUB" 2>/dev/null | sort)"
+  # new room only ever reached new mission controls.
+  TOPUP_BEFORE="$(ls -A "$GODSPEED" 2>/dev/null | sort)"
+  kb_copy_starter_godspeed "$GODSPEED" "$STARTER_REPO" "$STARTER_PATH" || true
+  TOPUP_AFTER="$(ls -A "$GODSPEED" 2>/dev/null | sort)"
   if [ "$TOPUP_BEFORE" != "$TOPUP_AFTER" ]; then
     ok "the starter grew since this mission control was made; added what was missing, touched nothing else."
   fi
 else
   IS_NEW=1
-  [ -n "$HUB" ] || HUB="$(kb_default_hub_dir)"
-  REFUSED="$(kb_refuse_hub_path "$HUB")"
-  [ -z "$REFUSED" ] || die "I will not put your mission control at $HUB: $REFUSED"
-  if [ "$BESIDE" -eq 1 ]; then say "Making your mission control at $HUB"
+  [ -n "$GODSPEED" ] || GODSPEED="$(kb_default_godspeed_dir)"
+  REFUSED="$(kb_refuse_godspeed_path "$GODSPEED")"
+  [ -z "$REFUSED" ] || die "I will not put your mission control at $GODSPEED: $REFUSED"
+  if [ "$BESIDE" -eq 1 ]; then say "Making your mission control at $GODSPEED"
   else say "No mission control on this computer yet, so I am making one"; fi
-  kb_new_hub "$HUB" "$REPO_URL" "$STARTER_REPO" "$STARTER_PATH" \
+  kb_new_godspeed "$GODSPEED" "$REPO_URL" "$STARTER_REPO" "$STARTER_PATH" \
     || die "I could not make your mission control. Read what it said just above."
-  HUB="$(cd "$HUB" && pwd -P)"
+  GODSPEED="$(cd "$GODSPEED" && pwd -P)"
 fi
 
 # -----------------------------------------------------------------------------
@@ -252,13 +252,13 @@ fi
 #    this device before any wiring runs, so everything below obeys it, and the
 #    person is told what will be read BEFORE it is read.
 # -----------------------------------------------------------------------------
-# A machine getting its first hub copies no conversations until its owner names
+# A machine getting its first mission control copies no conversations until its owner names
 # the tools, the same as the Windows wizard, whose boxes start unticked there. Copying
 # is the one step that pushes words typed to other programs into a repository, so it
-# is asked for, never assumed. A machine that already works from a hub (an update, or
+# is asked for, never assumed. A machine that already works from a mission control (an update, or
 # --beside) keeps whatever it recorded or did before, so an update never switches
 # anything off behind anyone's back.
-if [ "$SOURCES_SET" -eq 0 ] && [ "$IS_NEW" -eq 1 ] && [ "$BESIDE" -eq 0 ]    && ! grep -q '^[[:space:]]*HUB_PROMPT_SOURCES=' "$HOME/.hub/device.env" 2>/dev/null; then
+if [ "$SOURCES_SET" -eq 0 ] && [ "$IS_NEW" -eq 1 ] && [ "$BESIDE" -eq 0 ]    && ! grep -q '^[[:space:]]*GODSPEED_PROMPT_SOURCES=' "$HOME/.godspeed/device.env" 2>/dev/null; then
   SOURCES=""
   SOURCES_SET=1
 fi
@@ -269,24 +269,24 @@ if [ "$SOURCES_SET" -eq 1 ]; then
 fi
 kb_sync_report
 
-kb_link_ai_memory   "$HUB"    # the one memory every machine shares
-kb_install_hub_cli  "$HUB"    # the mission control's own commands, on PATH, from any folder
-kb_install_hub_tools "$HUB" "$STARTER_REPO"   # the kit's own programs, on this machine
-kb_install_prompt_harvest "$HUB"  # the daily job that files what you type to an AI here
+kb_link_ai_memory   "$GODSPEED"    # the one memory every machine shares
+kb_install_godspeed_cli  "$GODSPEED"    # the mission control's own commands, on PATH, from any folder
+kb_install_godspeed_tools "$GODSPEED" "$STARTER_REPO"   # the kit's own programs, on this machine
+kb_install_prompt_harvest "$GODSPEED"  # the daily job that files what you type to an AI here
 # The notebook, and the one thing about it that has to travel: connect it once and the
 # connection lives in the folder, so the next computer only ever types the passphrase.
 # Quiet and complete for the reader who never connects one - which is most of the book.
-kb_connect_notebook "$HUB"
+kb_connect_notebook "$GODSPEED"
 # The mail tool, known to every assistant and connected to nothing (email is optional).
-command -v kb_wire_mail >/dev/null 2>&1 && kb_wire_mail "$HUB"
+command -v kb_wire_mail >/dev/null 2>&1 && kb_wire_mail "$GODSPEED"
 # Email is never asked about during an install or an update (THE GMAIL STEP, RETIRED, in lib.sh).
 
-kb_wire_skills "$HUB"   # one real room, links to it, and it counts what it wired
+kb_wire_skills "$GODSPEED"   # one real room, links to it, and it counts what it wired
 
 # Where Hermes works. terminal.cwd, never `workspace`, and proved by a file read
 # rather than by reading the setting back. See the long note above the function:
 # four of the six known ways to do this are silent no-ops and the kit shipped one.
-kb_point_hermes_at_hub "$HUB"
+kb_point_hermes_at_godspeed "$GODSPEED"
 
 # The leash. A translation of the Claude permissions file, not a rename: Hermes
 # already allows every command the kit runs, so this writes no allowlist at all and
@@ -310,7 +310,7 @@ else
 fi
 cat <<EOF
 
-  $HUB
+  $GODSPEED
 
 EOF
 if [ "$BESIDE" -eq 1 ]; then
@@ -332,7 +332,7 @@ Worth knowing:
   * Your mission control travels between machines through git. Push it from here, and run
     this same command on the next machine to pick it up there. To change which
     AI tools have their conversations copied from this machine, run it again with
-    --sources, or edit HUB_PROMPT_SOURCES in ~/.hub/device.env
+    --sources, or edit GODSPEED_PROMPT_SOURCES in ~/.godspeed/device.env
 EOF
 command -v kb_mail_note >/dev/null 2>&1 && kb_mail_note
 

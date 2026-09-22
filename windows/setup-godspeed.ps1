@@ -1,7 +1,7 @@
 # =============================================================================
-# kit-bootstrap / windows / setup-hub.ps1
+# kit-bootstrap / windows / setup-godspeed.ps1
 #
-# The engine behind HubSetup.exe. The .exe is the wizard a person clicks; this
+# The engine behind GodspeedSetup.exe. The .exe is the wizard a person clicks; this
 # file is the work it does.
 #
 # Why it exists: until 2026-08-09 the only way onto a Windows PC was to paste a
@@ -12,41 +12,41 @@
 # only a face on top.
 #
 # It decides between two jobs by looking, never by asking:
-#   nothing here yet  -> INSTALL   (fetch what is missing, then make the hub)
+#   nothing here yet  -> INSTALL   (fetch what is missing, then make the mission control)
 #   already have one  -> UPDATE    (bring it current, then re-check the wiring)
 #
 # Safe to run as many times as you like. It never deletes a memory.
 #
 # Usage on its own, without the .exe:
-#   powershell -ExecutionPolicy Bypass -File setup-hub.ps1 [-Hub C:\Users\you\hub] [-RepoUrl <git url>]
+#   powershell -ExecutionPolicy Bypass -File setup-godspeed.ps1 [-Godspeed C:\Users\you\godspeed] [-RepoUrl <git url>]
 #
-#   -Beside   put a SECOND hub at -Hub and leave this computer working from the one
-#             it already has. Needs -Hub, and needs a hub already here to sit beside.
-#             For a work hub next to a personal one, for trying a hub before moving
-#             into it, and for a clean hub to record on a machine that carries a full
+#   -Beside   put a SECOND mission control at -Godspeed and leave this computer working from the one
+#             it already has. Needs -Godspeed, and needs a mission control already here to sit beside.
+#             For a work mission control next to a personal one, for trying a mission control before moving
+#             into it, and for a clean mission control to record on a machine that carries a full
 #             one. See Test-KitBeside in join.ps1 for what it leaves alone and why.
 #
 #   -Only menerio   run ONE step and leave the rest of this PC alone: ask about Menerio,
 #             store the key, and give every assistant here the connection. For the
-#             reader who said no on the day. It needs a hub already on this PC.
+#             reader who said no on the day. It needs a mission control already on this PC.
 #
 #   -Only gmail     retired (2026-09-22): refreshes the mail tool and says that Gmail is
 #             now connected by asking an assistant "Connect Gmail for me". It connects
 #             nothing itself.
 # =============================================================================
 param(
-    [string]$Hub,
+    [string]$Godspeed,
     [string]$RepoUrl,
-    # Which product this installer is for. A brand-new hub is copied from that
+    # Which product this installer is for. A brand-new mission control is copied from that
     # repository's starter folder rather than written from imagination, so what a
     # reader ends up with is the folder their book actually walks them through.
     # Another kit building its own .exe overrides these two and changes nothing else.
     [string]$StarterRepo = 'https://github.com/MichaelZelbel/teach-it-once-kit.git',
-    [string]$StarterPath = 'starter-hub',
-    # Which AI tools have their conversations copied into the hub from this PC, as a
+    [string]$StarterPath = 'starter-godspeed',
+    # Which AI tools have their conversations copied into the mission control from this PC, as a
     # comma list (claude, codex, hermes, opencode). '-', '' or 'none' means none. The
     # default '(auto)' means "no choice made this run": keep what this device already
-    # has recorded; on a PC getting its first hub that is nothing, elsewhere it is what
+    # has recorded; on a PC getting its first mission control that is nothing, elsewhere it is what
     # every PC read before there was a choice. The wizard fills this from its checklist.
     [string]$PromptSources = '(auto)',
     [switch]$SkipPrereqs,
@@ -56,7 +56,7 @@ param(
     [string]$Only,
     # Which kit-bootstrap tag or branch the shared install code comes from. The wizard
     # passes the tag this .exe was built from, so a reader runs exactly the code that
-    # passed its runs, the same promise install-hub.sh has always made on macOS and Linux.
+    # passed its runs, the same promise install-godspeed.sh has always made on macOS and Linux.
     # Empty falls back to KB_BRANCH and then to the moving v2 branch, which is what a
     # developer running this file straight out of a checkout wants.
     [string]$KbBranch
@@ -76,7 +76,7 @@ try {
 
 # A log, because the wizard window closes and takes its output with it. When
 # somebody says "it did not work", this file is the answer.
-$LogDir = Join-Path $env:LOCALAPPDATA 'Hub'
+$LogDir = Join-Path $env:LOCALAPPDATA 'Godspeed'
 New-Item -ItemType Directory -Force $LogDir | Out-Null
 $LogFile = Join-Path $LogDir 'setup-log.txt'
 try { Start-Transcript -Path $LogFile -Append -ErrorAction Stop | Out-Null } catch { }
@@ -113,7 +113,7 @@ Write-Host ""
 # Overridable so a test can point at a branch without editing this file.
 # THE PIN, AND WHY WINDOWS NOW HAS ONE (2026-09-04).
 #
-# install-hub.sh has always pinned an immutable TAG, and says why in its own comment: this
+# install-godspeed.sh has always pinned an immutable TAG, and says why in its own comment: this
 # book's readers get exactly the code that passed its end-to-end runs. This file defaulted to
 # the moving v2 branch instead, so the two platforms made different promises and only one of
 # them was written down. The consequence was real: on 2026-09-03 six pushes to v2 reached
@@ -133,23 +133,23 @@ if (-not $KbBranch) { $KbBranch = if ($env:KB_BRANCH) { $env:KB_BRANCH } else { 
 # WHAT THE CALLER ASKED FOR, KEPT SAFE ACROSS THE LIBRARY LOAD.
 #
 # join.ps1 is a script in its own right as well as this file's library, so it has its own
-# param block, and that block declares [string]$Hub. Dot-sourcing runs a param block IN THE
-# CALLER'S SCOPE, so `. $Join -AsLibrary` set $Hub back to its default of $null and threw
-# away whatever -Hub this installer was given. -Hub therefore never worked, on any run,
-# since the day the library grew that parameter, and nothing ever said so: with $Hub empty,
-# Find-KitHub simply detected the machine's existing hub and the common case looked perfect.
-# It surfaced on 2026-09-03 as "-Beside needs -Hub as well" on a command line that plainly
+# param block, and that block declares [string]$Godspeed. Dot-sourcing runs a param block IN THE
+# CALLER'S SCOPE, so `. $Join -AsLibrary` set $Godspeed back to its default of $null and threw
+# away whatever -Godspeed this installer was given. -Godspeed therefore never worked, on any run,
+# since the day the library grew that parameter, and nothing ever said so: with $Godspeed empty,
+# Find-KitGodspeed simply detected the machine's existing mission control and the common case looked perfect.
+# It surfaced on 2026-09-03 as "-Beside needs -Godspeed as well" on a command line that plainly
 # had one.
 #
 # Saved here and put back after every load, rather than renaming the library's parameter,
-# because readers run join.ps1 directly too and -Hub means the same thing to them.
-$WantHub = $Hub
+# because readers run join.ps1 directly too and -Godspeed means the same thing to them.
+$WantGodspeed = $Godspeed
 # -Only is lost the same way and for the same reason: join.ps1 declares it too.
 $WantOnly = $Only
 
 $Bundled = Join-Path $PSScriptRoot 'join.ps1'
 $Join    = $null
-$cache   = Join-Path $env:LOCALAPPDATA 'Hub\join.ps1'
+$cache   = Join-Path $env:LOCALAPPDATA 'Godspeed\join.ps1'
 try {
     Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 `
         -Uri "https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/$KbBranch/join.ps1" `
@@ -182,17 +182,17 @@ if (-not (Get-Command Show-KitGmailRetired -ErrorAction SilentlyContinue)) {
         . $Bundled -AsLibrary
     }
 }
-# Both loads above are dot-sources, and both wiped it. See $WantHub.
-$Hub = $WantHub
+# Both loads above are dot-sources, and both wiped it. See $WantGodspeed.
+$Godspeed = $WantGodspeed
 $Only = $WantOnly
 
-foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-KitHub',
-                 'Join-KitMemory', 'Install-KitHubCli', 'Install-KitHubTools',
+foreach ($fn in 'Install-KitPrereqs', 'New-KitGodspeed', 'Copy-KitStarterGodspeed', 'Find-KitGodspeed',
+                 'Join-KitMemory', 'Install-KitGodspeedCli', 'Install-KitGodspeedTools',
                  'Install-KitPromptHarvest', 'Update-KitPath',
                  'Find-KitAiTools', 'Set-KitPromptSources', 'Write-KitSyncReport', 'Get-KitDeviceEnvValue',
                  'Connect-KitNotebook', 'Write-KitMcpConfig', 'Install-KitNotebookSync',
-                 'Connect-KitSkills', 'Set-KitHermesHub', 'Set-KitHermesApprovals',
-                 'Get-KitDefaultHubDir', 'Get-KitHubPathRefusal',
+                 'Connect-KitSkills', 'Set-KitHermesGodspeed', 'Set-KitHermesApprovals',
+                 'Get-KitDefaultGodspeedDir', 'Get-KitGodspeedPathRefusal',
                  'Test-KitBeside', 'Test-KitSamePath',
                  'Connect-KitAssistants', 'Connect-KitMenerioOnly',
                  'Select-KitNotebookMirror', 'Request-KitPassphrase',
@@ -206,23 +206,23 @@ foreach ($fn in 'Install-KitPrereqs', 'New-KitHub', 'Copy-KitStarterHub', 'Find-
 # 1b. One step only, when that is what was asked for.
 #
 # Sits BEFORE the prerequisites on purpose. A reader who comes back for Menerio has a
-# working hub already, and re-checking Git, Node and Hermes, pulling the folder and
+# working mission control already, and re-checking Git, Node and Hermes, pulling the folder and
 # re-running every wiring step is not what they came for. Connect-KitMenerioOnly in
-# join.ps1 says what the one step runs. It needs a hub to connect, so it never makes one.
+# join.ps1 says what the one step runs. It needs a mission control to connect, so it never makes one.
 # -----------------------------------------------------------------------------
 if ($Only) {
     if ($Only -notin 'menerio', 'gmail') { Stop-Setup "-Only knows two steps: menerio and gmail. You typed: $Only" }
     Update-KitPath
     if ($Beside) { $env:KB_BESIDE = '1' }
-    $found = Find-KitHub -Hint $Hub
+    $found = Find-KitGodspeed -Hint $Godspeed
     if (-not $found) {
         Stop-Setup "there is no mission control on this PC yet, so there is nothing to connect. Run this without -Only first, and it will make one."
     }
-    if ($Hub -and -not (Test-KitSamePath $found $Hub)) {
-        Stop-Setup "you asked for the mission control at $Hub, and I could not find a mission control there. This PC works from $found. Leave off -Hub to connect that one."
+    if ($Godspeed -and -not (Test-KitSamePath $found $Godspeed)) {
+        Stop-Setup "you asked for the mission control at $Godspeed, and I could not find a mission control there. This PC works from $found. Leave off -Godspeed to connect that one."
     }
-    if ($Only -eq 'gmail') { Connect-KitGmailOnly -Hub $found -ToolsRepo $StarterRepo }
-    else { Connect-KitMenerioOnly -Hub $found -ToolsRepo $StarterRepo }
+    if ($Only -eq 'gmail') { Connect-KitGmailOnly -Godspeed $found -ToolsRepo $StarterRepo }
+    else { Connect-KitMenerioOnly -Godspeed $found -ToolsRepo $StarterRepo }
     Write-Host ""
     Write-Host "  A record of this run is at $LogFile"
     try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }
@@ -239,7 +239,7 @@ if (-not $SkipPrereqs) {
 } else {
     Update-KitPath
 }
-# Git is the one thing nothing else can work around: a hub is a git folder.
+# Git is the one thing nothing else can work around: a mission control is a git folder.
 if (-not (Test-KitCommand 'git')) {
     Stop-Setup "Git is not on this PC and I could not install it. Get it from https://git-scm.com/download/win , then run this installer again."
 }
@@ -247,68 +247,68 @@ if (-not (Test-KitCommand 'git')) {
 # -----------------------------------------------------------------------------
 # 3. Install or update? Look, do not ask.
 # -----------------------------------------------------------------------------
-# BESIDE means "do not ask this machine where its hub is". Find-KitHub answers that
+# BESIDE means "do not ask this machine where its mission control is". Find-KitGodspeed answers that
 # question, and on a machine that already works from one it answers with THAT one: it
-# reads $env:HUB_DIR before it looks at anything else. So an explicit -Hub naming a
-# folder that did not exist yet used to fall straight through to the hub already here,
+# reads $env:GODSPEED_DIR before it looks at anything else. So an explicit -Godspeed naming a
+# folder that did not exist yet used to fall straight through to the mission control already here,
 # which was then brought up to date under a green tick while the folder actually asked
 # for was never made and nothing said why. A beside run looks at the path it was given
 # and at nothing else.
 if ($Beside) {
-    if (-not $Hub) {
-        Stop-Setup "-Beside needs -Hub as well. It puts a mission control in a place you name and leaves this PC working from the one it already has, so it has to be told where. Example: -Beside -Hub $(Get-KitDefaultHubDir)"
+    if (-not $Godspeed) {
+        Stop-Setup "-Beside needs -Godspeed as well. It puts a mission control in a place you name and leaves this PC working from the one it already has, so it has to be told where. Example: -Beside -Godspeed $(Get-KitDefaultGodspeedDir)"
     }
-    $other = Find-KitHub
+    $other = Find-KitGodspeed
     if (-not $other) {
         Stop-Setup "there is no mission control on this PC yet, so there is nothing for a second one to sit beside. Run this without -Beside and it will make the first one."
     }
-    if (Test-KitSamePath $other $Hub) {
-        Stop-Setup "$Hub is the mission control this PC already works from, so it cannot sit beside itself. Run this without -Beside to bring it up to date."
+    if (Test-KitSamePath $other $Godspeed) {
+        Stop-Setup "$Godspeed is the mission control this PC already works from, so it cannot sit beside itself. Run this without -Beside to bring it up to date."
     }
     $env:KB_BESIDE = '1'
     Write-KbSay "This PC works from $other and keeps working from it. The new mission control will sit beside it."
-    $found = if (Test-KitHub $Hub) { (Resolve-Path $Hub).Path } else { $null }
+    $found = if (Test-KitGodspeed $Godspeed) { (Resolve-Path $Godspeed).Path } else { $null }
 } else {
-    $found = Find-KitHub -Hint $Hub
-    if ($found -and $Hub -and -not (Test-KitSamePath $found $Hub)) {
-        Stop-Setup "you asked for a mission control at $Hub, but this PC already works from $found. To put a second mission control at $Hub and leave $found in charge of this PC, add -Beside. To bring $found up to date instead, leave off -Hub."
+    $found = Find-KitGodspeed -Hint $Godspeed
+    if ($found -and $Godspeed -and -not (Test-KitSamePath $found $Godspeed)) {
+        Stop-Setup "you asked for a mission control at $Godspeed, but this PC already works from $found. To put a second mission control at $Godspeed and leave $found in charge of this PC, add -Beside. To bring $found up to date instead, leave off -Godspeed."
     }
 }
 $isNew = $false
 
 if ($found) {
-    $Hub = $found
-    Write-KbSay "Found your mission control already on this PC at $Hub"
-    $before = (git -C $Hub rev-parse --short HEAD 2>$null)
-    Update-KitHub -Hub $Hub
-    $after = (git -C $Hub rev-parse --short HEAD 2>$null)
+    $Godspeed = $found
+    Write-KbSay "Found your mission control already on this PC at $Godspeed"
+    $before = (git -C $Godspeed rev-parse --short HEAD 2>$null)
+    Update-KitGodspeed -Godspeed $Godspeed
+    $after = (git -C $Godspeed rev-parse --short HEAD 2>$null)
     if ($before -and $after -and $before -ne $after) {
         Write-KbOk "it was out of date. Brought it up to date ($before to $after)."
     }
-    # The starter can grow after a hub is born (dev/ and its .gitignore arrived
+    # The starter can grow after a mission control is born (dev/ and its .gitignore arrived
     # 2026-08-19). Top up whatever is missing, top level only and never over
     # anything already there, so a re-run delivers new rooms without treading on
     # a word the person wrote. The one exception is .gitignore, which is merged
-    # line-by-line inside Copy-KitStarterHub: every hub already has one, and
-    # skip-if-present would keep the dev/ fence from ever reaching an old hub.
+    # line-by-line inside Copy-KitStarterGodspeed: every mission control already has one, and
+    # skip-if-present would keep the dev/ fence from ever reaching an old mission control.
     # Before this line, an update run never looked at the starter at all, so a
-    # new room only ever reached new hubs.
-    $topupBefore = @(Get-ChildItem -Force -Name $Hub | Sort-Object)
-    try { Copy-KitStarterHub -Path $Hub -StarterRepo $StarterRepo -StarterPath $StarterPath | Out-Null } catch {}
-    $topupAfter = @(Get-ChildItem -Force -Name $Hub | Sort-Object)
+    # new room only ever reached new mission controls.
+    $topupBefore = @(Get-ChildItem -Force -Name $Godspeed | Sort-Object)
+    try { Copy-KitStarterGodspeed -Path $Godspeed -StarterRepo $StarterRepo -StarterPath $StarterPath | Out-Null } catch {}
+    $topupAfter = @(Get-ChildItem -Force -Name $Godspeed | Sort-Object)
     if (Compare-Object $topupBefore $topupAfter) {
         Write-KbOk "the starter grew since this mission control was made; added what was missing, touched nothing else."
     }
 } else {
     $isNew = $true
-    if (-not $Hub) { $Hub = Get-KitDefaultHubDir }
-    $why = Get-KitHubPathRefusal -Path $Hub
-    if ($why) { Stop-Setup "I will not put your mission control at ${Hub}: $why" }
-    if ($Beside) { Write-KbSay "Making your mission control at $Hub" }
+    if (-not $Godspeed) { $Godspeed = Get-KitDefaultGodspeedDir }
+    $why = Get-KitGodspeedPathRefusal -Path $Godspeed
+    if ($why) { Stop-Setup "I will not put your mission control at ${Godspeed}: $why" }
+    if ($Beside) { Write-KbSay "Making your mission control at $Godspeed" }
     else          { Write-KbSay "No mission control on this PC yet, so I am making one" }
-    try { New-KitHub -Path $Hub -RepoUrl $RepoUrl -StarterRepo $StarterRepo -StarterPath $StarterPath }
+    try { New-KitGodspeed -Path $Godspeed -RepoUrl $RepoUrl -StarterRepo $StarterRepo -StarterPath $StarterPath }
     catch { Stop-Setup $_.Exception.Message }
-    $Hub = (Resolve-Path $Hub).Path
+    $Godspeed = (Resolve-Path $Godspeed).Path
 }
 
 # -----------------------------------------------------------------------------
@@ -323,13 +323,13 @@ if ($found) {
 # 'none' is how the wizard says nothing was ticked. It cannot say '-': Windows PowerShell
 # 5.1 reads a lone '-' after -File as a parameter name and this script never starts.
 if ($PromptSources.Trim() -eq 'none') { $PromptSources = '-' }
-# A PC getting its first hub copies no conversations until its owner names the tools:
+# A PC getting its first mission control copies no conversations until its owner names the tools:
 # the wizard's boxes start unticked there, and a run without the wizard says the same.
 # Copying is the one step that pushes words typed to other programs into a repository,
-# so it is asked for, never assumed. A PC that already works from a hub (an update, or
+# so it is asked for, never assumed. A PC that already works from a mission control (an update, or
 # -Beside) keeps whatever it recorded or did before.
 if ($PromptSources -eq '(auto)' -and $isNew -and -not $Beside -and
-    $null -eq (Get-KitDeviceEnvValue 'HUB_PROMPT_SOURCES')) { $PromptSources = '-' }
+    $null -eq (Get-KitDeviceEnvValue 'GODSPEED_PROMPT_SOURCES')) { $PromptSources = '-' }
 if ($PromptSources -ne '(auto)') {
     Set-KitPromptSources -Value $PromptSources
     if ($PromptSources.Trim() -eq '' -or $PromptSources.Trim() -eq '-') { $env:KB_SYNC_SOURCES = '-' }
@@ -337,28 +337,28 @@ if ($PromptSources -ne '(auto)') {
 }
 Write-KitSyncReport
 
-Join-KitMemory     -Hub $Hub    # the one memory every machine shares
-Install-KitHubCli  -Hub $Hub    # the mission control's own commands, on PATH, from any folder
-Install-KitHubTools -Hub $Hub -ToolsRepo $StarterRepo   # the kit's own programs, on this machine
-Install-KitPromptHarvest -Hub $Hub   # the daily job that files what you type to an AI here
+Join-KitMemory     -Godspeed $Godspeed    # the one memory every machine shares
+Install-KitGodspeedCli  -Godspeed $Godspeed    # the mission control's own commands, on PATH, from any folder
+Install-KitGodspeedTools -Godspeed $Godspeed -ToolsRepo $StarterRepo   # the kit's own programs, on this machine
+Install-KitPromptHarvest -Godspeed $Godspeed   # the daily job that files what you type to an AI here
 # The notebook, and the one thing about it that has to travel: connect it once and the
 # connection lives in the folder, so the next computer only ever types the passphrase.
 # Quiet and complete for the reader who never connects one - which is most of the book.
-Connect-KitNotebook -Hub $Hub
+Connect-KitNotebook -Godspeed $Godspeed
 # The mail tool, known to every assistant and connected to nothing (email is optional).
-if (Get-Command Connect-KitMail -ErrorAction SilentlyContinue) { Connect-KitMail -Hub $Hub }
-# Email is never asked about during an install or "Update my hub" (THE GMAIL STEP, RETIRED, in join.ps1).
+if (Get-Command Connect-KitMail -ErrorAction SilentlyContinue) { Connect-KitMail -Godspeed $Godspeed }
+# Email is never asked about during an install or "Update my mission control" (THE GMAIL STEP, RETIRED, in join.ps1).
 
 # One real room, junctions to it, and it counts what it wired. Replaces three lines
 # that pointed .agents\skills at .claude\skills whenever .claude\skills existed, which
-# on a hub built by the book meant pointing every non-Claude assistant at the empty
+# on a mission control built by the book meant pointing every non-Claude assistant at the empty
 # folder the top-up had just made, under a green tick.
-Connect-KitSkills -Hub $Hub | Out-Null
+Connect-KitSkills -Godspeed $Godspeed | Out-Null
 
 # Where Hermes works. terminal.cwd, never `workspace`, and proved by a file read
 # rather than by reading the setting back. See the long note above the function: four
 # of the six known ways to do this are silent no-ops and the kit shipped one.
-Set-KitHermesHub -Hub $Hub | Out-Null
+Set-KitHermesGodspeed -Godspeed $Godspeed | Out-Null
 
 # The leash. A translation of the Claude permissions file, not a rename: Hermes
 # already allows every command the kit runs, so this writes no allowlist at all and
@@ -367,11 +367,11 @@ Set-KitHermesApprovals | Out-Null
 
 # Remember where it is, so the next run of the installer finds it instantly and so
 # other tools on this PC can stop guessing. One of the five things that answer "which
-# hub does this computer work from", so a hub sitting beside another one does not take
+# mission control does this computer work from", so a mission control sitting beside another one does not take
 # it (Test-KitBeside in join.ps1 lists all five).
 if (-not (Test-KitBeside)) {
-    [Environment]::SetEnvironmentVariable('HUB_DIR', $Hub, 'User')
-    $env:HUB_DIR = $Hub
+    [Environment]::SetEnvironmentVariable('GODSPEED_DIR', $Godspeed, 'User')
+    $env:GODSPEED_DIR = $Godspeed
 }
 
 # -----------------------------------------------------------------------------
@@ -385,7 +385,7 @@ if (Test-KitBeside)  { Write-Host "This second mission control is ready at:" }
 elseif ($isNew)      { Write-Host "Your mission control is at:" }
 else                 { Write-Host "This PC is up to date and wired in. Your mission control is at:" }
 Write-Host ""
-Write-Host "  $Hub"
+Write-Host "  $Godspeed"
 Write-Host ""
 if (Test-KitBeside) {
     Write-Host "It has its own folders, its own git history and its own assistant memory."
@@ -404,7 +404,7 @@ Worth knowing:
   * Your mission control travels between machines through git. Push it from here, and run
     this same installer on the next machine to pick it up there. To change which
     AI tools are read on this PC, run the installer again, or edit
-    HUB_PROMPT_SOURCES in $HOME\.hub\device.env
+    GODSPEED_PROMPT_SOURCES in $HOME\.godspeed\device.env
 "@
 if (Get-Command Write-KitMailNote -ErrorAction SilentlyContinue) { Write-KitMailNote }
 

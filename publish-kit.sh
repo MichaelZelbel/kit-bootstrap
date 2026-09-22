@@ -55,8 +55,8 @@ if [ "$CHECK_ONLY" -eq 0 ]; then
 fi
 
 HOST="${KIT_HOST:-root@srv1328602.hstgr.cloud}"
-KEY="${KIT_SSH_KEY:-$HOME/hub/.secrets/claude-desktop_ed25519}"
-ROOT="${KIT_ARTIFACT_ROOT:-/srv/hub-artifacts/kits}"
+KEY="${KIT_SSH_KEY:-$HOME/godspeed/.secrets/claude-desktop_ed25519}"
+ROOT="${KIT_ARTIFACT_ROOT:-/srv/mc-artifacts/kits}"
 BASE="${KIT_BASE_URL:-https://srv1328602.hstgr.cloud/hub/kits}"
 
 log()  { printf "\033[1;34m[publish]\033[0m %s\n" "$*"; }
@@ -95,7 +95,7 @@ FILE="$(basename "$TARBALL")"
 SHA="$(sha256sum "$TARBALL" | awk '{print $1}')"
 
 # The path segment is what keeps the download unlisted, the same way the
-# existing `hub publish` mechanism does. Reuse the kit's own segment across
+# existing `mission control publish` mechanism does. Reuse the kit's own segment across
 # releases so old links keep working; a new one is only for a new kit.
 if [ -z "$TOKEN_DIR" ]; then
   TOKEN_DIR="$(openssl rand -hex 12)"

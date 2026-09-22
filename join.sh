@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # =============================================================================
-# kit-bootstrap / join.sh   -   "I already have a hub. This is another machine."
+# kit-bootstrap / join.sh   -   "I already have a mission control. This is another machine."
 #
 # There are two jobs, not two audiences, and mixing that up cost us a real bug.
 #
-#   CREATE  build a hub for someone who has none. That is server/install.sh in
+#   CREATE  build a mission control for someone who has none. That is server/install.sh in
 #           the book's kit: it makes an account, installs the assistant, signs
 #           in to GitHub, makes the repository, asks three questions.
-#   JOIN    wire a machine you already own into a hub that already exists. That
+#   JOIN    wire a machine you already own into a mission control that already exists. That
 #           is this file.
 #
 # Until 2026-08-09 only CREATE existed in the kit, and JOIN existed only inside
@@ -16,14 +16,14 @@
 # here once. This is that rule applied to the half nobody had written.
 #
 # Usage:
-#   bash join.sh [path-to-your-hub-folder]      (default: ~/hub, or $HUB)
+#   bash join.sh [path-to-your-mc-folder]      (default: ~/godspeed, or $GODSPEED)
 #   bash join.sh --sources claude,codex         only these AI tools may be synced
 #   bash join.sh --sources ""                   sync nothing from this machine
 #   bash join.sh --only menerio                 just connect Menerio, change nothing else
 #
 # Piped from curl there is no keyboard to ask questions on, so this stays
 # non-interactive: it says plainly which AI tools it found and which it will
-# read, and --sources (or HUB_PROMPT_SOURCES in ~/.hub/device.env) is how a
+# read, and --sources (or GODSPEED_PROMPT_SOURCES in ~/.godspeed/device.env) is how a
 # person changes that. The Windows installer asks the same question with
 # checkboxes, because there a wizard is the native way.
 #
@@ -31,7 +31,7 @@
 # =============================================================================
 set -uo pipefail
 
-HUB_ARG=""
+GODSPEED_ARG=""
 SOURCES=""
 SOURCES_SET=0
 ONLY=""
@@ -41,7 +41,7 @@ while [ $# -gt 0 ]; do
     --sources=*) SOURCES="${1#--sources=}"; SOURCES_SET=1; shift ;;
     --only)      ONLY="${2:-}"; shift 2 ;;
     --only=*)    ONLY="${1#--only=}"; shift ;;
-    *)           [ -z "$HUB_ARG" ] && HUB_ARG="$1"; shift ;;
+    *)           [ -z "$GODSPEED_ARG" ] && GODSPEED_ARG="$1"; shift ;;
   esac
 done
 
@@ -64,24 +64,24 @@ else
          exit 1; }
 fi
 
-# Which hub? A machine that has one already knows where it is, so look before asking.
+# Which mission control? A machine that has one already knows where it is, so look before asking.
 # Only when nothing is found do we make the reader type a path.
-HUB="$(kb_find_hub "$HUB_ARG")" || die "I could not find a hub on this machine.
+GODSPEED="$(kb_find_godspeed "$GODSPEED_ARG")" || die "I could not find a mission control on this machine.
 I looked where you pointed me, at the folder your assistant's memory is linked to,
-and in the usual places (~/hub, /root/hub, C:\\hub). If yours is somewhere else,
-pass the path: bash join.sh /path/to/your/hub
+and in the usual places (~/godspeed, /root/godspeed, C:\\godspeed). If yours is somewhere else,
+pass the path: bash join.sh /path/to/your/godspeed
 If you have not got one yet, clone it first, then run this again."
 
-# One step only, when that is what was asked for. The same switch setup-hub.sh takes,
+# One step only, when that is what was asked for. The same switch setup-godspeed.sh takes,
 # and kb_only_menerio in lib.sh says what the one step runs and why it exists.
 if [ -n "$ONLY" ]; then
   case "$ONLY" in menerio|gmail) ;; *) die "--only knows two steps: menerio and gmail. You typed: $ONLY" ;; esac
   command -v "kb_only_$ONLY" >/dev/null 2>&1 || die "the install code on this computer is older than this script, so it has no single $ONLY step yet. Run the newest command from https://github.com/MichaelZelbel/kit-bootstrap"
-  "kb_only_$ONLY" "$HUB" "${KB_TOOLS_REPO:-}"
+  "kb_only_$ONLY" "$GODSPEED" "${KB_TOOLS_REPO:-}"
   exit 0
 fi
 
-say "Joining this machine to the hub at $HUB"
+say "Joining this machine to the mission control at $GODSPEED"
 
 # 0. Which AI tools live here, and which may be synced. The choice is recorded on
 #    this device before any wiring runs, so everything below obeys it, and the
@@ -96,41 +96,41 @@ kb_sync_report
 # 1. Get the latest of everything, because a join that leaves you on last month's
 #    memory looks exactly like a join that worked. This is also what updates an
 #    older installation on a machine you have not touched in a while.
-kb_update_hub "$HUB"
+kb_update_godspeed "$GODSPEED"
 
 # 2. The shared memory. This is the whole point of joining.
-kb_link_ai_memory "$HUB"
+kb_link_ai_memory "$GODSPEED"
 
-# 2b. The hub's own commands, so `hub map ...` works from any folder on this
+# 2b. The mission control's own commands, so `mission control map ...` works from any folder on this
 #     machine instead of only on the server where the deploy script installs them.
-kb_install_hub_cli "$HUB"
+kb_install_godspeed_cli "$GODSPEED"
 
-# 2c. The kit's own programs, on this machine rather than in the hub folder (the hub is a
+# 2c. The kit's own programs, on this machine rather than in the mission control folder (the mission control is a
 #     folder of text files, and these are software). KB_TOOLS_REPO lets a product name its
 #     own kit; without one there is nothing to fetch and the step does nothing.
-kb_install_hub_tools "$HUB" "${KB_TOOLS_REPO:-}"
+kb_install_godspeed_tools "$GODSPEED" "${KB_TOOLS_REPO:-}"
 
-# 2d. The daily job that files what you type to an AI on this machine into the hub.
+# 2d. The daily job that files what you type to an AI on this machine into the mission control.
 #     Joining a machine has to wire this, because a job you install by hand only ever
 #     covers the machine you were sitting at when you thought of it.
-kb_install_prompt_harvest "$HUB"
+kb_install_prompt_harvest "$GODSPEED"
 
 # 2e. The notebook. A joined machine is exactly the machine this step was made for: the
-#     credentials travel inside the folder, so if the hub carries them this unseals and
+#     credentials travel inside the folder, so if the mission control carries them this unseals and
 #     wires the sync here too, and asks nothing. Sits after 2c on purpose, because it
 #     schedules the runner that step just installed. Quiet and complete for the reader
 #     who never connects one, and piped from curl with no keyboard it stays silent.
-kb_connect_notebook "$HUB"
+kb_connect_notebook "$GODSPEED"
 # 2f. The mail tool, known to every assistant here and connected to nothing. A Gmail
-#     connection made on another computer lives in the hub's locked store, so it works here
+#     connection made on another computer lives in the mission control's locked store, so it works here
 #     as soon as this computer can open the store; there is no second Google sign-in.
-command -v kb_wire_mail >/dev/null 2>&1 && kb_wire_mail "$HUB"
+command -v kb_wire_mail >/dev/null 2>&1 && kb_wire_mail "$GODSPEED"
 
-# 3. Skills, if this hub keeps them where the assistants other than Claude Code
+# 3. Skills, if this mission control keeps them where the assistants other than Claude Code
 #    can be pointed at them. Harmless when it has none.
-if [ -d "$HUB/.claude/skills" ] && [ ! -e "$HUB/.agents/skills" ]; then
-  mkdir -p "$HUB/.agents"
-  ln -sfn "$HUB/.claude/skills" "$HUB/.agents/skills"
+if [ -d "$GODSPEED/.claude/skills" ] && [ ! -e "$GODSPEED/.agents/skills" ]; then
+  mkdir -p "$GODSPEED/.agents"
+  ln -sfn "$GODSPEED/.claude/skills" "$GODSPEED/.agents/skills"
   ok "skills: assistants other than Claude Code can now read them too"
 fi
 
@@ -140,14 +140,14 @@ fi
 # (or nothing at all) had been wired. A person who is told the truth can fix a
 # gap; a person who is told the promise cannot even see one.
 say "Done"
-echo "Your hub on this machine is $HUB"
+echo "Your mission control on this machine is $GODSPEED"
 echo ""
 kb_sync_report
 cat <<EOF
 
-Anything synced travels between your machines with the hub's git push and pull,
+Anything synced travels between your machines with the mission control's git push and pull,
 so keep doing what you already do with the folder. To change which AI tools are
 read on this machine later: run this again with --sources, or edit
-HUB_PROMPT_SOURCES in ~/.hub/device.env
+GODSPEED_PROMPT_SOURCES in ~/.godspeed/device.env
 EOF
 command -v kb_mail_note >/dev/null 2>&1 && kb_mail_note

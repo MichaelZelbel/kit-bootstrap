@@ -1,28 +1,28 @@
 # =============================================================================
-# kit-bootstrap / join.ps1   -   "I already have a hub. This Windows PC is another machine."
+# kit-bootstrap / join.ps1   -   "I already have a mission control. This Windows PC is another machine."
 #
 # The Windows half of join.sh. It exists because the CREATE installer in the
 # book's kit only runs on a rented Linux server, which left every reader working
-# on a Windows laptop with no way to join their own hub. Michael hit the same gap
+# on a Windows laptop with no way to join their own mission control. Michael hit the same gap
 # on 2026-08-09, one day before a business trip.
 #
 # Self-contained on purpose: a Windows reader downloads one file and runs it. It
 # does not need lib.sh, which is bash.
 #
 # Usage:
-#   powershell -ExecutionPolicy Bypass -File join.ps1 [C:\path\to\your\hub]
+#   powershell -ExecutionPolicy Bypass -File join.ps1 [C:\path\to\your\godspeed]
 #   powershell -ExecutionPolicy Bypass -File join.ps1 -Only menerio     just connect Menerio
 #   powershell -ExecutionPolicy Bypass -File join.ps1 -Only gmail       retired: refreshes the mail tool and says so
 #
-# Or dot-source it to reuse the one function (this is how the hub's own device
+# Or dot-source it to reuse the one function (this is how the mission control's own device
 # bootstrap calls it, so the wiring lives in ONE place per D-092):
-#   . .\join.ps1 -AsLibrary ; Join-KitMemory -Hub 'C:\hub'
+#   . .\join.ps1 -AsLibrary ; Join-KitMemory -Godspeed 'C:\godspeed'
 #
 # Safe to run as many times as you like. It never deletes a memory.
 # Junctions, not symlinks: a junction needs no administrator rights on Windows.
 # =============================================================================
 param(
-    [string]$Hub,
+    [string]$Godspeed,
     # Which AI tools may be synced from this PC, as a comma list (e.g. claude,codex).
     # '-' means none. The default '(auto)' means "no choice made this run": keep what
     # this device already has recorded, or every syncable tool found here.
@@ -66,29 +66,29 @@ try {
 } catch { }
 
 function Get-KitMemoryLinkPath {
-    <#  Where Claude Code keeps the memory for this hub folder. Derived from the
-        path, never typed in, so it still works when the hub sits somewhere else
+    <#  Where Claude Code keeps the memory for this mission control folder. Derived from the
+        path, never typed in, so it still works when the mission control sits somewhere else
         on the next machine. #>
-    param([Parameter(Mandatory)][string]$Hub)
-    $mangled = ($Hub -replace '[^a-zA-Z0-9]', '-').ToLower()
+    param([Parameter(Mandatory)][string]$Godspeed)
+    $mangled = ($Godspeed -replace '[^a-zA-Z0-9]', '-').ToLower()
     Join-Path $HOME ".claude\projects\$mangled\memory"
 }
 
 function Update-KitFolderNames {
-    <#  Rename an older hub's folders to the names that say WHEN each one is read.
+    <#  Rename an older mission control's folders to the names that say WHEN each one is read.
 
         The first shape of this system had context/ for what you write and memory/ for what
         your assistant writes. That describes who typed it, which nobody asks while working.
         The names now answer the question that decides everything: profile/ and rules/ every
         session, observations/ when the subject comes up, prompts/ only when you ask by name.
 
-        Safe to run again, and safe on a hub that never had the old names. It renames ONLY
+        Safe to run again, and safe on a mission control that never had the old names. It renames ONLY
         when the new name is absent, so a reader who already has both keeps both and is told,
         rather than having two folders silently merged. Nothing is ever deleted. #>
-    param([Parameter(Mandatory)][string]$Hub)
+    param([Parameter(Mandatory)][string]$Godspeed)
     foreach ($pair in @(@('context','profile'), @('memory','observations'))) {
-        $old = Join-Path $Hub $pair[0]
-        $new = Join-Path $Hub $pair[1]
+        $old = Join-Path $Godspeed $pair[0]
+        $new = Join-Path $Godspeed $pair[1]
         if (-not (Test-Path $old)) { continue }
         if (Test-Path $new) {
             # COUNT, do not guess. The old wording said "delete the empty one" and was
@@ -102,10 +102,10 @@ function Update-KitFolderNames {
             continue
         }
         $moved = $false
-        if (Test-Path (Join-Path $Hub '.git')) {
-            git -C $Hub ls-files --error-unmatch $pair[0] 2>&1 | Out-Null
+        if (Test-Path (Join-Path $Godspeed '.git')) {
+            git -C $Godspeed ls-files --error-unmatch $pair[0] 2>&1 | Out-Null
             if ($LASTEXITCODE -eq 0) {
-                git -C $Hub mv $pair[0] $pair[1] 2>&1 | Out-Null
+                git -C $Godspeed mv $pair[0] $pair[1] 2>&1 | Out-Null
                 $moved = ($LASTEXITCODE -eq 0)
             }
         }
@@ -113,36 +113,36 @@ function Update-KitFolderNames {
         Write-KbOk "folders: $($pair[0])\ is now $($pair[1])\, which says when your assistant reads it"
     }
     # rules\ has never had another name, so it is always safe to make. The other two are
-    # made ONLY when this hub is not already keeping them under their old name. Creating
+    # made ONLY when this mission control is not already keeping them under their old name. Creating
     # them regardless is precisely how the duplicate room got built.
-    New-Item -ItemType Directory -Force (Join-Path $Hub 'rules') | Out-Null
+    New-Item -ItemType Directory -Force (Join-Path $Godspeed 'rules') | Out-Null
     foreach ($pair in @(@('context','profile'), @('memory','observations'))) {
-        if (-not (Test-Path (Join-Path $Hub $pair[0]))) {
-            New-Item -ItemType Directory -Force (Join-Path $Hub $pair[1]) | Out-Null
+        if (-not (Test-Path (Join-Path $Godspeed $pair[0]))) {
+            New-Item -ItemType Directory -Force (Join-Path $Godspeed $pair[1]) | Out-Null
         }
     }
 }
 
 function Get-KitRoomTwin {
-    <#  If this hub already keeps that room under its OTHER name, return that other name.
+    <#  If this mission control already keeps that room under its OTHER name, return that other name.
 
         context\ and profile\ are the same room, and so are memory\ and observations\.
-        Measured on a real existing hub during Run 2: the top-up found no profile\, so it
+        Measured on a real existing mission control during Run 2: the top-up found no profile\, so it
         copied the starter's in beside a context\ that already held the same four
         filenames, and the next run then complained about a duplicate it had made itself.
         Answers in both directions, so it is safe to ask about either spelling. #>
-    param([Parameter(Mandatory)][string]$Hub, [Parameter(Mandatory)][string]$Name)
+    param([Parameter(Mandatory)][string]$Godspeed, [Parameter(Mandatory)][string]$Name)
     foreach ($pair in @(@('context','profile'), @('memory','observations'))) {
-        if ($Name -eq $pair[1] -and (Test-Path (Join-Path $Hub $pair[0]))) { return $pair[0] }
-        if ($Name -eq $pair[0] -and (Test-Path (Join-Path $Hub $pair[1]))) { return $pair[1] }
+        if ($Name -eq $pair[1] -and (Test-Path (Join-Path $Godspeed $pair[0]))) { return $pair[0] }
+        if ($Name -eq $pair[0] -and (Test-Path (Join-Path $Godspeed $pair[1]))) { return $pair[1] }
     }
     return ''
 }
 
 function Initialize-KitMemoryIndex {
-    param([Parameter(Mandatory)][string]$Hub)
-    Update-KitFolderNames -Hub $Hub
-    $mem = Join-Path $Hub 'observations'
+    param([Parameter(Mandatory)][string]$Godspeed)
+    Update-KitFolderNames -Godspeed $Godspeed
+    $mem = Join-Path $Godspeed 'observations'
     New-Item -ItemType Directory -Force $mem | Out-Null
     $idx = Join-Path $mem 'MEMORY.md'
     if (Test-Path $idx) { return }
@@ -166,7 +166,7 @@ function Initialize-KitMemoryIndex {
         '    observations/  what it worked out on its own ........... when the subject comes up'
         '    prompts/       what you typed to an AI ................. never, unless you ask'
         ''
-        'All of it lives in your hub folder rather than inside one AI tool, so every'
+        'All of it lives in your mission control folder rather than inside one AI tool, so every'
         'assistant on every one of your machines reads the same thing.'
         ''
         'Write a new one here as `some-fact.md`, with a `name` and a one-line'
@@ -177,14 +177,14 @@ function Initialize-KitMemoryIndex {
 }
 
 function Join-KitMemory {
-    <#  Point the assistant's private memory folder at the hub's observations/ folder,
+    <#  Point the assistant's private memory folder at the mission control's observations/ folder,
         which is where what an assistant works out on its own belongs, so one memory is
         shared by every machine and every assistant. #>
-    param([Parameter(Mandatory)][string]$Hub)
+    param([Parameter(Mandatory)][string]$Godspeed)
 
-    # The index belongs to the hub, not to any one tool, so it is seeded even
+    # The index belongs to the mission control, not to any one tool, so it is seeded even
     # when the link below is skipped.
-    Initialize-KitMemoryIndex -Hub $Hub
+    Initialize-KitMemoryIndex -Godspeed $Godspeed
 
     # Only for a PC that actually has Claude Code, and whose owner has not
     # switched it off. Before this guard, a PC that had never seen Claude Code
@@ -199,19 +199,19 @@ function Join-KitMemory {
         return
     }
 
-    $mem  = Join-Path $Hub 'observations'
-    $link = Get-KitMemoryLinkPath -Hub $Hub
+    $mem  = Join-Path $Godspeed 'observations'
+    $link = Get-KitMemoryLinkPath -Godspeed $Godspeed
 
     $item = Get-Item $link -Force -ErrorAction SilentlyContinue
     if ($item -and $item.LinkType) {
-        # A link pointing at the WRONG hub is the failure that looks like success:
+        # A link pointing at the WRONG mission control is the failure that looks like success:
         # the assistant keeps writing memories into a folder nobody syncs any more.
         $target = @($item.Target)[0]
         if ($target -and ((Resolve-Path $target -ErrorAction SilentlyContinue).Path -eq (Resolve-Path $mem).Path)) {
             Write-KbOk "memory: already shared with $mem"
             return
         }
-        Write-KbWarn "memory: the link pointed at $target, not at this hub. Repointing it."
+        Write-KbWarn "memory: the link pointed at $target, not at this mission control. Repointing it."
         (Get-Item $link -Force).Delete()
     }
     elseif ($item) {
@@ -238,14 +238,14 @@ function Join-KitMemory {
 # 2026-08-11, because before this the installer wired sync with no detection,
 # no disclosure and no choice: it created a Claude Code memory link on PCs that
 # had never seen Claude Code, and the harvest read Codex's conversation logs
-# and pushed them to the hub's repository without one sentence saying so.
+# and pushed them to the mission control's repository without one sentence saying so.
 #
 #   DETECTED  the tool leaves files on this PC, so we can see it is here.
 #   SYNCABLE  this kit can read what the person typed to it: Claude Code
 #             (memory + prompts), Codex (prompts), Hermes (prompts).
 #             Everything else is shown with the reason it is not.
-#   ENABLED   the person said yes. Recorded per device in ~\.hub\device.env as
-#             HUB_PROMPT_SOURCES. The value "-" means NONE: a Windows
+#   ENABLED   the person said yes. Recorded per device in ~\.godspeed\device.env as
+#             GODSPEED_PROMPT_SOURCES. The value "-" means NONE: a Windows
 #             environment variable cannot hold an empty string, so none needs a
 #             spelling that survives one.
 # =============================================================================
@@ -344,7 +344,7 @@ function Find-KitAiTools {
 
 function Get-KitDeviceEnvValue {
     param([Parameter(Mandatory)][string]$Name)
-    $p = Join-Path (Get-KitHome) '.hub\device.env'
+    $p = Join-Path (Get-KitHome) '.godspeed\device.env'
     if (-not (Test-Path $p)) { return $null }
     $val = $null
     foreach ($line in @(Get-Content $p -ErrorAction SilentlyContinue)) {
@@ -362,7 +362,7 @@ function Get-KitEnabledSources {
         this device, and only then the tools every machine read before there
         was a choice ($script:KitLegacyDefaultSources), where they are found. #>
     $v = $env:KB_SYNC_SOURCES
-    if ($null -eq $v) { $v = Get-KitDeviceEnvValue 'HUB_PROMPT_SOURCES' }
+    if ($null -eq $v) { $v = Get-KitDeviceEnvValue 'GODSPEED_PROMPT_SOURCES' }
     if ($null -eq $v) {
         $found = @()
         foreach ($id in $script:KitLegacyDefaultSources) { if (Test-KitAiTool $id) { $found += $id } }
@@ -373,30 +373,30 @@ function Get-KitEnabledSources {
 }
 
 function Set-KitPromptSources {
-    <#  Record the choice on this device, in ~\.hub\device.env rather than in the
-        hub, because the hub travels to every machine and this is a fact about
+    <#  Record the choice on this device, in ~\.godspeed\device.env rather than in the
+        mission control, because the mission control travels to every machine and this is a fact about
         one of them. #>
     param([AllowEmptyString()][string]$Value = '')
     if ($Value.Trim() -eq '-') { $Value = '' }
-    $dir = Join-Path (Get-KitHome) '.hub'
+    $dir = Join-Path (Get-KitHome) '.godspeed'
     New-Item -ItemType Directory -Force $dir | Out-Null
     $f = Join-Path $dir 'device.env'
     $lines = @()
     if (Test-Path $f) { $lines = @(Get-Content $f) }
     $found = $false
     $lines = @($lines | ForEach-Object {
-        if ($_ -match '^\s*HUB_PROMPT_SOURCES=') { $found = $true; "HUB_PROMPT_SOURCES=$Value" } else { $_ }
+        if ($_ -match '^\s*GODSPEED_PROMPT_SOURCES=') { $found = $true; "GODSPEED_PROMPT_SOURCES=$Value" } else { $_ }
     })
-    if (-not $found) { $lines += "HUB_PROMPT_SOURCES=$Value" }
+    if (-not $found) { $lines += "GODSPEED_PROMPT_SOURCES=$Value" }
     Set-Content -Path $f -Value $lines -Encoding ascii
-    Write-KbOk "recorded your choice on this device: HUB_PROMPT_SOURCES=$Value (in $f)"
+    Write-KbOk "recorded your choice on this device: GODSPEED_PROMPT_SOURCES=$Value (in $f)"
 }
 
 function Write-KitSyncReport {
     <#  The truth about this PC, built from what was detected and chosen, never
         from the promise. This is what the completion screen prints. Worded
         around what actually happens, copying conversations, because the old
-        "not syncable" read as "does not work with your hub", which was never
+        "not syncable" read as "does not work with your mission control", which was never
         meant. #>
     $on = @((Get-KitEnabledSources) -split ',' | Where-Object { $_ })
     $synced = @(); $off = @(); $other = @()
@@ -414,35 +414,35 @@ function Write-KitSyncReport {
         }
     }
     if ($synced.Count -gt 0) {
-        Write-Host "Copied from this PC into your hub, and pushed to its repository:"
+        Write-Host "Copied from this PC into your mission control, and pushed to its repository:"
         $synced | ForEach-Object { Write-Host $_ }
     } else {
-        Write-Host "No conversations are copied from this PC into your hub."
+        Write-Host "No conversations are copied from this PC into your mission control."
     }
     if ($off.Count -gt 0) {
         Write-Host "Not copied, because you left it off: $($off -join ', ')."
         Write-Host "  To copy one, run the installer again and tick it."
     }
     if ($other.Count -gt 1) {
-        Write-Host "Also on this PC: $($other -join ', '). You can open your hub folder in them like in any"
-        Write-Host "  other assistant; only their conversations cannot be copied into the hub yet."
+        Write-Host "Also on this PC: $($other -join ', '). You can open your mission control folder in them like in any"
+        Write-Host "  other assistant; only their conversations cannot be copied into the mission control yet."
     } elseif ($other.Count -eq 1) {
-        Write-Host "Also on this PC: $($other[0]). You can open your hub folder in it like in any"
-        Write-Host "  other assistant; only its conversations cannot be copied into the hub yet."
+        Write-Host "Also on this PC: $($other[0]). You can open your mission control folder in it like in any"
+        Write-Host "  other assistant; only its conversations cannot be copied into the mission control yet."
     }
 }
 
 # =============================================================================
-# FINDING A HUB THAT IS ALREADY HERE, AND PUTTING ITS COMMANDS WITHIN REACH
+# FINDING A GODSPEED THAT IS ALREADY HERE, AND PUTTING ITS COMMANDS WITHIN REACH
 #
-# Added 2026-08-09. `hub map` on the Windows work PC answered with a file path
+# Added 2026-08-09. `mission control map` on the Windows work PC answered with a file path
 # from the rented server, and fixing the tool itself only got halfway: there was
 # no `hub` command on that machine at all. The server has one because its deploy
 # script copies the tools into /usr/local/bin. Nothing did the same for a laptop.
 # =============================================================================
 
-function Test-KitHub {
-    <#  Is this a hub, or just a folder called hub? Checked before every answer so
+function Test-KitGodspeed {
+    <#  Is this a mission control, or just a folder called mission control? Checked before every answer so
         discovery cannot hand back an empty directory that matched on its name. #>
     param([string]$Dir)
     if (-not $Dir -or -not (Test-Path (Join-Path $Dir '.git'))) { return $false }
@@ -450,11 +450,11 @@ function Test-KitHub {
             (Test-Path (Join-Path $Dir 'CLAUDE.md')))
 }
 
-function Get-KitDefaultHubDir {
-    <#  Where a new hub goes when nobody said: the top of the user folder, the same
-        sentence on every OS (D-179, 2026-09-01). C:\hub stays a power option a person
+function Get-KitDefaultGodspeedDir {
+    <#  Where a new mission control goes when nobody said: the top of the user folder, the same
+        sentence on every OS (D-179, 2026-09-01). C:\godspeed stays a power option a person
         types in, never the suggestion. #>
-    return (Join-Path $HOME 'hub')
+    return (Join-Path $HOME 'godspeed')
 }
 
 function Get-KitCloudSyncedParents {
@@ -475,14 +475,14 @@ function Get-KitCloudSyncedParents {
     return $out
 }
 
-function Get-KitHubPathRefusal {
-    <#  One plain sentence when the path is a place a hub must not go, else $null.
+function Get-KitGodspeedPathRefusal {
+    <#  One plain sentence when the path is a place a mission control must not go, else $null.
         The rule is D-179's: never under a folder a cloud drive syncs, because a synced
         git folder gets its history corrupted (lock files copied mid-write, duplicate
-        conflict copies). The drive root, C:\hub, is allowed on purpose. #>
+        conflict copies). The drive root, C:\godspeed, is allowed on purpose. #>
     param([string]$Path)
     if (-not $Path -or -not $Path.Trim()) {
-        return "a hub needs a folder path, for example $(Get-KitDefaultHubDir)"
+        return "a mission control needs a folder path, for example $(Get-KitDefaultGodspeedDir)"
     }
     $want = (Get-KitRealPath $Path).TrimEnd('\')
     foreach ($parent in Get-KitCloudSyncedParents) {
@@ -490,7 +490,7 @@ function Get-KitHubPathRefusal {
         if (-not $p) { continue }
         if ($want.Equals($p, [System.StringComparison]::OrdinalIgnoreCase) -or
             $want.StartsWith($p + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
-            return "$p is backed up by a cloud drive, and a synced hub gets its history corrupted. Put it at $(Get-KitDefaultHubDir) instead, or at C:\hub if you want the shortest path."
+            return "$p is backed up by a cloud drive, and a synced mission control gets its history corrupted. Put it at $(Get-KitDefaultGodspeedDir) instead, or at C:\godspeed if you want the shortest path."
         }
     }
     return $null
@@ -498,7 +498,7 @@ function Get-KitHubPathRefusal {
 
 function Test-KitSamePath {
     <#  Do these two paths name the same folder? Windows case, trailing slashes and
-        junctions all have to be settled before two hub paths can be compared, and the
+        junctions all have to be settled before two mission control paths can be compared, and the
         comparison was inlined in three places before this function existed. #>
     param([string]$A, [string]$B)
     if (-not $A -or -not $B) { return $false }
@@ -507,23 +507,23 @@ function Test-KitSamePath {
 }
 
 function Test-KitBeside {
-    <#  Is this run putting a hub BESIDE the one this computer already works from,
+    <#  Is this run putting a mission control BESIDE the one this computer already works from,
         instead of making it the one this computer works from?
 
         WHY THIS EXISTS. Exactly five things on a Windows account answer the question
-        "which hub does this computer work from": the HUB_DIR line in ~\.hub\device.env,
-        the HUB_DIR user environment variable, the two scheduled jobs, and Hermes'
-        terminal.cwd. Every other wiring step is either inside the hub folder or keyed
-        by the hub's own path (the assistant memory link mangles the path into its
-        folder name, and Install-KitHubCli writes nothing at all for a hub that ships
-        no commands), so it cannot collide. Before this switch existed, a second hub on
-        one machine took all five, and the first hub's daily jobs went quiet with
+        "which mission control does this computer work from": the GODSPEED_DIR line in ~\.godspeed\device.env,
+        the GODSPEED_DIR user environment variable, the two scheduled jobs, and Hermes'
+        terminal.cwd. Every other wiring step is either inside the mission control folder or keyed
+        by the mission control's own path (the assistant memory link mangles the path into its
+        folder name, and Install-KitGodspeedCli writes nothing at all for a mission control that ships
+        no commands), so it cannot collide. Before this switch existed, a second mission control on
+        one machine took all five, and the first mission control's daily jobs went quiet with
         nothing on screen to say so: the same failure as a renamed folder
         (observations/a-renamed-folder-silences-every-tool-that-hardcoded-it).
 
-        Who wants it: anyone keeping a work hub beside a personal one, a reader trying
-        the book's hub before moving into it, and a screen recording that has to show a
-        clean hub on a machine that already carries a full one.
+        Who wants it: anyone keeping a work mission control beside a personal one, a reader trying
+        the book's mission control before moving into it, and a screen recording that has to show a
+        clean mission control on a machine that already carries a full one.
 
         An environment variable rather than a parameter threaded through five
         functions, matching KB_SYNC_SOURCES and KB_HERMES_BIN: the installer makes the
@@ -532,18 +532,18 @@ function Test-KitBeside {
     return ($env:KB_BESIDE -eq '1')
 }
 
-function Find-KitHub {
-    <#  The hub already installed on this machine, or $null. A machine that has one
+function Find-KitGodspeed {
+    <#  The mission control already installed on this machine, or $null. A machine that has one
         knows where it is in more than one way, so look before asking the reader.
         Plain foreach loops on purpose: `return` inside a ForEach-Object only ends
         that one item, so a pipeline here would keep searching after it had won. #>
     param([string]$Hint)
 
-    foreach ($c in @($Hint, $env:HUB_DIR, $env:HUB)) {
-        if (Test-KitHub $c) { return (Resolve-Path $c).Path }
+    foreach ($c in @($Hint, $env:GODSPEED_DIR, $env:GODSPEED)) {
+        if (Test-KitGodspeed $c) { return (Resolve-Path $c).Path }
     }
     # A machine joined once before already told us: the assistant's memory folder is
-    # a junction straight into the hub. Read where it points. The folder's own name is
+    # a junction straight into the mission control. Read where it points. The folder's own name is
     # no help - every one of : \ . and a space became the same dash on the way in.
     $projects = @(Get-ChildItem (Join-Path $HOME '.claude\projects') -Directory -ErrorAction SilentlyContinue)
     foreach ($p in $projects) {
@@ -552,12 +552,16 @@ function Find-KitHub {
         $t = @($item.Target)[0]
         if (-not $t) { continue }
         $d = Split-Path $t -Parent
-        if (Test-KitHub $d) { return (Resolve-Path $d).Path }
+        if (Test-KitGodspeed $d) { return (Resolve-Path $d).Path }
     }
 
-    foreach ($c in @((Join-Path $HOME 'hub'), 'C:\hub', (Join-Path $HOME 'Documents\hub'),
+    # The 'hub' names are where readers installed before the 2026-09-22 rename. A person who
+    # already has one keeps working without moving anything.
+    foreach ($c in @((Join-Path $HOME 'godspeed'), 'C:\godspeed', (Join-Path $HOME 'Documents\godspeed'),
+                     (Join-Path $HOME 'dev\godspeed'),
+                     (Join-Path $HOME 'hub'), 'C:\hub', (Join-Path $HOME 'Documents\hub'),
                      (Join-Path $HOME 'dev\hub'))) {
-        if (Test-KitHub $c) { return (Resolve-Path $c).Path }
+        if (Test-KitGodspeed $c) { return (Resolve-Path $c).Path }
     }
     return $null
 }
@@ -565,12 +569,12 @@ function Find-KitHub {
 function Invoke-KitGit {
     <#  git, with its chatter silenced and with no power to abort the run.
 
-        WHY THIS EXISTS. setup-hub.ps1 sets $ErrorActionPreference = 'Stop', and PowerShell
+        WHY THIS EXISTS. setup-godspeed.ps1 sets $ErrorActionPreference = 'Stop', and PowerShell
         7.3 and newer turn ANY line a native program writes to stderr into a terminating
         error ($PSNativeCommandUseErrorActionPreference, on by default). git writes plenty
         of ordinary progress there. On 2026-09-03 the line "Applied autostash." stopped the
-        installer dead, halfway through, on a hub whose only sin was an edited file that had
-        not been committed yet. A reader who has written something in their hub, which is
+        installer dead, halfway through, on a mission control whose only sin was an edited file that had
+        not been committed yet. A reader who has written something in their mission control, which is
         the entire point of owning one, would have hit exactly that. Redirecting with 2>$null
         does not help: the error is raised before the redirection is considered.
 
@@ -585,29 +589,29 @@ function Invoke-KitGit {
     }
 }
 
-function Update-KitHub {
+function Update-KitGodspeed {
     <#  Bring an existing installation up to date. Never fatal: a machine with no
         network should still finish wiring itself and just say it is behind. #>
-    param([Parameter(Mandatory)][string]$Hub)
-    if (-not (Test-Path (Join-Path $Hub '.git'))) {
-        Write-KbWarn "$Hub is not a git folder, so there is nothing to pull. Continuing."
+    param([Parameter(Mandatory)][string]$Godspeed)
+    if (-not (Test-Path (Join-Path $Godspeed '.git'))) {
+        Write-KbWarn "$Godspeed is not a git folder, so there is nothing to pull. Continuing."
         return
     }
-    # A hub made on this machine five minutes ago has no remote yet, and telling
+    # A mission control made on this machine five minutes ago has no remote yet, and telling
     # its owner it "could not pull" and "may be out of date" is alarming and
     # untrue: there is nowhere to be out of date FROM. Say the useful thing
     # instead, which is the step that would make their folder reach their other
     # machines.
-    Invoke-KitGit -C $Hub remote get-url origin | Out-Null
+    Invoke-KitGit -C $Godspeed remote get-url origin | Out-Null
     if ($LASTEXITCODE -ne 0) {
-        Write-KbOk "this hub lives only on this computer for now. Give it a home on GitHub when you are ready, and it will travel to your other machines."
+        Write-KbOk "this mission control lives only on this computer for now. Give it a home on GitHub when you are ready, and it will travel to your other machines."
         return
     }
-    $branch = @(Invoke-KitGit -C $Hub rev-parse --abbrev-ref HEAD)[0]
+    $branch = @(Invoke-KitGit -C $Godspeed rev-parse --abbrev-ref HEAD)[0]
     if (-not $branch -or $branch -eq 'HEAD') { $branch = 'main' }
-    Invoke-KitGit -C $Hub pull --rebase --autostash -q origin $branch | Out-Null
+    Invoke-KitGit -C $Godspeed pull --rebase --autostash -q origin $branch | Out-Null
     if ($LASTEXITCODE -eq 0) {
-        Write-KbOk "updated your hub to $(@(Invoke-KitGit -C $Hub log -1 --format='%h %s')[0])"
+        Write-KbOk "updated your mission control to $(@(Invoke-KitGit -C $Godspeed log -1 --format='%h %s')[0])"
     } else {
         Write-KbWarn "could not pull (no network, or a conflict to sort out by hand). Continuing with the copy already on this machine, which may be out of date."
     }
@@ -615,7 +619,7 @@ function Update-KitHub {
 
 function Get-KitGitBash {
     <#  `bash` on the Windows PATH is normally the WSL launcher, and WSL cannot open
-        C:\hub\... the way these tools expect - it sees /mnt/c. Git Bash is the one
+        C:\godspeed\... the way these tools expect - it sees /mnt/c. Git Bash is the one
         that can. git is already a prerequisite, so derive it from where git is
         rather than trusting whatever PATH resolves. #>
     $git = (Get-Command git -ErrorAction SilentlyContinue).Source
@@ -633,7 +637,7 @@ function Get-KitGitBash {
 }
 
 function Get-KitPython {
-    <#  A python this PC will actually run, probed the way the hub's own CLI probes it.
+    <#  A python this PC will actually run, probed the way the mission control's own CLI probes it.
         Windows rarely has `python3`; it has `python`, or the `py` launcher, or neither. #>
     foreach ($c in 'python3', 'python', 'py') {
         $cmd = Get-Command $c -ErrorAction SilentlyContinue
@@ -655,21 +659,21 @@ function Get-KitPython {
     return $null
 }
 
-function Install-KitHubCli {
-    <#  Put the hub's own commands on this machine's PATH.
+function Install-KitGodspeedCli {
+    <#  Put the mission control's own commands on this machine's PATH.
 
-        ALL of them, not just `hub`. `hub memory search` is a wrapper that runs
+        ALL of them, not just `hub`. `mission control memory search` is a wrapper that runs
         `hub-memory-lookup` by bare name, so a PATH holding only `hub` gives you a
         command that exists and then fails, which is the worst of the three states.
-        Quiet on a hub that ships no tools, which is every reader's hub. #>
-    param([Parameter(Mandatory)][string]$Hub)
+        Quiet on a mission control that ships no tools, which is every reader's mission control. #>
+    param([Parameter(Mandatory)][string]$Godspeed)
 
-    $src = Join-Path $Hub 'agents\hub-cli'
+    $src = Join-Path $Godspeed 'agents\hub-cli'
     if (-not (Test-Path (Join-Path $src 'hub'))) { return }
 
     $bash = Get-KitGitBash
     if (-not $bash) {
-        Write-KbWarn "could not find Git Bash, so the hub commands were NOT installed. Install Git for Windows (winget install --id Git.Git) and run this again."
+        Write-KbWarn "could not find Git Bash, so the mission control commands were NOT installed. Install Git for Windows (winget install --id Git.Git) and run this again."
         return
     }
 
@@ -684,14 +688,14 @@ function Install-KitHubCli {
             $target = $_.FullName -replace '\\', '/'
             # WHICH RUNNER, read from the file's own first line.
             #
-            # Every one of these got `bash "<file>" %*` until 2026-09-03, and 18 of the hub's
+            # Every one of these got `bash "<file>" %*` until 2026-09-03, and 18 of the mission control's
             # own commands are Python or Node. bash does not honour a shebang in a file it is
             # handed as an argument, it just reads it as bash, so `hub-check-voice` answered
             # "import: command not found" and every one of those 18 was broken when typed by
             # name. It went unnoticed because the `hub` dispatcher runs its siblings through
             # its own interpreter and never through these shims.
             #
-            # No bash twin: kb_install_hub_cli makes symlinks and chmods them, and a kernel
+            # No bash twin: kb_install_godspeed_cli makes symlinks and chmods them, and a kernel
             # reads the shebang. Windows has no shebang, which is the whole reason a .cmd
             # wrapper exists here at all.
             $shebang = ''
@@ -716,42 +720,42 @@ function Install-KitHubCli {
         Write-KbOk "added $bin to your PATH (open a new terminal for it to take)"
     }
     $env:Path = "$bin;$env:Path"
-    Write-KbOk "commands: $n hub tools now run from anywhere, e.g. hub map lovable"
+    Write-KbOk "commands: $n mission control tools now run from anywhere, e.g. mission control map lovable"
 }
 
-function Set-KitHubDirRecord {
-    <#  Where the hub is, in ~\.hub\device.env. Recorded the first time, and RE-RECORDED
+function Set-KitGodspeedDirRecord {
+    <#  Where the mission control is, in ~\.godspeed\device.env. Recorded the first time, and RE-RECORDED
         when the line names another folder: the daily jobs read this line to find the
-        hub, so a stale one after a move is a hub that quietly files nothing
+        mission control, so a stale one after a move is a mission control that quietly files nothing
         (observations/a-renamed-folder-silences-every-tool-that-hardcoded-it). #>
-    param([Parameter(Mandatory)][string]$Hub)
+    param([Parameter(Mandatory)][string]$Godspeed)
     if (Test-KitBeside) {
-        $keep = Get-KitDeviceEnvValue 'HUB_DIR'
-        if ($keep) { Write-KbOk "device.env: HUB_DIR still points at $keep. This hub sits beside it." }
+        $keep = Get-KitDeviceEnvValue 'GODSPEED_DIR'
+        if ($keep) { Write-KbOk "device.env: GODSPEED_DIR still points at $keep. This mission control sits beside it." }
         return
     }
-    $dir = Join-Path (Get-KitHome) '.hub'
+    $dir = Join-Path (Get-KitHome) '.godspeed'
     New-Item -ItemType Directory -Force $dir | Out-Null
     $f = Join-Path $dir 'device.env'
-    $recorded = Get-KitDeviceEnvValue 'HUB_DIR'
+    $recorded = Get-KitDeviceEnvValue 'GODSPEED_DIR'
     if (-not $recorded) {
-        Add-Content -Path $f -Value "HUB_DIR=$Hub" -Encoding ascii
+        Add-Content -Path $f -Value "GODSPEED_DIR=$Godspeed" -Encoding ascii
         return
     }
-    $same = (Get-KitRealPath $recorded).TrimEnd('\').Equals((Get-KitRealPath $Hub).TrimEnd('\'), [System.StringComparison]::OrdinalIgnoreCase)
+    $same = (Get-KitRealPath $recorded).TrimEnd('\').Equals((Get-KitRealPath $Godspeed).TrimEnd('\'), [System.StringComparison]::OrdinalIgnoreCase)
     if ($same) { return }
-    $lines = @(Get-Content $f | ForEach-Object { if ($_ -match '^\s*HUB_DIR=') { "HUB_DIR=$Hub" } else { $_ } })
+    $lines = @(Get-Content $f | ForEach-Object { if ($_ -match '^\s*GODSPEED_DIR=') { "GODSPEED_DIR=$Godspeed" } else { $_ } })
     Set-Content -Path $f -Value $lines -Encoding ascii
-    Write-KbOk "device.env: HUB_DIR pointed at $recorded, not at this hub. Re-pointed it."
+    Write-KbOk "device.env: GODSPEED_DIR pointed at $recorded, not at this mission control. Re-pointed it."
 }
 
 function Test-KitTaskPointsAt {
-    <#  Does every action of this scheduled task run in this hub? A task registered for
-        a hub that has since moved reads back perfectly and fires hourly against a folder
+    <#  Does every action of this scheduled task run in this mission control? A task registered for
+        a mission control that has since moved reads back perfectly and fires hourly against a folder
         that is gone, and until 2026-09-02 the installer looked at its name, saw it, and
         said "already scheduled". The folder is what decides, so the folder is compared. #>
-    param([Parameter(Mandatory)]$Task, [Parameter(Mandatory)][string]$Hub)
-    $want = (Get-KitRealPath $Hub).TrimEnd('\')
+    param([Parameter(Mandatory)]$Task, [Parameter(Mandatory)][string]$Godspeed)
+    $want = (Get-KitRealPath $Godspeed).TrimEnd('\')
     foreach ($a in $Task.Actions) {
         if (-not $a.WorkingDirectory) { return $false }
         $wd = (Get-KitRealPath $a.WorkingDirectory).TrimEnd('\')
@@ -760,11 +764,11 @@ function Test-KitTaskPointsAt {
     return $true
 }
 
-function Install-KitHubTools {
+function Install-KitGodspeedTools {
     <#  Put the kit's own small programs on this PC. The Windows twin of
-        kb_install_hub_tools in lib.sh.
+        kb_install_godspeed_tools in lib.sh.
 
-        WHY THESE ARE NOT IN THE HUB FOLDER. The hub is a folder of text files
+        WHY THESE ARE NOT IN THE GODSPEED FOLDER. The mission control is a folder of text files
         and the book says so in its folder tour: "Nothing here needs a terminal." A
         Node program and a Python program sitting in it would be the first two
         things in there that are not text a person can read. So they are
@@ -772,25 +776,25 @@ function Install-KitHubTools {
         write into the folder from outside.
 
         WHY THEY ARE NOT COPIED INTO A PRIVATE FOLDER EITHER. Before 2026-08-10
-        the only copy of the prompt collector lived in one person's own hub, so
+        the only copy of the prompt collector lived in one person's own mission control, so
         the program the book promises its readers existed nowhere they could get
         it. One copy, in the kit, installed identically on every machine.
 
         Quiet on a kit that ships no tools folder, which is every other product. #>
     param(
-        [Parameter(Mandatory)][string]$Hub,
+        [Parameter(Mandatory)][string]$Godspeed,
         [string]$ToolsRepo,
         [string]$ToolsPath = 'tools'
     )
 
     # A join does not retype the product. The kit the tools came from is written
-    # down in ~\.hub\device.env the first time it is known (below, beside HUB_DIR),
+    # down in ~\.godspeed\device.env the first time it is known (below, beside GODSPEED_DIR),
     # so a later run that names no kit refreshes them instead of skipping.
     if (-not $ToolsRepo) {
-        $devEnv = Join-Path $HOME '.hub\device.env'
+        $devEnv = Join-Path $HOME '.godspeed\device.env'
         if (Test-Path $devEnv) {
-            $line = @(Get-Content $devEnv | Where-Object { $_ -match '^\s*HUB_TOOLS_REPO=' })[0]
-            if ($line) { $ToolsRepo = ($line -replace '^\s*HUB_TOOLS_REPO=', '').Trim() }
+            $line = @(Get-Content $devEnv | Where-Object { $_ -match '^\s*GODSPEED_TOOLS_REPO=' })[0]
+            if ($line) { $ToolsRepo = ($line -replace '^\s*GODSPEED_TOOLS_REPO=', '').Trim() }
         }
     }
     if (-not $ToolsRepo) { return }
@@ -807,19 +811,19 @@ function Install-KitHubTools {
 
         $bin = Join-Path $HOME '.local\bin'
         New-Item -ItemType Directory -Force $bin | Out-Null
-        New-Item -ItemType Directory -Force (Join-Path $HOME '.hub') | Out-Null
+        New-Item -ItemType Directory -Force (Join-Path $HOME '.godspeed') | Out-Null
         $n = 0
         # A KIT SHIPS PRODUCTS, NOT ITS OWN TEST SUITE. Measured on a real install:
         # test-notebook-sync.sh and test-prompt-archive.sh were copied onto the reader's
-        # PATH beside hub-due and hub-check-keys, so a reader could type a command that
-        # runs the kit's tests against their own hub without ever being told what it was.
+        # PATH beside mc-due and mc-check-keys, so a reader could type a command that
+        # runs the kit's tests against their own mission control without ever being told what it was.
         Get-ChildItem $src -File |
             Where-Object { $_.Extension -ne '.md' } |
             Where-Object { $_.Name -notlike 'test-*' -and $_.Name -notlike '*-test*' -and $_.Name -notlike '*_test*' } |
             ForEach-Object {
-            # REMOVE FIRST, ALWAYS. Install-KitHubCli puts links in this same folder that
-            # point back into the hub, and copying over a link writes THROUGH it, into the
-            # hub. That happened on the first live run and the only sign was a changed file
+            # REMOVE FIRST, ALWAYS. Install-KitGodspeedCli puts links in this same folder that
+            # point back into the mission control, and copying over a link writes THROUGH it, into the
+            # mission control. That happened on the first live run and the only sign was a changed file
             # nobody asked to change. Deleting the name first means we always write a file.
             $dest = Join-Path $bin $_.Name
             Remove-Item $dest -Force -ErrorAction SilentlyContinue
@@ -833,20 +837,20 @@ function Install-KitHubTools {
         # same folder and is never looked for anywhere else.
         #
         # ONE TABLE, BOTH PLATFORMS, and the bash twin in lib.sh carries the same list. Before
-        # 2026-08-29 only the prompt collector got a launcher here, so on Windows hub-check-keys
-        # and hub-compile-rules were extension-less shell scripts nothing could run, while the
+        # 2026-08-29 only the prompt collector got a launcher here, so on Windows mc-check-keys
+        # and mc-compile-rules were extension-less shell scripts nothing could run, while the
         # book printed both as commands a reader types.
         foreach ($pair in @(
-            @{ src = 'prompt-harvest.js'; cmd = 'hub-prompt-harvest' },
-            @{ src = 'compile-rules.js';  cmd = 'hub-compile-rules'  },
-            @{ src = 'check-keys.js';     cmd = 'hub-check-keys'     },
-            @{ src = 'due.js';            cmd = 'hub-due'            },
-            @{ src = 'goals.js';          cmd = 'hub-goals'          },
-            @{ src = 'forecast.js';       cmd = 'hub-forecast'       },
-            @{ src = 'work.js';           cmd = 'hub-work'           },
-            # 2026-09-14: the work runner's CHECK line names hub-check-written, so without
-            # this launcher no written piece of the hub's own work could verify on Windows.
-            @{ src = 'check-written.js';  cmd = 'hub-check-written'  }
+            @{ src = 'prompt-harvest.js'; cmd = 'mc-prompt-harvest' },
+            @{ src = 'compile-rules.js';  cmd = 'mc-compile-rules'  },
+            @{ src = 'check-keys.js';     cmd = 'mc-check-keys'     },
+            @{ src = 'due.js';            cmd = 'mc-due'            },
+            @{ src = 'goals.js';          cmd = 'mc-goals'          },
+            @{ src = 'forecast.js';       cmd = 'mc-forecast'       },
+            @{ src = 'work.js';           cmd = 'mc-work'           },
+            # 2026-09-14: the work runner's CHECK line names mc-check-written, so without
+            # this launcher no written piece of the mission control's own work could verify on Windows.
+            @{ src = 'check-written.js';  cmd = 'mc-check-written'  }
         )) {
             if (-not (Test-Path (Join-Path $bin $pair.src))) { continue }
             @('@echo off', "node `"%~dp0$($pair.src)`" %*") |
@@ -854,13 +858,13 @@ function Install-KitHubTools {
         }
 
         # THE TWO SHELL PROGRAMS NEED A DIFFERENT LAUNCHER, AND ON WINDOWS THEY NEED A SHELL.
-        # hub-run and hub-decide are shell rather than Node, because their whole job is to start
+        # mc-run and mc-decide are shell rather than Node, because their whole job is to start
         # another program and hand it a very long prompt. Windows cannot run one on its own, so
         # the .cmd hands it to the bash that arrives with Git, which this installer already
         # requires. Without this the file is copied here, looks installed, and does nothing at
-        # all when typed, which is the exact failure hub-check-keys had before 2026-08-29.
+        # all when typed, which is the exact failure mc-check-keys had before 2026-08-29.
         $gitBash = Get-KitGitBash
-        foreach ($shellCmd in @('hub-run', 'hub-decide', 'hub-work-run')) {
+        foreach ($shellCmd in @('mc-run', 'mc-decide', 'mc-work-run')) {
             if (-not (Test-Path (Join-Path $bin $shellCmd))) { continue }
             if (-not $gitBash) {
                 Write-Warning "$shellCmd was installed but Windows cannot run it without the bash that comes with Git. Install Git and run this again."
@@ -870,13 +874,13 @@ function Install-KitHubTools {
                 Set-Content -Path (Join-Path $bin ($shellCmd + '.cmd')) -Encoding ascii
         }
 
-        # THE TWO THAT ARRIVED WITH "CONNECT MENERIO ONCE" (2026-09-20). hub-menerio-connect
-        # hands the one stored key to every assistant on this PC, and hub-search searches the
-        # hub. The kit ships each of them WITH a launcher, and that launcher is a shell file,
+        # THE TWO THAT ARRIVED WITH "CONNECT MENERIO ONCE" (2026-09-20). mc-menerio-connect
+        # hands the one stored key to every assistant on this PC, and mc-search searches the
+        # mission control. The kit ships each of them WITH a launcher, and that launcher is a shell file,
         # which Windows cannot run. So the .cmd is worked out from the launcher's own words:
         # when it says `exec node "$(dirname "$0")/<program>"`, the .cmd starts that program
         # with node directly, the way every other .cmd in this folder does. Anything else is
-        # a real shell program and goes to Git Bash, like hub-run above. Reading the launcher
+        # a real shell program and goes to Git Bash, like mc-run above. Reading the launcher
         # instead of guessing the program's name means the kit can rename the program and
         # this file does not have to hear about it.
         #
@@ -885,8 +889,8 @@ function Install-KitHubTools {
         # programs, so every other product using this file hears nothing about a service it
         # never offered. The bash twin carries the same two names and the same rule.
         foreach ($pair in @(
-            @{ src = 'menerio-connect.js'; cmd = 'hub-menerio-connect' },
-            @{ src = 'search.js';          cmd = 'hub-search'          }
+            @{ src = 'menerio-connect.js'; cmd = 'mc-menerio-connect' },
+            @{ src = 'search.js';          cmd = 'mc-search'          }
         )) {
             $shipped = Join-Path $bin $pair.cmd
             $cmdFile = Join-Path $bin ($pair.cmd + '.cmd')
@@ -909,7 +913,7 @@ function Install-KitHubTools {
                 }
             } elseif (Test-Path (Join-Path $bin $pair.src)) {
                 $runLine = "node `"%~dp0$($pair.src)`" %*"
-            } elseif (Test-Path (Join-Path $bin 'hub-notebook-sync')) {
+            } elseif (Test-Path (Join-Path $bin 'mc-notebook-sync')) {
                 Write-Host "   commands: this copy of the kit does not have $($pair.cmd) yet, so it was skipped. Run this again after the kit is updated."
             }
             if ($runLine) { @('@echo off', $runLine) | Set-Content -Path $cmdFile -Encoding ascii }
@@ -917,7 +921,7 @@ function Install-KitHubTools {
 
         # The rules compiler, which a reader types by hand rather than the schedule
         # running it. It was a Python program until 2026-08-21 and the book printed it as
-        # a path inside the hub, which is a folder this installer deliberately keeps free
+        # a path inside the mission control, which is a folder this installer deliberately keeps free
         # of programs. Nobody had that path, and nothing here installs Python either, so
         # the one command Chapter 17 asks a reader to type worked for nobody. Node is
         # already a prerequisite, so it is a Node program with a .cmd, exactly like the
@@ -926,16 +930,16 @@ function Install-KitHubTools {
         $rulesJs = Join-Path $bin 'compile-rules.js'
         if (Test-Path $rulesJs) {
             @('@echo off', "node `"%~dp0compile-rules.js`" %*") |
-                Set-Content -Path (Join-Path $bin 'hub-compile-rules.cmd') -Encoding ascii
+                Set-Content -Path (Join-Path $bin 'mc-compile-rules.cmd') -Encoding ascii
         }
 
-        # Where the hub is, recorded once, so a job started by the schedule with almost
+        # Where the mission control is, recorded once, so a job started by the schedule with almost
         # no environment never has to guess. The programs read this file already.
-        $devEnv = Join-Path (Get-KitHome) '.hub\device.env'
-        Set-KitHubDirRecord -Hub $Hub
+        $devEnv = Join-Path (Get-KitHome) '.godspeed\device.env'
+        Set-KitGodspeedDirRecord -Godspeed $Godspeed
         # And where the tools came from, so the next run can refresh them unprompted.
-        $hasRepo = (Test-Path $devEnv) -and ((Get-Content $devEnv) -match '^\s*HUB_TOOLS_REPO=')
-        if (-not $hasRepo) { Add-Content -Path $devEnv -Value "HUB_TOOLS_REPO=$ToolsRepo" -Encoding ascii }
+        $hasRepo = (Test-Path $devEnv) -and ((Get-Content $devEnv) -match '^\s*GODSPEED_TOOLS_REPO=')
+        if (-not $hasRepo) { Add-Content -Path $devEnv -Value "GODSPEED_TOOLS_REPO=$ToolsRepo" -Encoding ascii }
 
         Update-KitPath
         $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -994,7 +998,7 @@ function Install-KitPromptHarvest {
         native mechanism. Linux and Mac get a line in cron; Windows gets a
         scheduled task, because that is what Windows has.
 
-        WHY THIS BELONGS IN THE INSTALLER. The hub keeps a drawer of everything
+        WHY THIS BELONGS IN THE INSTALLER. The mission control keeps a drawer of everything
         he has typed to any assistant, so months later he can ask "how did I get
         that result in June" and be answered with the words he actually used.
         Filling it needs something on each machine to run once a day, and until
@@ -1002,22 +1006,22 @@ function Install-KitPromptHarvest {
         typed one there by hand, and the rest had nothing. A wiring step you
         perform by hand only ever covers the machine you were sitting at.
 
-        Quiet on a hub that ships no harvester, which is every reader's hub for
+        Quiet on a mission control that ships no harvester, which is every reader's mission control for
         now: nothing to schedule, so nothing to say.
 
         TaskName is a parameter so the test suite can register and remove its own
         task instead of touching the real one. #>
     param(
-        [Parameter(Mandatory)][string]$Hub,
-        [string]$TaskName = 'Hub prompt archive'
+        [Parameter(Mandatory)][string]$Godspeed,
+        [string]$TaskName = 'Godspeed prompt archive'
     )
     if (Test-KitBeside) {
-        Write-KbOk "prompt archive: left the daily job where it is. This hub sits beside the one this computer works from."
+        Write-KbOk "prompt archive: left the daily job where it is. This mission control sits beside the one this computer works from."
         return
     }
 
-    # The installed program first, the hub's own copy second. The second is only for a
-    # hub set up before the programs were installed on the machine, so nothing breaks
+    # The installed program first, the mission control's own copy second. The second is only for a
+    # mission control set up before the programs were installed on the machine, so nothing breaks
     # between the two.
     #
     # HISTORY, because this path was broken in the least visible way possible: the
@@ -1025,9 +1029,9 @@ function Install-KitPromptHarvest {
     # a "\b" interpreted somewhere on its way into the file. It rendered as ".localin",
     # the installed program was never found, the function returned two lines down, and
     # NO Windows machine ever got the scheduled task. The tests missed it because they
-    # only ever exercised the hub-copy fallback; they now cover this branch too.
+    # only ever exercised the mc-copy fallback; they now cover this branch too.
     $installed = Join-Path (Get-KitHome) '.local\bin\prompt-harvest.js'
-    $js = if (Test-Path $installed) { $installed } else { Join-Path $Hub 'bin\prompt-harvest.js' }
+    $js = if (Test-Path $installed) { $installed } else { Join-Path $Godspeed 'bin\prompt-harvest.js' }
     if (-not (Test-Path $js)) { return }
 
     $node = (Get-Command node -ErrorAction SilentlyContinue).Source
@@ -1044,15 +1048,15 @@ function Install-KitPromptHarvest {
     # window at the owner every hour it fires (reported 2026-08-18, on two of Michael's
     # machines). The job goes through wscript + a tiny .vbs launcher instead, which runs
     # the same command with its window hidden. The launcher is written here, next to the
-    # collector, because a reader's hub ships no such file. A task found running node
+    # collector, because a reader's mission control ships no such file. A task found running node
     # directly is from before this fix and gets replaced.
     $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     if ($existing -and $existing.Actions[0].Execute -match 'wscript') {
-        if (Test-KitTaskPointsAt -Task $existing -Hub $Hub) {
+        if (Test-KitTaskPointsAt -Task $existing -Godspeed $Godspeed) {
             Write-KbOk "prompt archive: already scheduled on this computer"
             return
         }
-        Write-KbOk "prompt archive: the daily job ran in $($existing.Actions[0].WorkingDirectory), not in this hub. Re-pointing it."
+        Write-KbOk "prompt archive: the daily job ran in $($existing.Actions[0].WorkingDirectory), not in this mission control. Re-pointing it."
     } elseif ($existing) {
         Write-KbOk "prompt archive: replacing the old job, which opened a visible window every hour"
     }
@@ -1064,12 +1068,12 @@ function Install-KitPromptHarvest {
         # Hourly, not nightly, and the job does nothing if it already ran today. A fixed
         # time in the small hours is right for a server and wrong for a laptop that is shut.
         $action = New-ScheduledTaskAction -Execute 'wscript.exe' `
-            -Argument "`"$vbs`" `"$Hub`" `"$node`" `"$js`" --once-a-day" -WorkingDirectory $Hub
+            -Argument "`"$vbs`" `"$Godspeed`" `"$node`" `"$js`" --once-a-day" -WorkingDirectory $Godspeed
         $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) `
             -RepetitionInterval (New-TimeSpan -Hours 1) -RepetitionDuration (New-TimeSpan -Days 3650)
         $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
         Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings `
-            -Description 'Files what you type to an AI on this computer, and its answers, into your hub.' -Force | Out-Null
+            -Description 'Files what you type to an AI on this computer, and its answers, into your mission control.' -Force | Out-Null
         Write-KbOk "prompt archive: this computer now files what you type to an AI, and its answers, once a day"
     } catch {
         Write-KbWarn "prompt archive: I could not add the daily job to this computer's schedule ($($_.Exception.Message)). Run it by hand when you want it: node `"$js`""
@@ -1172,16 +1176,16 @@ function Install-KitClaudeCode {
 }
 
 function Install-KitPrereqs {
-    <#  Everything the hub needs on a Windows PC. Reports what is still missing
+    <#  Everything the mission control needs on a Windows PC. Reports what is still missing
         instead of stopping, because a half-wired machine that says which half is
         far more useful than one that quit on the first problem. #>
     Write-KbSay "Checking what this PC needs"
     $missing = @()
 
-    # git: the hub IS a git folder, and Git for Windows also brings Git Bash,
-    # which is what the hub's own commands run under.
+    # git: the mission control IS a git folder, and Git for Windows also brings Git Bash,
+    # which is what the mission control's own commands run under.
     if (-not (Install-KitWingetPackage -Id 'Git.Git' -Command 'git' -Human 'Git')) { $missing += 'Git' }
-    # node: several hub tools are node programs (calling another machine's AI, for one).
+    # node: several mission control tools are node programs (calling another machine's AI, for one).
     if (-not (Install-KitWingetPackage -Id 'OpenJS.NodeJS.LTS' -Command 'node' -Human 'Node.js')) { $missing += 'Node.js' }
     # Hermes, not Claude Code, since Batch AK: the book teaches Hermes from
     # Chapter 3, and a developer who wants Claude Code gets it in Chapter 5.
@@ -1190,13 +1194,13 @@ function Install-KitPrereqs {
     return $missing
 }
 
-function Copy-KitStarterHub {
+function Copy-KitStarterGodspeed {
     <#  Lay down a product's real starter folder, fetched from its own public
         repository.
 
         This function exists because of a bug worth remembering. The first version
-        of New-KitHub INVENTED a hub: a short AGENTS.md written from scratch and an
-        empty memory index. Meanwhile the book's kit already ships `starter-hub/`,
+        of New-KitGodspeed INVENTED a mission control: a short AGENTS.md written from scratch and an
+        empty memory index. Meanwhile the book's kit already ships `starter-godspeed/`,
         a proper one with context/, skills/, procedures.md, decisions.md, inbox/
         and prompts/, which the chapters then walk the reader through filling in.
         So a reader who installed on a fresh PC would have got a folder that did
@@ -1209,7 +1213,7 @@ function Copy-KitStarterHub {
     param(
         [Parameter(Mandatory)][string]$Path,
         [Parameter(Mandatory)][string]$StarterRepo,
-        [string]$StarterPath = 'starter-hub'
+        [string]$StarterPath = 'starter-godspeed'
     )
 
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("kit-starter-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
@@ -1224,17 +1228,17 @@ function Copy-KitStarterHub {
         # -Force so hidden files come too, and never overwriting: a second run must
         # not tread on a sentence the person has already written about themselves.
         #
-        # One exception: .gitignore GROWS. Every hub already has one from day one,
+        # One exception: .gitignore GROWS. Every mission control already has one from day one,
         # so skip-if-present means a rule the starter learns later (the dev/ fence,
-        # 2026-08-19) never reaches an existing hub - and the miss is not stale
-        # text but a whole nested repository committed into the hub's history. For
-        # that one file, append the starter's pattern lines the hub does not
+        # 2026-08-19) never reaches an existing mission control - and the miss is not stale
+        # text but a whole nested repository committed into the mission control's history. For
+        # that one file, append the starter's pattern lines the mission control does not
         # already have (comments and blanks skipped, so a re-run adds nothing twice).
         Get-ChildItem $src -Force | ForEach-Object {
             $dest = Join-Path $Path $_.Name
-            # Never add a room this hub already keeps under its other name, or the top-up
+            # Never add a room this mission control already keeps under its other name, or the top-up
             # drops profile\ next to a perfectly good context\. See Get-KitRoomTwin.
-            if (-not (Test-Path $dest) -and (Get-KitRoomTwin -Hub $Path -Name $_.Name)) {
+            if (-not (Test-Path $dest) -and (Get-KitRoomTwin -Godspeed $Path -Name $_.Name)) {
                 # nothing to do: the room is already here under its older name
             } elseif (-not (Test-Path $dest)) {
                 Copy-Item $_.FullName $dest -Recurse -Force
@@ -1244,16 +1248,16 @@ function Copy-KitStarterHub {
                 if ($add.Count) { Add-Content -Path $dest -Value $add }
             }
         }
-        # A recipe the starter ships reaches an existing hub too (2026-09-15). Every hub has
+        # A recipe the starter ships reaches an existing mission control too (2026-09-15). Every mission control has
         # a skills\ folder from day one, so skip-if-present at the top level would keep
-        # next-action and work-item, which the book's Chapter 7 says every hub has, from any
-        # hub made before they shipped. A recipe folder is copied only when the hub's own
+        # next-action and work-item, which the book's Chapter 7 says every mission control has, from any
+        # mission control made before they shipped. A recipe folder is copied only when the mission control's own
         # room holds no folder of that name, so a recipe the reader has edited is never
         # touched, and it goes into the room the recipes actually live in. Twin of the block
-        # in kb_copy_starter_hub in lib.sh; change one, change both.
+        # in kb_copy_starter_godspeed in lib.sh; change one, change both.
         $skillsSrc = Join-Path $src 'skills'
         if (Test-Path $skillsSrc) {
-            $room = Get-KitSkillsRoom -Hub $Path
+            $room = Get-KitSkillsRoom -Godspeed $Path
             Get-ChildItem $skillsSrc -Directory | ForEach-Object {
                 if (-not (Test-Path (Join-Path $_.FullName 'SKILL.md'))) { return }
                 $rdest = Join-Path $room $_.Name
@@ -1270,59 +1274,59 @@ function Copy-KitStarterHub {
     }
 }
 
-function New-KitHub {
-    <#  There is no hub on this PC. Make one.
+function New-KitGodspeed {
+    <#  There is no mission control on this PC. Make one.
 
-        Two shapes, because people arrive in two states: they already keep a hub
+        Two shapes, because people arrive in two states: they already keep a mission control
         in a git repository somewhere and this is simply another machine, or they
         have nothing at all and today is day one.
 
         On day one the folder is copied from the product's own starter, never
-        written from imagination. See Copy-KitStarterHub for what that cost us. #>
+        written from imagination. See Copy-KitStarterGodspeed for what that cost us. #>
     param(
         [Parameter(Mandatory)][string]$Path,
         [string]$RepoUrl,
         [string]$StarterRepo,
-        [string]$StarterPath = 'starter-hub'
+        [string]$StarterPath = 'starter-godspeed'
     )
 
     if (Test-Path $Path) {
         $hasFiles = @(Get-ChildItem $Path -Force -ErrorAction SilentlyContinue).Count -gt 0
-        if ($hasFiles -and -not (Test-KitHub $Path)) {
-            throw "$Path already exists and has things in it, but it is not a hub. Pick an empty folder, or one that does not exist yet."
+        if ($hasFiles -and -not (Test-KitGodspeed $Path)) {
+            throw "$Path already exists and has things in it, but it is not a mission control. Pick an empty folder, or one that does not exist yet."
         }
     }
 
     if ($RepoUrl) {
-        Write-KbSay "Getting your hub from $RepoUrl"
+        Write-KbSay "Getting your mission control from $RepoUrl"
         New-Item -ItemType Directory -Force (Split-Path $Path -Parent) | Out-Null
         git clone $RepoUrl $Path
         if ($LASTEXITCODE -ne 0) {
             throw "Could not copy that repository. If it is a private one, sign in first (run: gh auth login) and try again. The address I tried was $RepoUrl"
         }
-        Write-KbOk "your hub is now at $Path"
+        Write-KbOk "your mission control is now at $Path"
         return
     }
 
-    Write-KbSay "Starting a new hub at $Path"
+    Write-KbSay "Starting a new mission control at $Path"
     New-Item -ItemType Directory -Force $Path | Out-Null
 
     $gotStarter = $false
     if ($StarterRepo) {
         Write-Host "   fetching the starter folder..."
-        $gotStarter = Copy-KitStarterHub -Path $Path -StarterRepo $StarterRepo -StarterPath $StarterPath
+        $gotStarter = Copy-KitStarterGodspeed -Path $Path -StarterRepo $StarterRepo -StarterPath $StarterPath
         if ($gotStarter) {
-            Write-KbOk "your hub starts with the real starter folder, the one the book fills in chapter by chapter"
+            Write-KbOk "your mission control starts with the real starter folder, the one the book fills in chapter by chapter"
         } else {
-            # Loud, and with the way out in the same breath. A hub of the wrong
+            # Loud, and with the way out in the same breath. A mission control of the wrong
             # shape sends somebody looking for files the book names and they do
             # not have, which is a worse hour than being told plainly here.
             Write-KbWarn @"
 I could not fetch the starter folder from $StarterRepo
-so I am making a bare hub instead. It works, but it does NOT have the files the
+so I am making a bare mission control instead. It works, but it does NOT have the files the
 book walks you through (context/, skills/, procedures.md and the rest).
 To put that right: open $StarterRepo in a browser, use the green Code button ->
-Download ZIP, and copy the starter-hub folder from inside it into $Path
+Download ZIP, and copy the starter-godspeed folder from inside it into $Path
 "@
         }
     }
@@ -1331,13 +1335,13 @@ Download ZIP, and copy the starter-hub folder from inside it into $Path
         git -C $Path init -q
         if ($LASTEXITCODE -ne 0) { throw "Could not start a git folder at $Path." }
     }
-    Initialize-KitMemoryIndex -Hub $Path
-    if ($gotStarter) { Write-KbOk "your hub is now at $Path"; return }
+    Initialize-KitMemoryIndex -Godspeed $Path
+    if ($gotStarter) { Write-KbOk "your mission control is now at $Path"; return }
 
     $agents = Join-Path $Path 'AGENTS.md'
     if (-not (Test-Path $agents)) {
         $starter = @(
-            '# My hub'
+            '# My mission control'
             ''
             'This folder is the brain my AI assistants share. Every assistant on every one'
             'of my machines reads this file first, so what I write here is what all of them'
@@ -1358,9 +1362,9 @@ Download ZIP, and copy the starter-hub folder from inside it into $Path
         Set-KbTextFile -Path $agents -Lines $starter
         Write-KbOk "wrote a starter $agents for you to make your own"
     }
-    Write-KitExpiryRecord -Hub $Path
-    Write-KitDueFolder -Hub $Path
-    Write-KbOk "your hub is now at $Path"
+    Write-KitExpiryRecord -Godspeed $Path
+    Write-KitDueFolder -Godspeed $Path
+    Write-KbOk "your mission control is now at $Path"
 }
 
 # =============================================================================
@@ -1371,15 +1375,15 @@ Download ZIP, and copy the starter-hub folder from inside it into $Path
 #
 # Added 2026-08-16. Before this, the installer had no credential step of any kind
 # on either front door. The book promised that every computer you own
-# reads the same hub, and said nothing about the one thing that did NOT travel: the
+# reads the same mission control, and said nothing about the one thing that did NOT travel: the
 # key to your notebook. A reader joining a second machine got their files and a
 # notebook that was simply absent, with nothing anywhere saying so.
 #
-#   secrets\hub-secrets.env.age   your credentials, locked, INSIDE the hub folder
-#   secrets\hub-key.age           the key to that, locked with ONE passphrase
-#   ~\.hub\age-key.txt            the unlocked key, on this PC only
+#   secrets\mc-secrets.env.age   your credentials, locked, INSIDE the mission control folder
+#   secrets\mc-key.age           the key to that, locked with ONE passphrase
+#   ~\.godspeed\age-key.txt            the unlocked key, on this PC only
 #
-# THE TRADE, said plainly: anyone with BOTH your hub folder and your passphrase has
+# THE TRADE, said plainly: anyone with BOTH your mission control folder and your passphrase has
 # your credentials. Same bargain as a password manager. Keep the folder private and
 # put the passphrase in your password manager.
 #
@@ -1410,9 +1414,9 @@ function Install-KitAge {
     [void](Install-KitWingetPackage -Id 'FiloSottile.age' -Command 'age' -Human 'age (the small program that locks your key)')
     return (Test-KitAge)
 }
-function Get-KitHubKeyPath {
-    if ($env:HUB_AGE_KEY) { return $env:HUB_AGE_KEY }
-    return (Join-Path (Get-KitHome) '.hub\age-key.txt')
+function Get-KitGodspeedKeyPath {
+    if ($env:GODSPEED_AGE_KEY) { return $env:GODSPEED_AGE_KEY }
+    return (Join-Path (Get-KitHome) '.godspeed\age-key.txt')
 }
 
 function Test-KitInteractive {
@@ -1434,32 +1438,32 @@ function Get-KitNotebookState {
         sealed     = the folder carries them and the key, waiting for a passphrase
         locked-out = the folder carries credentials, this PC cannot open them, and there
                      is no sealed key to ask a passphrase for. Nothing may be written.
-        none       = no notebook here yet, which is a complete way to own a hub
+        none       = no notebook here yet, which is a complete way to own a mission control
 
         LOCKED-OUT IS THE ONE THAT MATTERS, and it was missing on the day this was
-        written. Without it, a run on a machine that already had somebody's hub read
+        written. Without it, a run on a machine that already had somebody's mission control read
         "I cannot open this" as "there is nothing here", took a new token and re-locked
         the whole store to THIS computer's key - shutting every other computer sharing
         that folder out of every credential in it at once, silently. It happened during
         testing and was survivable only because the file was committed. #>
-    param([Parameter(Mandatory)][string]$Hub)
-    $key   = Get-KitHubKeyPath
-    $store = Join-Path $Hub 'secrets\hub-secrets.env.age'
+    param([Parameter(Mandatory)][string]$Godspeed)
+    $key   = Get-KitGodspeedKeyPath
+    $store = Join-Path $Godspeed 'secrets\mc-secrets.env.age'
     if ((Test-Path $store) -and (Test-Path $key) -and (Test-KitAge)) {
         & (Get-KitAge) -d -i $key $store > $null 2>&1
         if ($LASTEXITCODE -eq 0) { return 'connected' }
     }
-    if (Test-Path (Join-Path $Hub 'secrets\hub-key.age')) { return 'sealed' }
+    if (Test-Path (Join-Path $Godspeed 'secrets\mc-key.age')) { return 'sealed' }
     if (Test-Path $store) { return 'locked-out' }
     return 'none'
 }
 
-function Unlock-KitHubKey {
+function Unlock-KitGodspeedKey {
     <#  The SECOND computer, and every one after it. One passphrase, and every
         credential the folder carries is live here. #>
-    param([Parameter(Mandatory)][string]$Hub)
-    $key    = Get-KitHubKeyPath
-    $sealed = Join-Path $Hub 'secrets\hub-key.age'
+    param([Parameter(Mandatory)][string]$Godspeed)
+    $key    = Get-KitGodspeedKeyPath
+    $sealed = Join-Path $Godspeed 'secrets\mc-key.age'
     if (-not (Test-Path $sealed)) { return $false }
     if (Test-Path $key) { return $true }
     if (-not (Test-KitAge)) {
@@ -1471,8 +1475,8 @@ function Unlock-KitHubKey {
         return $false
     }
     Write-Host ""
-    Write-Host "This computer has no key yet, but your hub folder carries one."
-    Write-Host "Type your hub passphrase to unlock every credential at once:"
+    Write-Host "This computer has no key yet, but your mission control folder carries one."
+    Write-Host "Type your mission control passphrase to unlock every credential at once:"
     New-Item -ItemType Directory -Force (Split-Path $key -Parent) | Out-Null
     & (Get-KitAge) -d -o $key $sealed
     if ($LASTEXITCODE -eq 0 -and (Test-Path $key)) {
@@ -1485,16 +1489,16 @@ function Unlock-KitHubKey {
     return $false
 }
 
-function Protect-KitHubKey {
+function Protect-KitGodspeedKey {
     <#  The FIRST computer. Put the key INTO the folder, locked with one passphrase,
         so the next computer needs nothing carried to it. Refuses to seal a key that
         opens nothing, and proves the round trip before keeping the result: an
         unverified backup is not a backup, and the machine that would discover that
         is the new one, at the moment it has no other way in. #>
-    param([Parameter(Mandatory)][string]$Hub)
-    $key    = Get-KitHubKeyPath
-    $sealed = Join-Path $Hub 'secrets\hub-key.age'
-    $store  = Join-Path $Hub 'secrets\hub-secrets.env.age'
+    param([Parameter(Mandatory)][string]$Godspeed)
+    $key    = Get-KitGodspeedKeyPath
+    $sealed = Join-Path $Godspeed 'secrets\mc-key.age'
+    $store  = Join-Path $Godspeed 'secrets\mc-secrets.env.age'
     if (-not (Test-Path $key))  { return $false }
     if (Test-Path $sealed)      { return $true }
     if (-not (Test-KitAge))     { return $false }
@@ -1512,7 +1516,7 @@ function Protect-KitHubKey {
     Write-Host ""
     Write-Host "Choose a passphrase. This is the ONE thing you will type on your next computer,"
     Write-Host "and the one thing to put in your password manager. You will be asked twice."
-    New-Item -ItemType Directory -Force (Join-Path $Hub 'secrets') | Out-Null
+    New-Item -ItemType Directory -Force (Join-Path $Godspeed 'secrets') | Out-Null
     & (Get-KitAge) -p -o $sealed $key
     if ($LASTEXITCODE -ne 0) {
         Remove-Item $sealed -ErrorAction SilentlyContinue
@@ -1540,13 +1544,13 @@ function Protect-KitHubKey {
 function Save-KitNotebookToken {
     <#  Put one credential into the folder's locked store, making a key for this PC
         first if there is none. Merges: a store holding other credentials keeps them. #>
-    param([Parameter(Mandatory)][string]$Hub, [Parameter(Mandatory)][string]$Token)
+    param([Parameter(Mandatory)][string]$Godspeed, [Parameter(Mandatory)][string]$Token)
     if (-not (Test-KitAge)) {
         Write-KbWarn "notebook: this PC needs the 'age' program to keep a credential safely. Install it (winget install --id FiloSottile.age) and run this again."
         return $false
     }
-    $key   = Get-KitHubKeyPath
-    $store = Join-Path $Hub 'secrets\hub-secrets.env.age'
+    $key   = Get-KitGodspeedKeyPath
+    $store = Join-Path $Godspeed 'secrets\mc-secrets.env.age'
     # NEVER re-lock a store this PC cannot already open. Writing it would encrypt the whole
     # thing to this machine's key and shut out every other computer sharing the folder -
     # all of them, from every credential, in one step and without a word.
@@ -1554,12 +1558,12 @@ function Save-KitNotebookToken {
         $canOpen = $false
         if (Test-Path $key) { & (Get-KitAge) -d -i $key $store > $null 2>&1; $canOpen = ($LASTEXITCODE -eq 0) }
         if (-not $canOpen) {
-            Write-KbWarn "notebook: that folder already carries credentials this PC cannot open, so I am not touching them. Unlock it first with the hub passphrase, or point me at a different folder."
+            Write-KbWarn "notebook: that folder already carries credentials this PC cannot open, so I am not touching them. Unlock it first with the mission control passphrase, or point me at a different folder."
             return $false
         }
     }
     New-Item -ItemType Directory -Force (Split-Path $key -Parent) | Out-Null
-    New-Item -ItemType Directory -Force (Join-Path $Hub 'secrets') | Out-Null
+    New-Item -ItemType Directory -Force (Join-Path $Godspeed 'secrets') | Out-Null
     if (-not (Test-Path $key)) {
         & (Get-KitAgeKeygen) -o $key > $null 2>&1
         if (-not (Test-Path $key)) { Write-KbWarn "notebook: I could not make a key on this PC."; return $false }
@@ -1573,7 +1577,7 @@ function Save-KitNotebookToken {
     }
     # One credential, one name. Menerio used to hand out a separate connector token
     # and API key, and this wrote the same value under both names so a reader still
-    # pasted one thing. Since 2026-08-16 an API key with "Hub access" opens both
+    # pasted one thing. Since 2026-08-16 an API key with "Godspeed access" opens both
     # doors, so there is one name and nothing to reconcile.
     $lines += "MENERIO_API_KEY=$Token"
     $plain = Join-Path ([System.IO.Path]::GetTempPath()) ("kb-store-" + [guid]::NewGuid().ToString('N').Substring(0,8))
@@ -1581,8 +1585,8 @@ function Save-KitNotebookToken {
     & (Get-KitAge) -r $recipient -o $store $plain 2>$null
     $rc = $LASTEXITCODE
     Remove-Item $plain -ErrorAction SilentlyContinue
-    if ($rc -eq 0) { Write-KbOk "notebook: your credential is kept inside your hub folder, locked."; return $true }
-    Write-KbWarn "notebook: I could not write the credential into your hub folder."
+    if ($rc -eq 0) { Write-KbOk "notebook: your credential is kept inside your mission control folder, locked."; return $true }
+    Write-KbWarn "notebook: I could not write the credential into your mission control folder."
     return $false
 }
 
@@ -1598,27 +1602,27 @@ function Write-KitExpiryRecord {
 
         WHY A FILE AND NOT A CALENDAR ENTRY. A calendar entry belongs to one account on
         one service. This travels in the folder with the key it is about, every computer
-        reads it, the morning brief can read it, and hub-check-keys can read it. It also
+        reads it, the morning brief can read it, and mc-check-keys can read it. It also
         survives changing calendars, which people do.
 
         Never overwrites one that is already there, and holds no key: names, dates and
         links only. #>
-    param([Parameter(Mandatory)][string]$Hub)
-    $f = Join-Path $Hub 'secrets\expires.txt'
+    param([Parameter(Mandatory)][string]$Godspeed)
+    $f = Join-Path $Godspeed 'secrets\expires.txt'
     if (Test-Path $f) { return }
-    New-Item -ItemType Directory -Force (Join-Path $Hub 'secrets') | Out-Null
+    New-Item -ItemType Directory -Force (Join-Path $Godspeed 'secrets') | Out-Null
     # THE TEXT BELOW IS THE READER KIT'S COPY, BYTE FOR BYTE, and a test compares them.
     # There were THREE copies of this file and two of them had drifted: the bash twin and
-    # this one both predated the @ convention that hub-check-keys implements, so a reader
-    # with an established hub was handed a page that did not document the thing their own
-    # tool was doing. Only the new-hub path, which copies from the kit, was current. If
+    # this one both predated the @ convention that mc-check-keys implements, so a reader
+    # with an established mission control was handed a page that did not document the thing their own
+    # tool was doing. Only the new-godspeed path, which copies from the kit, was current. If
     # you change one, change all three, and the tests will say so.
     $lines = @(
         '# When your keys run out.',
         '#',
         '# Some keys last forever. Some die after a year, and on that morning nothing tells you:',
         '# whatever used the key simply stops working, and the error blames the wrong thing. This',
-        '# file is how your hub knows the date before you do.',
+        '# file is how your mission control knows the date before you do.',
         '#',
         '# One key per line. Three things, separated by spaces:',
         '#',
@@ -1644,7 +1648,7 @@ function Write-KitExpiryRecord {
         '#',
         '#     SOME_LOGIN@/the/file/it/lives/in  2027-03-14  -  # what it opens, and how you renew it',
         '#',
-        '# It is counted down exactly like every other line. The only difference is that `hub-check-keys`',
+        '# It is counted down exactly like every other line. The only difference is that `mc-check-keys`',
         '# knows not to go looking for it in your store, and so does not tell you it is missing.',
         '#',
         '# NEVER PUT A KEY ITSELF IN HERE. This file is plain text and travels with your folder.',
@@ -1653,7 +1657,7 @@ function Write-KitExpiryRecord {
         '#',
         '# WHAT READS IT: your morning brief, which starts mentioning a key two months before it',
         '# dies (once a week), then every morning for the last fortnight, and every morning after',
-        '# it has died. Changing the date here is the off switch. And `hub-check-keys`, any time',
+        '# it has died. Changing the date here is the off switch. And `mc-check-keys`, any time',
         '# you want to ask.'
     )
     Set-KbTextFile -Path $f -Lines $lines
@@ -1667,29 +1671,29 @@ function Write-KitDueFolder {
         WHY IT EXISTS. A calendar reminder fires on a date and knows nothing else, so it goes off
         about something already done, and once that has happened a few times a person stops
         reading reminders. The one that mattered then goes past too. This room is the other shape:
-        two dates per thing, and how loud the hub gets follows how much of the window between
+        two dates per thing, and how loud the mission control gets follows how much of the window between
         them is left.
 
-        WHY IT IS SEEDED HERE AS WELL AS SHIPPED IN starter-hub/. Copy-KitStarterHub tops up a hub
+        WHY IT IS SEEDED HERE AS WELL AS SHIPPED IN starter-godspeed/. Copy-KitStarterGodspeed tops up a mission control
         that already exists, which covers almost everybody, but it needs the network and the
         starter repository. This costs nothing and covers the reader whose top-up could not run.
         Same reason Write-KitExpiryRecord exists.
 
-        THE TEXT BELOW IS A COPY OF teach-it-once-kit/starter-hub/due/README.md, byte for byte,
+        THE TEXT BELOW IS A COPY OF teach-it-once-kit/starter-godspeed/due/README.md, byte for byte,
         and test.sh compares them. Two copies of one file is two places to fix a typo, and the one
         nobody edits is the one every reader ends up with. Change the kit's copy, then copy it here
         and into the kb_seed_due_folder twin in lib.sh.
 
         Never overwrites a README that is already there, and never touches an obligation file. #>
-    param([Parameter(Mandatory)][string]$Hub)
-    $f = Join-Path $Hub 'due\README.md'
+    param([Parameter(Mandatory)][string]$Godspeed)
+    $f = Join-Path $Godspeed 'due\README.md'
     if (Test-Path $f) { return }
-    New-Item -ItemType Directory -Force (Join-Path $Hub 'due') | Out-Null
+    New-Item -ItemType Directory -Force (Join-Path $Godspeed 'due') | Out-Null
     $lines = @(
         '# due - the things with a last day'
         ''
         '**This room starts empty, and an empty one costs you nothing.** It fills the first time you tell'
-        'your hub about something with a deadline (Chapter 27). If you never do, you have an empty folder'
+        'your mission control about something with a deadline (Chapter 27). If you never do, you have an empty folder'
         'and you have lost nothing.'
         ''
         '## Why this is not a reminder'
@@ -1706,9 +1710,9 @@ function Write-KitDueFolder {
         'Every file in here holds **the first day you can do the thing, and the last day you still can.**'
         'Not a due date. A window.'
         ''
-        'How loud your hub gets follows how much of the window is left, as a fraction:'
+        'How loud your mission control gets follows how much of the window is left, as a fraction:'
         ''
-        '| Left of the window | Your hub |'
+        '| Left of the window | Your mission control |'
         '|---|---|'
         '| more than half | says it once when the window opens, then at most monthly |'
         '| half to a quarter | a line in your brief about every fortnight |'
@@ -1754,21 +1758,21 @@ function Write-KitDueFolder {
         '1. What is true when this is finished?'
         '2. From when to when can you do it?'
         '3. What does it cost you if it slips?'
-        '4. **How could your hub tell you did it, without asking you?**'
+        '4. **How could your mission control tell you did it, without asking you?**'
         ''
         'The fourth is the one that matters and the one everybody skips. Some things can answer it. A key is'
         'replaced when the date in `secrets/expires.txt` moves. A backup happened if the file is newer than'
         'the window. Those close themselves and never nag you again after you act, which is exactly the'
         'failure that kills every reminder app.'
         ''
-        'Most things cannot answer it, and **that is a fine answer**. Nobody can tell your hub that you'
+        'Most things cannot answer it, and **that is a fine answer**. Nobody can tell your mission control that you'
         'submitted a timesheet into somebody else''s website. Those say so and wait for you to say the word.'
         'Ask the question anyway, every time, because knowing which kind a thing is changes what you build'
         'around it.'
         ''
         '## No date, not eligible'
         ''
-        '`hub-due add` refuses anything without both dates, in those words. That refusal is the only thing'
+        '`mc-due add` refuses anything without both dates, in those words. That refusal is the only thing'
         'between this folder and a to-do app you stop maintaining.'
         ''
         '## Three states, and only three'
@@ -1782,7 +1786,7 @@ function Write-KitDueFolder {
         ''
         '## Your keys are already in here'
         ''
-        'If you have `secrets/expires.txt` from Chapter 31, `hub-due` reads it and treats each key as one of'
+        'If you have `secrets/expires.txt` from Chapter 31, `mc-due` reads it and treats each key as one of'
         'these. You never write a date in two places, and there is one thing nagging you rather than two'
         'that disagree. Moving the date in that file is still the off switch, and it is now also the proof:'
         'moving it forward is what replacing a key looks like from outside, so the reminder closes itself.'
@@ -1790,7 +1794,7 @@ function Write-KitDueFolder {
         '## You do not need a calendar'
         ''
         'Not for any of this. If you do have one, your assistant can add **one entry per thing**, and one is'
-        'the whole rule. It goes on the day your hub starts being loud, not on the day the thing dies, and'
+        'the whole rule. It goes on the day your mission control starts being loud, not on the day the thing dies, and'
         'the death date goes in the title so the single entry says both. Never two entries about one date:'
         'the day they disagree with each other you stop believing either.'
         ''
@@ -1799,18 +1803,18 @@ function Write-KitDueFolder {
         'that has already gone by is left alone: it is a record of what happened.'
         ''
         'You can also go the other way and add one from your phone, by writing an event that says'
-        '`hub: from 1 Feb`. **The calendar never decides when you get nagged and never knows whether you'
+        '`mission control: from 1 Feb`. **The calendar never decides when you get nagged and never knows whether you'
         'acted.**'
         ''
         '## The commands'
         ''
         '```'
-        'hub-due                     everything, loudest first'
-        'hub-due today               at most three, which is what your morning brief reads'
-        'hub-due add <name> ...      make one'
-        'hub-due done <name>         you did it'
-        'hub-due drop <name> --yes   delete it'
-        'hub-due check               run the self checks, close what is provably done'
+        'mc-due                     everything, loudest first'
+        'mc-due today               at most three, which is what your morning brief reads'
+        'mc-due add <name> ...      make one'
+        'mc-due done <name>         you did it'
+        'mc-due drop <name> --yes   delete it'
+        'mc-due check               run the self checks, close what is provably done'
         '```'
         ''
         'The card is `procedures/what-runs-out-and-when.md` in the kit. Chapter 27.'
@@ -1825,13 +1829,13 @@ function Write-KitMcpConfig {
         It used to say "your assistant", which was an over-claim the moment the book
         stopped being a Claude Code book. Hermes never reads a folder .mcp.json:
         checked in the Hermes source, there is not one reference to it. Codex does not
-        read it either. So a hub does NOT carry the other assistants' configuration and
+        read it either. So a mission control does NOT carry the other assistants' configuration and
         this file must not imply that it does.
 
         IT ALSO USED TO END BY TELLING THE READER TO RUN `hermes mcp add` BY HAND. That
         was the honest sentence while nothing else existed, and it was the opposite of
         what the owner asked for on 2026-09-20: "I connect Menerio ONCE and every way I
-        use the hub is connected." The kit's hub-menerio-connect now gives Hermes and
+        use the mission control is connected." The kit's mc-menerio-connect now gives Hermes and
         Codex the same connection from the same stored key, and Connect-KitAssistants
         below runs it. So this function is only the floor: what Claude Code gets when the
         kit on this PC is too old to have that program.
@@ -1839,10 +1843,10 @@ function Write-KitMcpConfig {
         The file NAMES the credential rather than carrying it, so it holds no secret and
         is safe to keep in the folder. Never overwrites one you wrote. The ONE file it
         does replace is the starter's own empty one, {"mcpServers": {}}, because every
-        hub made from the starter has it, and "already there, left as you have it" over
+        mission control made from the starter has it, and "already there, left as you have it" over
         an empty file meant a connected reader whose Claude Code had no connection. #>
-    param([Parameter(Mandatory)][string]$Hub)
-    $f = Join-Path $Hub '.mcp.json'
+    param([Parameter(Mandatory)][string]$Godspeed)
+    $f = Join-Path $Godspeed '.mcp.json'
     if (Test-Path $f) {
         $bare = ''
         try { $bare = ([string](Get-Content -LiteralPath $f -Raw -ErrorAction Stop)) -replace '\s', '' } catch { }
@@ -1860,7 +1864,7 @@ function Write-KitMcpConfig {
         '    "keep in the folder. The value itself lives locked in secrets/, and travels with the",',
         '    "folder to every computer you own.",',
         '    "Hermes and Codex do not read this file. They keep their own settings, and",',
-        '    "`hub-menerio-connect` gives them the same connection from the same stored key.",',
+        '    "`mc-menerio-connect` gives them the same connection from the same stored key.",',
         '    "The installer runs it for you. Run it again yourself after you add an assistant.",',
         '    "Delete this file if you do not use Claude Code. Nothing else in the book needs it."',
         '  ],',
@@ -1890,29 +1894,29 @@ function Connect-KitAssistants {
         separate connections, and only one of them made by the installer. The owner's
         words: "I do not want to connect everything individually."
 
-        The work is done by hub-menerio-connect, which lives in the kit beside the other
-        programs. It reads the key from the locked store in the hub, MERGES the
+        The work is done by mc-menerio-connect, which lives in the kit beside the other
+        programs. It reads the key from the locked store in the mission control, MERGES the
         connection into .mcp.json (so a file that already names other servers keeps
         them), writes Hermes' own settings and Codex's own settings, and prints one line
         for each. That report is shown to the reader exactly as it comes, because it says
         what really happened on THIS PC, and a sentence written here could only say what
         was hoped for.
 
-        It is told where the hub is three ways (--hub, HUB_DIR, and the folder it starts
-        in), because a hub sitting beside another one is NOT the hub in device.env, and a
-        connection written into the wrong hub reads exactly like one that worked.
+        It is told where the mission control is three ways (--godspeed, GODSPEED_DIR, and the folder it starts
+        in), because a mission control sitting beside another one is NOT the mission control in device.env, and a
+        connection written into the wrong mission control reads exactly like one that worked.
 
         AN OLDER KIT HAS NO SUCH PROGRAM. Then Claude Code still gets its file, the way
         it always did, and one line says what is missing and how to get it.
 
         The error preference is lowered around the call for the reason Invoke-KitGit
-        gives: setup-hub.ps1 runs with 'Stop', and a program that writes one ordinary
+        gives: setup-godspeed.ps1 runs with 'Stop', and a program that writes one ordinary
         line to stderr would otherwise end the whole install. #>
-    param([Parameter(Mandatory)][string]$Hub)
-    $tool = Join-Path (Get-KitHome) '.local\bin\hub-menerio-connect.cmd'
-    $connected = ((Get-KitNotebookState -Hub $Hub) -eq 'connected')
+    param([Parameter(Mandatory)][string]$Godspeed)
+    $tool = Join-Path (Get-KitHome) '.local\bin\mc-menerio-connect.cmd'
+    $connected = ((Get-KitNotebookState -Godspeed $Godspeed) -eq 'connected')
     if (-not $connected -or -not (Test-Path $tool)) {
-        Write-KitMcpConfig -Hub $Hub
+        Write-KitMcpConfig -Godspeed $Godspeed
         if ($connected) {
             Write-Host "   Menerio: this copy of the kit cannot connect Hermes and Codex for you yet. Run this installer again after the kit is updated, and it will."
         }
@@ -1929,44 +1933,44 @@ function Connect-KitAssistants {
     $global:KbMenerioProblem = $false
     Write-Host "   Menerio: giving every assistant on this PC the same connection"
     $eap = $ErrorActionPreference
-    $hubDir0 = $env:HUB_DIR
+    $godspeedDir0 = $env:GODSPEED_DIR
     $ErrorActionPreference = 'Continue'
-    $env:HUB_DIR = $Hub
+    $env:GODSPEED_DIR = $Godspeed
     $rc = 1
-    Push-Location -LiteralPath $Hub
+    Push-Location -LiteralPath $Godspeed
     try {
-        & $tool --hub $Hub 2>&1 | ForEach-Object { if ("$_") { Write-Host "   $_" } else { Write-Host "" } }
+        & $tool --godspeed $Godspeed 2>&1 | ForEach-Object { if ("$_") { Write-Host "   $_" } else { Write-Host "" } }
         $rc = $LASTEXITCODE
     } catch {
         Write-Host "   $($_.Exception.Message)"
     } finally {
         Pop-Location
-        $env:HUB_DIR = $hubDir0
+        $env:GODSPEED_DIR = $godspeedDir0
         $ErrorActionPreference = $eap
     }
     if ($rc -ne 0) {
         $global:KbMenerioProblem = $true
-        Write-KbWarn "Menerio: hub-menerio-connect found a problem, so something above is not working yet. Its own lines say what. When that is put right, run it again: hub-menerio-connect"
+        Write-KbWarn "Menerio: mc-menerio-connect found a problem, so something above is not working yet. Its own lines say what. When that is put right, run it again: mc-menerio-connect"
     }
     # The floor, for a program that reported and still left Claude Code without a file.
-    if (-not (Test-Path (Join-Path $Hub '.mcp.json'))) { Write-KitMcpConfig -Hub $Hub }
+    if (-not (Test-Path (Join-Path $Godspeed '.mcp.json'))) { Write-KitMcpConfig -Godspeed $Godspeed }
 }
 
 # =============================================================================
-# THE NOTEBOOK AND THE COPY OF YOUR HUB ARE TWO CHOICES, NOT ONE (2026-09-21)
+# THE NOTEBOOK AND THE COPY OF YOUR GODSPEED ARE TWO CHOICES, NOT ONE (2026-09-21)
 #
 # The Windows twins of kb_device_env_set, kb_notebook_mirror, kb_notebook_runner_asks,
 # kb_notebook_job_is_here, kb_choose_notebook_mirror and kb_offer_passphrase in lib.sh,
 # and they exist for the same reason. Two readers who had never seen the book were given
 # the Menerio chapter cold, and both refused to connect: connecting quietly started
-# copying the whole hub into an online account, and their hubs hold client notes and
+# copying the whole mission control into an online account, and their mission controls hold client notes and
 # patient notes. "Let my assistant keep notes online" and "put a copy of every file I own
 # online" are different decisions, and the installer had made the second one for them
 # under the name of the first.
 #
 # So the copy is its own question, asked after the notebook is connected, and its answer
 # is no unless the reader says yes. The answer is a fact about ONE computer, so it lives
-# in ~\.hub\device.env beside HUB_DIR, as HUB_NOTEBOOK_MIRROR=1 or =0. The kit's hourly
+# in ~\.godspeed\device.env beside GODSPEED_DIR, as GODSPEED_NOTEBOOK_MIRROR=1 or =0. The kit's hourly
 # runner reads that line, and neither sends nor fetches anything unless it says 1.
 #
 # A NO MEANS NOTHING MOVES, IN EITHER DIRECTION (second round of readers, 2026-09-21).
@@ -1986,30 +1990,30 @@ function Connect-KitAssistants {
 # =============================================================================
 
 function Connect-KitMail {
-    <# Tell every assistant on this PC that the hub has a mail tool. Connects NO mailbox.
+    <# Tell every assistant on this PC that the mission control has a mail tool. Connects NO mailbox.
 
         WHY (2026-09-21, email plan). Email is optional and is never asked for during an
         install. When a reader later connects Gmail (asking an assistant, see lib.sh), every
         assistant should already know the tool, so nothing has to be wired by hand and no
         assistant needs its own Google sign-in. The entry holds no key: the tool reads the
-        hub's locked store itself. Runs on one ordinary PC; no server, no second machine.
+        mission control's locked store itself. Runs on one ordinary PC; no server, no second machine.
         Never fails an install; an older kit without the tool is skipped. The bash twin is
         kb_wire_mail in lib.sh. #>
-    param([Parameter(Mandatory)][string]$Hub)
-    $tool = Join-Path (Get-KitHome) '.local\bin\hub-mail.js'
+    param([Parameter(Mandatory)][string]$Godspeed)
+    $tool = Join-Path (Get-KitHome) '.local\bin\mc-mail.js'
     if (-not (Test-Path $tool) -or -not (Test-KitCommand 'node')) { return }
     $eap = $ErrorActionPreference
-    $hubDir0 = $env:HUB_DIR
+    $godspeedDir0 = $env:GODSPEED_DIR
     $ErrorActionPreference = 'Continue'
-    $env:HUB_DIR = $Hub
-    Push-Location -LiteralPath $Hub
+    $env:GODSPEED_DIR = $Godspeed
+    Push-Location -LiteralPath $Godspeed
     try {
         & node $tool setup 2>&1 | ForEach-Object { if ("$_") { Write-Host "   $_" } }
     } catch {
         Write-Host "   mail tool: $($_.Exception.Message)"
     } finally {
         Pop-Location
-        $env:HUB_DIR = $hubDir0
+        $env:GODSPEED_DIR = $godspeedDir0
         $ErrorActionPreference = $eap
         $global:LASTEXITCODE = 0
     }
@@ -2017,17 +2021,17 @@ function Connect-KitMail {
 
 function Write-KitMailNote {
     <# One paragraph at the end of an install, only when the mail tool is here. #>
-    if (-not (Test-Path (Join-Path (Get-KitHome) '.local\bin\hub-mail.js'))) { return }
+    if (-not (Test-Path (Join-Path (Get-KitHome) '.local\bin\mc-mail.js'))) { return }
     Write-Host @"
-  * Email is optional and switched off. When you want your hub to read your Gmail and save
+  * Email is optional and switched off. When you want your mission control to read your Gmail and save
     draft replies there (it sends nothing; you press Send in Gmail), ask your assistant:
-    Connect Gmail for me. Chapter 30 shows it. Chapter 29 gives the hub its own address.
+    Connect Gmail for me. Chapter 30 shows it. Chapter 29 gives the mission control its own address.
 "@
 }
 
 # =============================================================================
 # THE GMAIL STEP, RETIRED (2026-09-22). The Windows twin of the block of the same name in
-# lib.sh, which says why. An install or "Update my hub" asks nothing about email;
+# lib.sh, which says why. An install or "Update my mission control" asks nothing about email;
 # -Only gmail refreshes the kit's programs and recipes, tells every assistant about the
 # mail tool, and says the old step is retired. It never quietly starts something else.
 # =============================================================================
@@ -2035,7 +2039,7 @@ function Write-KitMailNote {
 function Request-KitGmail {
     <# Retired: email is never offered during an install or an update. Kept, silent, for a
        caller that still names it. #>
-    param([string]$Hub)
+    param([string]$Godspeed)
     return
 }
 
@@ -2043,29 +2047,29 @@ function Show-KitGmailRetired {
     <# The three lines, the same words as kb_gmail_retired in lib.sh. #>
     Write-Host ""
     Write-Host "The Gmail step that registered your own Google app is retired, and nothing was changed."
-    Write-Host "Email stays optional. When you want your hub to read your Gmail and save drafts, ask your"
+    Write-Host "Email stays optional. When you want your mission control to read your Gmail and save drafts, ask your"
     Write-Host "assistant: Connect Gmail for me. Chapter 30 of the book shows what happens then."
 }
 
 function Connect-KitGmailOnly {
     <# -Only gmail. The Windows twin of kb_only_gmail in lib.sh. #>
-    param([Parameter(Mandatory)][string]$Hub, [string]$ToolsRepo)
-    Write-KbSay "Refreshing the mail tool for the hub at $Hub"
-    Install-KitHubTools -Hub $Hub -ToolsRepo $ToolsRepo
+    param([Parameter(Mandatory)][string]$Godspeed, [string]$ToolsRepo)
+    Write-KbSay "Refreshing the mail tool for the mission control at $Godspeed"
+    Install-KitGodspeedTools -Godspeed $Godspeed -ToolsRepo $ToolsRepo
     if ($ToolsRepo) {
-        try { [void](Copy-KitStarterHub -Path $Hub -StarterRepo $ToolsRepo -StarterPath 'starter-hub') } catch { }
+        try { [void](Copy-KitStarterGodspeed -Path $Godspeed -StarterRepo $ToolsRepo -StarterPath 'starter-godspeed') } catch { }
     }
-    Connect-KitMail -Hub $Hub
+    Connect-KitMail -Godspeed $Godspeed
     Show-KitGmailRetired
 }
 
-function Get-KitNotebookTaskName { if ($env:KB_NOTEBOOK_TASK) { return $env:KB_NOTEBOOK_TASK } return 'Hub notebook sync' }
+function Get-KitNotebookTaskName { if ($env:KB_NOTEBOOK_TASK) { return $env:KB_NOTEBOOK_TASK } return 'Godspeed notebook sync' }
 
 function Set-KitDeviceEnvValue {
-    <#  One line in ~\.hub\device.env: replaced when it is there, added when it is not,
+    <#  One line in ~\.godspeed\device.env: replaced when it is there, added when it is not,
         every other line kept, the file made when there is none. #>
     param([Parameter(Mandatory)][string]$Name, [AllowEmptyString()][string]$Value = '')
-    $dir = Join-Path (Get-KitHome) '.hub'
+    $dir = Join-Path (Get-KitHome) '.godspeed'
     New-Item -ItemType Directory -Force $dir | Out-Null
     $f = Join-Path $dir 'device.env'
     $lines = @()
@@ -2081,19 +2085,19 @@ function Set-KitDeviceEnvValue {
 
 function Get-KitNotebookMirror {
     <#  '1', '0', or $null when this PC has never been asked. #>
-    $v = Get-KitDeviceEnvValue 'HUB_NOTEBOOK_MIRROR'
+    $v = Get-KitDeviceEnvValue 'GODSPEED_NOTEBOOK_MIRROR'
     if ($v -eq '1' -or $v -eq '0') { return $v }
     return $null
 }
 
 function Test-KitNotebookRunnerAsks {
-    <#  Does the notebook job on this PC read HUB_NOTEBOOK_MIRROR before it sends anything?
-        A copy of the kit from before 2026-09-21 does not: its job copies the hub up every
+    <#  Does the notebook job on this PC read GODSPEED_NOTEBOOK_MIRROR before it sends anything?
+        A copy of the kit from before 2026-09-21 does not: its job copies the mission control up every
         hour whatever device.env says. A "no" that the job ignores is worse than no
         question at all, so Install-KitNotebookSync refuses to schedule such a job on a no. #>
-    $runner = Join-Path (Get-KitHome) '.local\bin\hub-notebook-sync'
+    $runner = Join-Path (Get-KitHome) '.local\bin\mc-notebook-sync'
     if (-not (Test-Path $runner)) { return $false }
-    return [bool](Select-String -Path $runner -Pattern 'HUB_NOTEBOOK_MIRROR' -SimpleMatch -Quiet -ErrorAction SilentlyContinue)
+    return [bool](Select-String -Path $runner -Pattern 'GODSPEED_NOTEBOOK_MIRROR' -SimpleMatch -Quiet -ErrorAction SilentlyContinue)
 }
 
 function Test-KitNotebookJobHere {
@@ -2115,8 +2119,8 @@ function Select-KitNotebookMirror {
                                        an update, would be its own kind of surprise
           no keyboard and no answer    no, and nothing is written, so the question is still
                                        there to be asked on the day somebody is #>
-    param([Parameter(Mandatory)][string]$Hub)
-    if ((Get-KitNotebookState -Hub $Hub) -ne 'connected') { return }
+    param([Parameter(Mandatory)][string]$Godspeed)
+    if ((Get-KitNotebookState -Godspeed $Godspeed) -ne 'connected') { return }
     $cur = Get-KitNotebookMirror
     $answer = $null
     if ($env:KB_NOTEBOOK_MIRROR -match '^([Yy]|1$)') { $answer = '1' }
@@ -2125,33 +2129,33 @@ function Select-KitNotebookMirror {
     if ($null -eq $answer) {
         if ($cur -and $env:KB_ONLY_MENERIO -ne '1') { return }
         if (-not $cur -and (Test-KitNotebookJobHere)) {
-            Set-KitDeviceEnvValue -Name 'HUB_NOTEBOOK_MIRROR' -Value '1'
-            Write-Host "   notebook: this computer was already copying your hub's files to Menerio for search, so that stays on. To turn it off, run the Menerio step again."
+            Set-KitDeviceEnvValue -Name 'GODSPEED_NOTEBOOK_MIRROR' -Value '1'
+            Write-Host "   notebook: this computer was already copying your mission control's files to Menerio for search, so that stays on. To turn it off, run the Menerio step again."
             return
         }
         if (-not (Test-KitInteractive)) { return }
         # THE SAME WORDS AS THE BASH TWIN, line for line. test.sh compares the two.
         Write-Host ""
-        Write-Host "One more choice. Menerio can keep a copy of your hub's text files, so your assistant"
+        Write-Host "One more choice. Menerio can keep a copy of your mission control's text files, so your assistant"
         Write-Host "can search them by meaning and not only by exact word. The copy holds everything in"
-        Write-Host "your hub except dev/ and your locked keys. In return, the people and facts Menerio"
-        Write-Host "holds for you are copied into your hub's world/ folder as a safety copy. Say yes only"
-        Write-Host "if you are happy for your hub's files to be in your Menerio account. Your notebook"
+        Write-Host "your mission control except dev/ and your locked keys. In return, the people and facts Menerio"
+        Write-Host "holds for you are copied into your mission control's world/ folder as a safety copy. Say yes only"
+        Write-Host "if you are happy for your mission control's files to be in your Menerio account. Your notebook"
         Write-Host "works either way."
         if ($cur -eq '1') {
-            $yn = Read-Host "Copy your hub's files to Menerio for search? (Y/n)"
+            $yn = Read-Host "Copy your mission control's files to Menerio for search? (Y/n)"
             $answer = if ($yn -match '^[Nn]') { '0' } else { '1' }
         } else {
-            $yn = Read-Host "Copy your hub's files to Menerio for search? (y/N)"
+            $yn = Read-Host "Copy your mission control's files to Menerio for search? (y/N)"
             $answer = if ($yn -match '^[Yy]') { '1' } else { '0' }
         }
     }
 
-    Set-KitDeviceEnvValue -Name 'HUB_NOTEBOOK_MIRROR' -Value $answer
+    Set-KitDeviceEnvValue -Name 'GODSPEED_NOTEBOOK_MIRROR' -Value $answer
     if ($answer -eq '1') {
-        Write-KbOk "notebook: your hub's files are copied to Menerio when your hub saves a version and once an hour. The people and facts Menerio holds for you come down into world/ once an hour. To stop both, run the Menerio step again and say no."
+        Write-KbOk "notebook: your mission control's files are copied to Menerio when your mission control saves a version and once an hour. The people and facts Menerio holds for you come down into world/ once an hour. To stop both, run the Menerio step again and say no."
     } else {
-        Write-KbOk "notebook: nothing is copied in either direction. Your hub's files stay on this computer, and nothing is sent to Menerio or fetched from it in the background. Your assistant still saves and finds notes there when you ask it to."
+        Write-KbOk "notebook: nothing is copied in either direction. Your mission control's files stay on this computer, and nothing is sent to Menerio or fetched from it in the background. Your assistant still saves and finds notes there when you ask it to."
     }
 }
 
@@ -2159,7 +2163,7 @@ function Request-KitPassphrase {
     <#  The passphrase, only when it is wanted.
 
         WHY IT IS A QUESTION NOW. A first connect always ended in "Choose a passphrase",
-        which locks this PC's key into the hub folder so a SECOND computer can open it. A
+        which locks this PC's key into the mission control folder so a SECOND computer can open it. A
         reader with one computer who only wanted a notebook was walked through a second
         secret, one chapter before the book itself calls that store optional. So it is
         asked, the answer is no unless they say yes, and a no is a finished state: the key
@@ -2171,22 +2175,22 @@ function Request-KitPassphrase {
 
         With nobody at the keyboard the answer is no. It used to be a yellow warning on
         every unattended install, about a second computer most readers never have. #>
-    param([Parameter(Mandatory)][string]$Hub)
-    if (Test-Path (Join-Path $Hub 'secrets\hub-key.age')) { return }
-    if (-not (Test-Path (Get-KitHubKeyPath))) { return }
+    param([Parameter(Mandatory)][string]$Godspeed)
+    if (Test-Path (Join-Path $Godspeed 'secrets\mc-key.age')) { return }
+    if (-not (Test-Path (Get-KitGodspeedKeyPath))) { return }
     $want = $false
     if ($env:KB_NOTEBOOK_PASSPHRASE -eq 'skip') { $want = $false }
     elseif ($env:KB_NOTEBOOK_PASSPHRASE -eq 'ask') { $want = $true }
     elseif (Test-KitInteractive) {
         # THE SAME WORDS AS THE BASH TWIN, line for line. test.sh compares the two.
         Write-Host ""
-        Write-Host "Will you use this hub on a second computer one day? If yes, you choose a passphrase"
+        Write-Host "Will you use this mission control on a second computer one day? If yes, you choose a passphrase"
         Write-Host "now, and that passphrase is all you type there. If not, skip this. You can do it"
         Write-Host "later by running this step again."
         $yn = Read-Host "Set a passphrase for a second computer now? (y/N)"
         $want = ($yn -match '^[Yy]')
     }
-    if ($want) { [void](Protect-KitHubKey -Hub $Hub); return }
+    if ($want) { [void](Protect-KitGodspeedKey -Godspeed $Godspeed); return }
     Write-KbOk "notebook: your key is stored for this computer. For a second computer later, run the Menerio step again and set a passphrase then."
 }
 
@@ -2195,15 +2199,15 @@ function Install-KitNotebookSync {
         notebook is connected, which is why they are installed for every reader.
 
         WHAT THE JOB DOES DEPENDS ON THE READER'S ANSWER, and every line printed here has
-        to be true for the answer they gave. It copies between the hub and Menerio, in
-        both directions, only when HUB_NOTEBOOK_MIRROR=1. Without that it keeps the folder
+        to be true for the answer they gave. It copies between the mission control and Menerio, in
+        both directions, only when GODSPEED_NOTEBOOK_MIRROR=1. Without that it keeps the folder
         fresh from its repository and hands a replaced key to Hermes, and that is all.
-        Before 2026-09-21 these lines said "your hub now updates
+        Before 2026-09-21 these lines said "your mission control now updates
         the notebook the moment you save a change" to everybody, which after a "no" is
         the exact sentence that lost two readers.
 
         AND A NO HAS TO BE A NO. A notebook job from an older copy of the kit never reads
-        the setting and copies the hub up regardless. On anything but a yes, such a job is
+        the setting and copies the mission control up regardless. On anything but a yes, such a job is
         not scheduled, and one this installer scheduled earlier is taken out again, with a
         line that says so. The reader goes without the fresh folder until the kit is
         updated, which is a small loss and the honest one.
@@ -2213,69 +2217,69 @@ function Install-KitNotebookSync {
         prompt-archive job could be missing on every reader's PC and be noticed by
         nobody: there was no sentence anywhere saying a job should be there. #>
     param(
-        [Parameter(Mandatory)][string]$Hub,
+        [Parameter(Mandatory)][string]$Godspeed,
         [string]$TaskName = (Get-KitNotebookTaskName)
     )
     $bash = Get-KitGitBash
-    $runner = Join-Path (Get-KitHome) '.local\bin\hub-notebook-sync'
+    $runner = Join-Path (Get-KitHome) '.local\bin\mc-notebook-sync'
     if (-not (Test-Path $runner)) { return }
 
     if ((Get-KitNotebookMirror) -eq '1') {
-        $what = "a small job copies your hub's files up to Menerio and brings your people and facts down into world/. It also keeps this folder fresh from its repository."
+        $what = "a small job copies your mission control's files up to Menerio and brings your people and facts down into world/. It also keeps this folder fresh from its repository."
     } else {
         $what = "a small job keeps this folder fresh from its repository and hands a replaced key to Hermes. It copies nothing to Menerio and fetches nothing from it."
         if (-not (Test-KitNotebookRunnerAsks)) {
             # Only what this installer wrote is taken out: its own hook, known by its first
             # comment line, and its own scheduled task.
-            $ownHook = Join-Path $Hub '.git\hooks\post-commit'
+            $ownHook = Join-Path $Godspeed '.git\hooks\post-commit'
             if ((Test-Path $ownHook) -and (Select-String -Path $ownHook -Pattern '(Teach It Once)' -SimpleMatch -Quiet -ErrorAction SilentlyContinue) -and
-                (Select-String -Path $ownHook -Pattern 'hub-notebook-sync' -SimpleMatch -Quiet -ErrorAction SilentlyContinue)) {
+                (Select-String -Path $ownHook -Pattern 'mc-notebook-sync' -SimpleMatch -Quiet -ErrorAction SilentlyContinue)) {
                 Remove-Item $ownHook -Force -ErrorAction SilentlyContinue
             }
             if (-not (Test-KitBeside) -and (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)) {
                 Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
             }
-            Write-Host "   hub job: the job in this copy of the kit always copies your hub's files to Menerio, and you have not said yes to that. So it is not scheduled on this computer. Run this again after the kit is updated."
+            Write-Host "   mission control job: the job in this copy of the kit always copies your mission control's files to Menerio, and you have not said yes to that. So it is not scheduled on this computer. Run this again after the kit is updated."
             return
         }
     }
     # Said once, before the two places it runs from, so neither of those lines has to repeat it.
-    Write-KbOk "hub job: $what"
+    Write-KbOk "mission control job: $what"
 
     # 1. On save. Git for Windows runs hooks through its own sh, so the same tiny
     #    hook works on both sides. It never blocks and never fails the save.
-    $hookDir = Join-Path $Hub '.git\hooks'
+    $hookDir = Join-Path $Godspeed '.git\hooks'
     $hook = Join-Path $hookDir 'post-commit'
-    if (Test-Path (Join-Path $Hub '.git')) {
+    if (Test-Path (Join-Path $Godspeed '.git')) {
         if (Test-Path $hook) {
-            if (-not (Select-String -Path $hook -Pattern 'hub-notebook-sync' -Quiet -ErrorAction SilentlyContinue)) {
-                Write-KbOk "hub job: you already have a post-commit hook, so I left it alone."
+            if (-not (Select-String -Path $hook -Pattern 'mc-notebook-sync' -Quiet -ErrorAction SilentlyContinue)) {
+                Write-KbOk "mission control job: you already have a post-commit hook, so I left it alone."
             }
         } else {
             New-Item -ItemType Directory -Force $hookDir | Out-Null
             $posix = $runner -replace '\\', '/'
             Set-KbTextFile -Path $hook -Lines @(
                 '#!/bin/sh',
-                '# Run the hub job the moment you save (Teach It Once).',
+                '# Run the mission control job the moment you save (Teach It Once).',
                 '# Never blocks and never fails the save. It copies to Menerio only if you said yes:',
-                '# that is the line HUB_NOTEBOOK_MIRROR in ~/.hub/device.env.',
+                '# that is the line GODSPEED_NOTEBOOK_MIRROR in ~/.godspeed/device.env.',
                 ('"' + $posix + '" >/dev/null 2>&1 &'),
                 'exit 0'
             )
-            Write-KbOk "hub job: it now runs the moment you save a change"
+            Write-KbOk "mission control job: it now runs the moment you save a change"
         }
     }
 
-    # 2. The hourly catch-up, for whatever happened while the PC was asleep. A hub
+    # 2. The hourly catch-up, for whatever happened while the PC was asleep. A mission control
     #    sitting beside another one stops here: the hook above is inside this folder and
     #    is its own, but the hourly job is one name for the whole account.
     if (Test-KitBeside) {
-        Write-KbOk "hub job: left the hourly job where it is. This hub sits beside the one this computer works from."
+        Write-KbOk "mission control job: left the hourly job where it is. This mission control sits beside the one this computer works from."
         return
     }
     # 2. The hourly catch-up, for whatever happened while the PC was asleep.
     if (-not $bash) {
-        Write-KbWarn "hub job: I could not find Git Bash, so the hourly job was not scheduled. The job still runs when you save a change."
+        Write-KbWarn "mission control job: I could not find Git Bash, so the hourly job was not scheduled. The job still runs when you save a change."
         return
     }
     # NEVER make bash.exe the task's own executable: the task then flashes a terminal
@@ -2285,29 +2289,29 @@ function Install-KitNotebookSync {
     # already installed gets the window taken away by re-running the installer.
     $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     if ($existing -and $existing.Actions[0].Execute -match 'wscript') {
-        if (Test-KitTaskPointsAt -Task $existing -Hub $Hub) {
-            Write-KbOk "hub job: it already runs once an hour on this computer"
+        if (Test-KitTaskPointsAt -Task $existing -Godspeed $Godspeed) {
+            Write-KbOk "mission control job: it already runs once an hour on this computer"
             return
         }
-        Write-KbOk "hub job: the hourly job ran in $($existing.Actions[0].WorkingDirectory), not in this hub. Re-pointing it."
+        Write-KbOk "mission control job: the hourly job ran in $($existing.Actions[0].WorkingDirectory), not in this mission control. Re-pointing it."
     } elseif ($existing) {
-        Write-KbOk "hub job: replacing the old hourly job, which opened a visible window every hour"
+        Write-KbOk "mission control job: replacing the old hourly job, which opened a visible window every hour"
     }
     if ($existing) { Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false }
     try {
         $posix = $runner -replace '\\', '/'
         $vbs   = Write-KitHiddenLauncher -Dir (Split-Path $runner)
         $action  = New-ScheduledTaskAction -Execute 'wscript.exe' `
-                       -Argument ("`"$vbs`" `"$Hub`" `"$bash`" -lc `"$posix`"") -WorkingDirectory $Hub
+                       -Argument ("`"$vbs`" `"$Godspeed`" `"$bash`" -lc `"$posix`"") -WorkingDirectory $Godspeed
         $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).Date.AddMinutes(37) `
                        -RepetitionInterval (New-TimeSpan -Hours 1)
         $set     = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries `
                        -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
         Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $set `
-            -Description 'The hub job: keeps this folder fresh, and copies to and from Menerio only if you said yes (Teach It Once).' -Force | Out-Null
-        Write-KbOk "hub job: it also runs once an hour, for what changed while this computer was asleep"
+            -Description 'The mission control job: keeps this folder fresh, and copies to and from Menerio only if you said yes (Teach It Once).' -Force | Out-Null
+        Write-KbOk "mission control job: it also runs once an hour, for what changed while this computer was asleep"
     } catch {
-        Write-KbWarn "hub job: I could not add the hourly job to this PC's schedule ($($_.Exception.Message)). The job still runs when you save a change."
+        Write-KbWarn "mission control job: I could not add the hourly job to this PC's schedule ($($_.Exception.Message)). The job still runs when you save a change."
     }
 }
 
@@ -2316,12 +2320,12 @@ function Set-KitNotebookEnv {
         it instead of carrying it.
 
         WHY A USER ENVIRONMENT VARIABLE IS NOT A DOWNGRADE HERE. It is stored for this
-        Windows account only, and the unlocked key in ~\.hub is readable by that same
+        Windows account only, and the unlocked key in ~\.godspeed is readable by that same
         account already, so it exposes nothing the PC did not already expose. The
         passphrase protects the FOLDER as it travels, which is a different job. #>
-    param([Parameter(Mandatory)][string]$Hub)
-    $key   = Get-KitHubKeyPath
-    $store = Join-Path $Hub 'secrets\hub-secrets.env.age'
+    param([Parameter(Mandatory)][string]$Godspeed)
+    $key   = Get-KitGodspeedKeyPath
+    $store = Join-Path $Godspeed 'secrets\mc-secrets.env.age'
     if (-not ((Test-Path $key) -and (Test-Path $store) -and (Test-KitAge))) { return }
     $lines = @(& (Get-KitAge) -d -i $key $store 2>$null)
     if ($LASTEXITCODE -ne 0) { return }
@@ -2340,8 +2344,8 @@ function Read-KitSecret {
     <#  Ask for a key without showing it. The Windows twin of ask_secret in lib.sh.
 
         Hidden input, for two reasons. A key is a password and should not sit on the
-        screen; and windows\setup-hub.ps1 runs under Start-Transcript, which writes
-        everything typed at a plain Read-Host into %LOCALAPPDATA%\Hub\setup-log.txt. A
+        screen; and windows\setup-godspeed.ps1 runs under Start-Transcript, which writes
+        everything typed at a plain Read-Host into %LOCALAPPDATA%\Godspeed\setup-log.txt. A
         SecureString is not transcribed. A test double may hand back a plain string, so
         both are accepted.
 
@@ -2362,19 +2366,19 @@ function Read-KitSecret {
 function Connect-KitNotebook {
     <#  The whole credential step, as one moment in the install rather than a checklist.
         -Token answers the question without asking. KB_NOTEBOOK=skip says no. #>
-    param([Parameter(Mandatory)][string]$Hub, [string]$Token)
+    param([Parameter(Mandatory)][string]$Godspeed, [string]$Token)
     if ($env:KB_NOTEBOOK -eq 'skip') { return }
-    $state = Get-KitNotebookState -Hub $Hub
+    $state = Get-KitNotebookState -Godspeed $Godspeed
     switch ($state) {
         'connected' {
             Write-KbOk "notebook: already connected on this computer"
-            # A connected hub with no passphrase is a finished state and is left in peace.
+            # A connected mission control with no passphrase is a finished state and is left in peace.
             # Only the reader who came back for the Menerio step is offered it again.
-            if ($env:KB_ONLY_MENERIO -eq '1') { Request-KitPassphrase -Hub $Hub }
+            if ($env:KB_ONLY_MENERIO -eq '1') { Request-KitPassphrase -Godspeed $Godspeed }
         }
-        'sealed'    { [void](Install-KitAge); [void](Unlock-KitHubKey -Hub $Hub) }
+        'sealed'    { [void](Install-KitAge); [void](Unlock-KitGodspeedKey -Godspeed $Godspeed) }
         'locked-out' {
-            Write-KbWarn "notebook: that folder already carries credentials, and this PC cannot open them. Nothing was changed. Copy .hub\age-key.txt from the computer that can open it, or seal it there so a passphrase is enough here."
+            Write-KbWarn "notebook: that folder already carries credentials, and this PC cannot open them. Nothing was changed. Copy .godspeed\age-key.txt from the computer that can open it, or seal it there so a passphrase is enough here."
             return
         }
         default {
@@ -2388,13 +2392,13 @@ function Connect-KitNotebook {
                 Write-Host ""
                 Write-Host "Menerio is optional. Everything in this book works on plain files without it."
                 Write-Host "It is the author's online notebook. Connect it once, and every assistant that"
-                Write-Host "opens this hub can save notes there and find them again. Connecting sends none"
-                Write-Host "of your hub's files anywhere. Copying them for search is a second question, asked"
+                Write-Host "opens this mission control can save notes there and find them again. Connecting sends none"
+                Write-Host "of your mission control's files anywhere. Copying them for search is a second question, asked"
                 Write-Host "after this one, and its answer is no unless you say yes."
                 Write-Host "A free account is enough to try it: https://menerio.com/auth?tab=signup"
                 $yn = Read-Host "Connect Menerio now? (y/N)"
                 if ($yn -notmatch '^[Yy]') {
-                    Write-KbOk "Menerio: not connected, which is a complete way to own a hub. Run this installer again whenever you change your mind."
+                    Write-KbOk "Menerio: not connected, which is a complete way to own a mission control. Run this installer again whenever you change your mind."
                     return
                 }
                 Write-Host "In Menerio: Settings, then API Keys, then Generate new API key. Leave every box ticked (that is the default)."
@@ -2402,23 +2406,23 @@ function Connect-KitNotebook {
             }
             if (-not $Token) { Write-KbOk "notebook: nothing pasted, so nothing was connected."; return }
             [void](Install-KitAge)   # the store below says what to do if this could not fetch it
-            if (-not (Save-KitNotebookToken -Hub $Hub -Token $Token)) { return }
-            Request-KitPassphrase -Hub $Hub
+            if (-not (Save-KitNotebookToken -Godspeed $Godspeed -Token $Token)) { return }
+            Request-KitPassphrase -Godspeed $Godspeed
         }
     }
-    Write-KitExpiryRecord -Hub $Hub
-    Write-KitDueFolder -Hub $Hub
-    Set-KitNotebookEnv -Hub $Hub
+    Write-KitExpiryRecord -Godspeed $Godspeed
+    Write-KitDueFolder -Godspeed $Godspeed
+    Set-KitNotebookEnv -Godspeed $Godspeed
     # AFTER the key is stored and exposed, because it reads that key. It runs on every
-    # road into this function: a key pasted a moment ago, a hub that was connected
+    # road into this function: a key pasted a moment ago, a mission control that was connected
     # already, and a second PC that has just typed its passphrase. So a re-run of the
     # installer is also how an assistant installed later gets the connection.
-    Connect-KitAssistants -Hub $Hub
+    Connect-KitAssistants -Godspeed $Godspeed
     # The second choice, and only then the job that acts on it. In this order on purpose:
     # the job's lines say what it will do on THIS PC, so the answer has to exist first,
-    # and a hub whose copy was never agreed to is never scheduled as if it had been.
-    Select-KitNotebookMirror -Hub $Hub
-    Install-KitNotebookSync -Hub $Hub
+    # and a mission control whose copy was never agreed to is never scheduled as if it had been.
+    Select-KitNotebookMirror -Godspeed $Godspeed
+    Install-KitNotebookSync -Godspeed $Godspeed
 }
 
 function Connect-KitMenerioOnly {
@@ -2426,13 +2430,13 @@ function Connect-KitMenerioOnly {
         mind. The Windows twin of kb_only_menerio in lib.sh.
 
         WHY IT EXISTS. "Run this installer again whenever you change your mind" was the
-        only way back in, and the installer is long: it pulls the hub, re-checks Git and
+        only way back in, and the installer is long: it pulls the mission control, re-checks Git and
         Node, re-links the memory, re-points Hermes, re-tests the safety rules. All of
         that is safe to repeat and none of it is what the reader came back for.
         `-Only menerio` on either front door lands here and does the one thing.
 
         What it runs, and nothing else: the kit's programs (because the connecting and
-        the hourly catch-up are programs from the kit, and a hub made before they shipped
+        the hourly catch-up are programs from the kit, and a mission control made before they shipped
         has none of them), then the same connect step the full installer runs. That step
         fetches `age` when it needs it, asks the question, stores the key, exposes it,
         installs the catch-up, and connects every assistant.
@@ -2440,11 +2444,11 @@ function Connect-KitMenerioOnly {
         KB_NOTEBOOK=skip is ignored here on purpose. It means "do not ask me during an
         install", and somebody who typed -Only menerio has asked to be asked.
 
-        On a hub that is already connected it asks nothing and runs the connecting again,
+        On a mission control that is already connected it asks nothing and runs the connecting again,
         which is how an assistant installed last week gets the connection today.
 
         A KEY MENERIO REFUSES HAD NO WAY OUT. Found on the first run with the real connect
-        program, 2026-09-20: a connected hub is never asked for a key again, on any road,
+        program, 2026-09-20: a connected mission control is never asked for a key again, on any road,
         so a reader whose key was copied with a piece missing, or revoked, was told about
         the problem and had no way to put another key in. So when the check reports a
         problem and somebody is at the keyboard, the single step offers to store a new
@@ -2452,38 +2456,38 @@ function Connect-KitMenerioOnly {
         or one assistant's settings and only the reader can tell. Save-KitNotebookToken
         replaces the one line and keeps every other credential, and the passphrase still
         opens the folder, because the PC's key did not change. #>
-    param([Parameter(Mandatory)][string]$Hub, [string]$ToolsRepo, [string]$Token)
-    Write-KbSay "Connecting Menerio to the hub at $Hub"
-    Install-KitHubTools -Hub $Hub -ToolsRepo $ToolsRepo
+    param([Parameter(Mandatory)][string]$Godspeed, [string]$ToolsRepo, [string]$Token)
+    Write-KbSay "Connecting Menerio to the mission control at $Godspeed"
+    Install-KitGodspeedTools -Godspeed $Godspeed -ToolsRepo $ToolsRepo
     # The recipes the kit ships are part of what the reader came back for. "Make a note"
-    # is the recipe keep-a-note, and a hub made before it shipped has no such folder. The
-    # starter copy never writes over anything the hub already has. Twin of kb_only_menerio.
+    # is the recipe keep-a-note, and a mission control made before it shipped has no such folder. The
+    # starter copy never writes over anything the mission control already has. Twin of kb_only_menerio.
     if ($ToolsRepo) {
-        try { [void](Copy-KitStarterHub -Path $Hub -StarterRepo $ToolsRepo -StarterPath 'starter-hub') } catch { }
+        try { [void](Copy-KitStarterGodspeed -Path $Godspeed -StarterRepo $ToolsRepo -StarterPath 'starter-godspeed') } catch { }
     }
     $skip0 = $env:KB_NOTEBOOK
     $env:KB_NOTEBOOK = $null
     $global:KbMenerioProblem = $false
     # KB_ONLY_MENERIO is how the two questions know a reader came back on purpose: the copy
-    # of the hub is asked about again with the old answer as the default, and a hub with no
+    # of the mission control is asked about again with the old answer as the default, and a mission control with no
     # passphrase is offered one again. A full install asks each of them once and no more.
     $only0 = $env:KB_ONLY_MENERIO
     $env:KB_ONLY_MENERIO = '1'
-    try { Connect-KitNotebook -Hub $Hub -Token $Token } finally { $env:KB_NOTEBOOK = $skip0; $env:KB_ONLY_MENERIO = $only0 }
-    if (((Get-KitNotebookState -Hub $Hub) -eq 'connected') -and $global:KbMenerioProblem -and (Test-KitInteractive)) {
+    try { Connect-KitNotebook -Godspeed $Godspeed -Token $Token } finally { $env:KB_NOTEBOOK = $skip0; $env:KB_ONLY_MENERIO = $only0 }
+    if (((Get-KitNotebookState -Godspeed $Godspeed) -eq 'connected') -and $global:KbMenerioProblem -and (Test-KitInteractive)) {
         Write-Host ""
         Write-Host "If the problem above is the key, you can store a new one now. It replaces the old one."
         $yn = Read-Host "Store a new Menerio key? (y/N)"
         if ($yn -match '^[Yy]') {
             Write-Host "In Menerio: Settings, then API Keys, then Generate new API key. Leave every box ticked (that is the default)."
             $new = Read-KitSecret "Paste that key here"
-            if ($new -and (Save-KitNotebookToken -Hub $Hub -Token $new)) {
-                Set-KitNotebookEnv -Hub $Hub
-                Connect-KitAssistants -Hub $Hub
+            if ($new -and (Save-KitNotebookToken -Godspeed $Godspeed -Token $new)) {
+                Set-KitNotebookEnv -Godspeed $Godspeed
+                Connect-KitAssistants -Godspeed $Godspeed
             }
         }
     }
-    $connected = ((Get-KitNotebookState -Hub $Hub) -eq 'connected')
+    $connected = ((Get-KitNotebookState -Godspeed $Godspeed) -eq 'connected')
     if ($connected -and $global:KbMenerioProblem) {
         Write-Host "   Menerio: your key is stored, and the check above found a problem. Nothing else on this PC was changed."
     } elseif ($connected) {
@@ -2497,13 +2501,13 @@ function Connect-KitMenerioOnly {
 # THE SKILLS ROOM, AND THE ONE RULE THAT KEEPS IT A SINGLE ROOM
 #
 # The Windows twin of kb_wire_skills in lib.sh, and it exists for the same defect.
-# Until 2026-09-01 both installers ran three lines that looked harmless: if the hub
+# Until 2026-09-01 both installers ran three lines that looked harmless: if the mission control
 # had a .claude\skills folder, junction .agents\skills to it and say "assistants
-# other than Claude Code can now read them too". On a hub whose recipes live in the
+# other than Claude Code can now read them too". On a mission control whose recipes live in the
 # VISIBLE skills\ room, which is the arrangement the book teaches, that sentence was
 # false. The starter top-up had just created an EMPTY .claude\skills, so the junction
 # pointed every non-Claude assistant at an empty folder while the reader's recipes sat
-# in skills\ untouched and unreachable. Measured on a real reader-shaped hub: 0 recipes
+# in skills\ untouched and unreachable. Measured on a real reader-shaped mission control: 0 recipes
 # reachable, 6 present, and a green tick printed over it.
 #
 # So the rule is one real folder and links to it, never two real folders, and the
@@ -2519,8 +2523,8 @@ function ConvertTo-KbJsonString {
     <#  One string, quoted for JSON.
 
         Windows is why this cannot be skipped. Every path here carries backslashes,
-        and "C:\hub\skills" is not valid JSON - it has to go out as
-        "C:\\hub\\skills" or Hermes reads a path with escape sequences in it. .NET's
+        and "C:\godspeed\skills" is not valid JSON - it has to go out as
+        "C:\\godspeed\\skills" or Hermes reads a path with escape sequences in it. .NET's
         Replace and not PowerShell's -replace, because -replace is a regular
         expression on both sides and backslashes in a regex replacement are their own
         small trap. #>
@@ -2578,16 +2582,16 @@ function Get-KitRecipeCount {
 
 function Get-KitSkillsRoom {
     <#  The folder this reader's recipes ACTUALLY live in. Detected, never assumed: a
-        hub built under the Claude-only batch keeps them in .claude\skills, and a hub
+        mission control built under the Claude-only batch keeps them in .claude\skills, and a mission control
         built by the book keeps them in the visible skills\. The visible room wins
         when both hold something, because it is the one the reader can see and the one
         the book walks them through. #>
-    param([Parameter(Mandatory)][string]$Hub)
-    $visible = Join-Path $Hub 'skills'
+    param([Parameter(Mandatory)][string]$Godspeed)
+    $visible = Join-Path $Godspeed 'skills'
     if ((Get-KitRecipeCount $visible) -gt 0) { return $visible }
-    $hidden = Join-Path $Hub '.claude\skills'
+    $hidden = Join-Path $Godspeed '.claude\skills'
     if ((Get-KitRecipeCount $hidden) -gt 0) { return $hidden }
-    # An empty or brand new hub: the visible room is the right answer, not a hidden
+    # An empty or brand new mission control: the visible room is the right answer, not a hidden
     # folder we would then have to teach as a room.
     return $visible
 }
@@ -2598,21 +2602,21 @@ function Set-KitSkillsGitIgnore {
         .claude\skills and a Linux clone would then hold two real rooms that drift, the
         one thing the single room exists to prevent. Every door that is a LINK is listed
         in .gitignore and untracked; the real room is never touched, whatever its name
-        (a Claude-era hub keeps .claude\skills tracked). #>
-    param([Parameter(Mandatory)][string]$Hub, [Parameter(Mandatory)][string]$Real)
-    if (-not (Test-Path -LiteralPath (Join-Path $Hub '.git'))) { return }
-    $gi = Join-Path $Hub '.gitignore'
+        (a Claude-era mission control keeps .claude\skills tracked). #>
+    param([Parameter(Mandatory)][string]$Godspeed, [Parameter(Mandatory)][string]$Real)
+    if (-not (Test-Path -LiteralPath (Join-Path $Godspeed '.git'))) { return }
+    $gi = Join-Path $Godspeed '.gitignore'
     $realPath = Get-KitRealPath $Real
     foreach ($rel in @('.claude/skills', '.agents/skills')) {
-        $door = Join-Path $Hub ($rel -replace '/', '')
+        $door = Join-Path $Godspeed ($rel -replace '/', '')
         if (-not (Test-Path -LiteralPath $door)) { continue }
         $item = Get-Item -LiteralPath $door -Force -ErrorAction SilentlyContinue
         if ($item -and -not $item.LinkType -and ((Get-KitRealPath $door) -eq $realPath)) { continue }
         $lines = @(); if (Test-Path -LiteralPath $gi) { $lines = @(Get-Content -LiteralPath $gi) }
         if (-not ($lines -contains $rel) -and -not ($lines -contains "$rel/")) { Add-Content -LiteralPath $gi -Value $rel }
-        $tracked = (& git -C $Hub ls-files $rel 2>$null)
+        $tracked = (& git -C $Godspeed ls-files $rel 2>$null)
         if ($tracked) {
-            & git -C $Hub rm -r -q --cached $rel 2>$null | Out-Null
+            & git -C $Godspeed rm -r -q --cached $rel 2>$null | Out-Null
             Write-KbOk "skills: $rel is a door, not a room, so git stops tracking it (the recipes stay tracked in the real room)"
         }
     }
@@ -2626,8 +2630,8 @@ function Set-KitRoomLink {
     param([Parameter(Mandatory)][string]$Link, [Parameter(Mandatory)][string]$Room)
 
     # Already resolving to the room, and that covers two cases at once: a link written
-    # earlier with a different spelling of the same path, AND the hub whose real room
-    # IS this very folder. Without the second, a Claude-era hub whose recipes live in
+    # earlier with a different spelling of the same path, AND the mission control whose real room
+    # IS this very folder. Without the second, a Claude-era mission control whose recipes live in
     # .claude\skills would have this function copy that folder into itself and then
     # move it aside, which is the worst outcome in this file.
     if ((Test-Path -LiteralPath $Link) -and ((Get-KitRealPath $Link) -eq (Get-KitRealPath $Room))) {
@@ -2722,9 +2726,9 @@ function Connect-KitSkills {
     <#  The whole job: find the real room, point every other name at it, tell Hermes
         where it is, then PROVE it by counting what is reachable through the door the
         old code got backwards. #>
-    param([Parameter(Mandatory)][string]$Hub)
+    param([Parameter(Mandatory)][string]$Godspeed)
 
-    $room = Get-KitSkillsRoom -Hub $Hub
+    $room = Get-KitSkillsRoom -Godspeed $Godspeed
     New-Item -ItemType Directory -Force $room | Out-Null
     $real = Get-KitRealPath $room
     $have = Get-KitRecipeCount $real
@@ -2732,8 +2736,8 @@ function Connect-KitSkills {
     # Claude Code only ever looks in .claude\skills, and the book keeps that door open
     # for the developer's chapter, so it becomes a JUNCTION to the visible room. This
     # is the direction the old code had backwards.
-    $claude = Join-Path $Hub '.claude\skills'
-    $agents = Join-Path $Hub '.agents\skills'
+    $claude = Join-Path $Godspeed '.claude\skills'
+    $agents = Join-Path $Godspeed '.agents\skills'
     if (-not (Set-KitRoomLink -Link $claude -Room $real)) {
         Write-KbWarn "skills: could not point $claude at $real"
     }
@@ -2743,7 +2747,7 @@ function Connect-KitSkills {
     }
 
     Set-KitHermesSkillsDir -Room $real
-    Set-KitSkillsGitIgnore -Hub $Hub -Real $real
+    Set-KitSkillsGitIgnore -Godspeed $Godspeed -Real $real
 
     # THE ASSERTION THAT WOULD HAVE CAUGHT THE OLD BUG ON THE DAY IT SHIPPED. A green
     # tick over an empty room is worse than a red one, because the reader stops
@@ -2763,15 +2767,15 @@ function Connect-KitSkills {
 }
 
 # =============================================================================
-# TELLING HERMES WHERE THE HUB IS, AND PROVING IT
+# TELLING HERMES WHERE THE GODSPEED IS, AND PROVING IT
 #
-# The Windows twin of kb_point_hermes_at_hub in lib.sh, and the long note above that
+# The Windows twin of kb_point_hermes_at_godspeed in lib.sh, and the long note above that
 # function is the one to read. The short version: six ways of pointing Hermes at a
 # folder are known, measured on hardware, and only two of them work. Four are silent
-# no-ops and the kit shipped one of them, `hermes config set workspace <hub>`, which
+# no-ops and the kit shipped one of them, `hermes config set workspace <mission control>`, which
 # is not a recognised key at all.
 #
-#   hermes config set workspace <hub>   not a key. SHIPPED, with the warning sent to
+#   hermes config set workspace <mission control>   not a key. SHIPPED, with the warning sent to
 #                                       /dev/null and a green tick printed over it
 #   --in <dir> on the -z one-shot       read only in cmd_chat, which -z never reaches
 #   cd before launching                 ignored; the agent lands in the home folder
@@ -2916,7 +2920,7 @@ function Invoke-KitHermesOneShot {
     return [string]$text
 }
 
-function Test-KitHermesReadsHub {
+function Test-KitHermesReadsGodspeed {
     <#  THE PROOF. Returns 'yes', 'no' or 'unavailable', so a caller branches on the
         word rather than on an exit status.
 
@@ -2931,21 +2935,21 @@ function Test-KitHermesReadsHub {
         The OUTPUT decides, never the exit code. A one-shot that reached no model
         still exits 0, measured: "API call failed after 3 retries: HTTP 429" on
         stdout, exit status 0. #>
-    param([Parameter(Mandatory)][string]$Hub)
-    if (-not (Test-Path -LiteralPath $Hub -PathType Container)) { return 'unavailable' }
+    param([Parameter(Mandatory)][string]$Godspeed)
+    if (-not (Test-Path -LiteralPath $Godspeed -PathType Container)) { return 'unavailable' }
     if (-not (Test-KitHermesHere)) { return 'unavailable' }
     if (-not (Test-KitHermesCredential)) { return 'unavailable' }
 
-    $marker = '.hub-reachable-check'
-    $token  = 'HUBREACH' + (Get-Date -Format yyyyMMddHHmmss) + $PID
-    $file   = Join-Path $Hub $marker
+    $marker = '.mc-reachable-check'
+    $token  = 'GODSPEEDREACH' + (Get-Date -Format yyyyMMddHHmmss) + $PID
+    $file   = Join-Path $Godspeed $marker
     try { Set-KbTextFile -Path $file -Lines @($token) } catch { return 'unavailable' }
     try {
         $out = Invoke-KitHermesOneShot -Prompt "Read the file $marker in your current folder and reply with its contents and nothing else."
     } finally {
         try { [System.IO.File]::Delete($file) } catch { }
     }
-    $script:KitHubProofSaid = ([string]$out).Trim()
+    $script:KitGodspeedProofSaid = ([string]$out).Trim()
     if ($out -and $out.Contains($token)) { return 'yes' }
 
     # NOT AN ANSWER ABOUT THE FOLDER AT ALL. If no model ran, the one-shot says nothing
@@ -2953,7 +2957,7 @@ function Test-KitHermesReadsHub {
     # the workspace line, just pointed the other way. Measured: on the test server the
     # account default was a model its own subscription cannot serve, so every one-shot
     # came back "HTTP 400 ... not supported when using Codex with a ChatGPT account" and
-    # the installer told the reader their hub was half connected. It was not.
+    # the installer told the reader their mission control was half connected. It was not.
     foreach ($sign in 'HTTP 4', 'HTTP 5', 'API call failed', 'not supported', 'ate limit',
                        'no authentication', 'not configured', 'credit', 'quota',
                        'nauthorized', 'Connection', 'timed out', 'o provider',
@@ -2963,27 +2967,27 @@ function Test-KitHermesReadsHub {
     return 'no'
 }
 
-function Set-KitHermesHub {
-    <#  Set terminal.cwd to the hub's absolute path, then prove the hub is reachable.
+function Set-KitHermesGodspeed {
+    <#  Set terminal.cwd to the mission control's absolute path, then prove the mission control is reachable.
         Never sets `workspace`, which is the line this replaces.
 
-        KB_SKIP_HUB_PROOF=1 skips the model call, for the test matrix and for a reader
+        KB_SKIP_GODSPEED_PROOF=1 skips the model call, for the test matrix and for a reader
         on a metered plan who would rather not spend a request on a check. #>
-    param([Parameter(Mandatory)][string]$Hub)
+    param([Parameter(Mandatory)][string]$Godspeed)
 
-    if (-not (Test-Path -LiteralPath $Hub -PathType Container)) {
-        Write-KbWarn "hub: no folder at $Hub"
+    if (-not (Test-Path -LiteralPath $Godspeed -PathType Container)) {
+        Write-KbWarn "mission control: no folder at $Godspeed"
         return $false
     }
-    $abs = Get-KitRealPath $Hub
+    $abs = Get-KitRealPath $Godspeed
 
     if (Test-KitBeside) {
-        Write-KbOk "hub: left Hermes pointing where it was. This hub sits beside the one this computer works from."
+        Write-KbOk "mission control: left Hermes pointing where it was. This mission control sits beside the one this computer works from."
         return $true
     }
 
     if (-not (Test-KitHermesHere)) {
-        Write-KbOk "hub: Hermes is not on this PC yet, so there is nothing to point at $abs. Run this again once it is."
+        Write-KbOk "mission control: Hermes is not on this PC yet, so there is nothing to point at $abs. Run this again once it is."
         return $true
     }
     $bin = Get-KitHermesBin
@@ -2991,37 +2995,37 @@ function Set-KitHermesHub {
     $cur = ''
     try { $cur = ([string](@(& $bin config get terminal.cwd 2>$null) | Select-Object -First 1)).Trim() } catch { }
     if ($cur -eq $abs) {
-        Write-KbOk "hub: Hermes already works in $abs"
+        Write-KbOk "mission control: Hermes already works in $abs"
     } else {
         & $bin config set terminal.cwd $abs 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            Write-KbWarn "hub: could not tell Hermes to work in $abs.
+            Write-KbWarn "mission control: could not tell Hermes to work in $abs.
      Run this by hand: hermes config set terminal.cwd $abs"
             return $false
         }
-        Write-KbOk "hub: Hermes now works in $abs"
+        Write-KbOk "mission control: Hermes now works in $abs"
     }
 
-    if ($env:KB_SKIP_HUB_PROOF -eq '1') { return $true }
+    if ($env:KB_SKIP_GODSPEED_PROOF -eq '1') { return $true }
 
-    switch (Test-KitHermesReadsHub -Hub $abs) {
+    switch (Test-KitHermesReadsGodspeed -Godspeed $abs) {
         'yes' {
-            Write-KbOk "hub: and it can read a file in there, checked just now rather than assumed"
+            Write-KbOk "mission control: and it can read a file in there, checked just now rather than assumed"
             return $true
         }
         'unavailable' {
-            Write-KbOk "hub: no provider is connected yet, so I could not prove the folder is readable.
+            Write-KbOk "mission control: no provider is connected yet, so I could not prove the folder is readable.
        Sign in, run this again, and it will check."
             return $true
         }
         'unreachable' {
             # Say what actually happened, and do not report a wiring failure that is not one.
             $said = ''
-            if ($script:KitHubProofSaid) {
-                $said = (($script:KitHubProofSaid -split "`n")[0])
+            if ($script:KitGodspeedProofSaid) {
+                $said = (($script:KitGodspeedProofSaid -split "`n")[0])
                 if ($said.Length -gt 160) { $said = $said.Substring(0, 160) }
             }
-            Write-KbWarn "hub: I set the folder, but could not check it: Hermes could not reach a model
+            Write-KbWarn "mission control: I set the folder, but could not check it: Hermes could not reach a model
      just now. That is a provider problem and not a folder problem, so nothing here is
      broken. It said: $said
      Sort the model or provider out, run this again, and it will check."
@@ -3032,11 +3036,11 @@ function Set-KitHermesHub {
             # the ask" look identical from the outside, and only the reply tells
             # them apart. A real Windows e2e burned a round trip on exactly this.
             $said = ''
-            if ($script:KitHubProofSaid) {
-                $said = (($script:KitHubProofSaid -split "`n")[0])
+            if ($script:KitGodspeedProofSaid) {
+                $said = (($script:KitGodspeedProofSaid -split "`n")[0])
                 if ($said.Length -gt 160) { $said = $said.Substring(0, 160) }
             }
-            Write-KbWarn "hub: Hermes says it works in $abs but could not read a file that is sitting there.
+            Write-KbWarn "mission control: Hermes says it works in $abs but could not read a file that is sitting there.
      That is the half-connected shape: it knows the rules in AGENTS.md and cannot open
      the folder those rules describe. It answered: $said
      Do not trust a job to find your files until this is sorted.
@@ -3063,7 +3067,7 @@ function Set-KitHermesHub {
 # the WHOLE normalised command: "iptables" denies nothing, not even `iptables -F`, and
 # even "iptables *" plus "sudo iptables *" is walked around by `/sbin/iptables -F`.
 # Every phrase in the shipped list is wrapped in wildcards for that reason, and chosen
-# to be one no ordinary hub command contains.
+# to be one no ordinary mission control command contains.
 #
 # WHY A WINDOWS PC GETS THE UNIX RULES. Because this is where the reader drives their
 # server from. Hermes Desktop holds a connection list, and the whole point of Chapter 27
@@ -3147,7 +3151,7 @@ function Test-KitHermesApprovals {
         codes are 0 allow, 2 ask, 3 deny, so this is deterministic with no model in it.
 
         Both directions, because either alone is a half-truth: a list that denied
-        everything would sail through a deny-only check and make the hub unusable. #>
+        everything would sail through a deny-only check and make the mission control unusable. #>
     if (-not (Test-KitHermesHere)) { return $true }
     $bin = Get-KitHermesBin
     $bad = $false
@@ -3155,7 +3159,7 @@ function Test-KitHermesApprovals {
     & $bin approvals test -- git status 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-KbWarn "safety: the rules went too far. Hermes would now stop to ask before ``git status``,
-     which the hub uses constantly. Check: hermes config get approvals.deny"
+     which the mission control uses constantly. Check: hermes config get approvals.deny"
         $bad = $true
     }
     & $bin approvals test -- ufw --force reset 2>&1 | Out-Null
@@ -3173,10 +3177,10 @@ function Test-KitHermesApprovals {
 if ($AsLibrary) { return }
 
 # ---------------------------------------------------------------- run standalone
-# Which hub? A machine that has one already knows where it is, so look before asking.
-$Hub = Find-KitHub -Hint $Hub
-if (-not $Hub) {
-    Write-Error "I could not find a hub on this machine. I looked where you pointed me, at the folder your assistant's memory is linked to, and in the usual places (C:\hub, $HOME\hub). If yours is somewhere else, pass the path: join.ps1 C:\path\to\your\hub . If you have not got one yet, clone it first, then run this again."
+# Which mission control? A machine that has one already knows where it is, so look before asking.
+$Godspeed = Find-KitGodspeed -Hint $Godspeed
+if (-not $Godspeed) {
+    Write-Error "I could not find a mission control on this machine. I looked where you pointed me, at the folder your assistant's memory is linked to, and in the usual places (C:\godspeed, $HOME\godspeed). If yours is somewhere else, pass the path: join.ps1 C:\path\to\your\godspeed . If you have not got one yet, clone it first, then run this again."
     exit 1
 }
 
@@ -3186,12 +3190,12 @@ if ($Only) {
         Write-Error "-Only knows two steps: menerio and gmail. You typed: $Only"
         exit 1
     }
-    if ($Only -eq 'gmail') { Connect-KitGmailOnly -Hub $Hub -ToolsRepo $env:KB_TOOLS_REPO }
-    else { Connect-KitMenerioOnly -Hub $Hub -ToolsRepo $env:KB_TOOLS_REPO }
+    if ($Only -eq 'gmail') { Connect-KitGmailOnly -Godspeed $Godspeed -ToolsRepo $env:KB_TOOLS_REPO }
+    else { Connect-KitMenerioOnly -Godspeed $Godspeed -ToolsRepo $env:KB_TOOLS_REPO }
     exit 0
 }
 
-Write-KbSay "Joining this machine to the hub at $Hub"
+Write-KbSay "Joining this machine to the mission control at $Godspeed"
 
 # Which AI tools live here, and which may be synced. The choice is recorded on
 # this device before any wiring runs, so everything below obeys it, and the
@@ -3206,38 +3210,38 @@ Write-KitSyncReport
 # Get the latest of everything, because a join that leaves you on last month's memory
 # looks exactly like a join that worked. This is also what brings an older
 # installation on a machine you have not touched in a while up to date.
-Update-KitHub -Hub $Hub
+Update-KitGodspeed -Godspeed $Godspeed
 
-Join-KitMemory -Hub $Hub
+Join-KitMemory -Godspeed $Godspeed
 
-# The hub's own commands, so `hub map ...` works from any folder on this machine
+# The mission control's own commands, so `mission control map ...` works from any folder on this machine
 # instead of only on the server where the deploy script installs them.
-Install-KitHubCli -Hub $Hub
+Install-KitGodspeedCli -Godspeed $Godspeed
 
-# The daily job that files what you type to an AI on this machine into the hub.
-Install-KitHubTools -Hub $Hub -ToolsRepo $env:KB_TOOLS_REPO
-Install-KitPromptHarvest -Hub $Hub
+# The daily job that files what you type to an AI on this machine into the mission control.
+Install-KitGodspeedTools -Godspeed $Godspeed -ToolsRepo $env:KB_TOOLS_REPO
+Install-KitPromptHarvest -Godspeed $Godspeed
 
 # The notebook. A joined machine is exactly the machine this step was made for: the
-# credentials travel inside the folder, so if the hub carries them this unseals and
+# credentials travel inside the folder, so if the mission control carries them this unseals and
 # wires the sync here too. Sits after the tools step on purpose, because it schedules
 # the runner that step just installed. Quiet for the reader who never connects one.
-Connect-KitNotebook -Hub $Hub
+Connect-KitNotebook -Godspeed $Godspeed
 # The mail tool, known to every assistant here and connected to nothing. A Gmail connection
-# made on another computer lives in the hub's locked store, so it works here as soon as this
+# made on another computer lives in the mission control's locked store, so it works here as soon as this
 # PC can open the store; there is no second Google sign-in.
-if (Get-Command Connect-KitMail -ErrorAction SilentlyContinue) { Connect-KitMail -Hub $Hub }
+if (Get-Command Connect-KitMail -ErrorAction SilentlyContinue) { Connect-KitMail -Godspeed $Godspeed }
 
 # One real room, junctions to it, and it counts what it wired. Replaces three lines
 # that pointed .agents\skills at .claude\skills whenever .claude\skills existed, which
-# on a hub built by the book meant pointing every non-Claude assistant at the empty
+# on a mission control built by the book meant pointing every non-Claude assistant at the empty
 # folder the top-up had just made.
-Connect-KitSkills -Hub $Hub | Out-Null
+Connect-KitSkills -Godspeed $Godspeed | Out-Null
 
 # Where Hermes works. terminal.cwd, never `workspace`, and proved by a file read
 # rather than by reading the setting back. See the long note above the function: four
 # of the six known ways to do this are silent no-ops and the kit shipped one.
-Set-KitHermesHub -Hub $Hub | Out-Null
+Set-KitHermesGodspeed -Godspeed $Godspeed | Out-Null
 
 # The leash. A translation of the Claude permissions file, not a rename: Hermes
 # already allows every command the kit runs, so this writes no allowlist at all and
@@ -3250,15 +3254,15 @@ Set-KitHermesApprovals | Out-Null
 # nothing at all) had been wired. A person told the truth can fix a gap; a
 # person told the promise cannot even see one.
 Write-KbSay "Done"
-Write-Host "Your hub on this PC is $Hub"
+Write-Host "Your mission control on this PC is $Godspeed"
 Write-Host ""
 Write-KitSyncReport
 Write-Host @"
 
-Anything synced travels between your machines with the hub's git push and pull,
+Anything synced travels between your machines with the mission control's git push and pull,
 so keep doing what you already do with the folder. To change which AI tools are
 read on this PC later: run this again with -Sources, or edit
-HUB_PROMPT_SOURCES in $HOME\.hub\device.env
+GODSPEED_PROMPT_SOURCES in $HOME\.godspeed\device.env
 "@
 if (Get-Command Write-KitMailNote -ErrorAction SilentlyContinue) { Write-KitMailNote }
 

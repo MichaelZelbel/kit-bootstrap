@@ -1,7 +1,7 @@
 # =============================================================================
 # kit-bootstrap / windows / build-installer.ps1
 #
-# Turns hub-setup.iss into dist\HubSetup.exe, fetching the compiler first if this
+# Turns godspeed-setup.iss into dist\GodspeedSetup.exe, fetching the compiler first if this
 # PC has not got one. Run it from anywhere:
 #
 #   powershell -ExecutionPolicy Bypass -File build-installer.ps1
@@ -53,10 +53,10 @@ if (-not (Test-Path (Join-Path $PSScriptRoot '..\join.ps1'))) {
 # -----------------------------------------------------------------------------
 # THE PIN HAS TO NAME THIS COMMIT, or the .exe lies about what it will fetch.
 #
-# hub-setup.iss carries #define KbPin, and the wizard passes it to setup-hub.ps1 as
+# godspeed-setup.iss carries #define KbPin, and the wizard passes it to setup-godspeed.ps1 as
 # -KbBranch, so a reader gets exactly that tag's code. A pin left at the previous release
 # would hand readers older code than the installer they downloaded, and nothing on screen
-# would say so: it is the same silent drift install-hub.sh was written to avoid, and it is
+# would say so: it is the same silent drift install-godspeed.sh was written to avoid, and it is
 # why that file's comment insists on an immutable tag.
 #
 # So it is checked here rather than trusted: the tag must exist, and it must name the very
@@ -76,19 +76,19 @@ function git0 {
     finally { $ErrorActionPreference = $eap }
 }
 
-$iss  = Get-Content 'hub-setup.iss' -Raw
+$iss  = Get-Content 'godspeed-setup.iss' -Raw
 $pin  = if ($iss -match '#define\s+KbPin\s+"([^"]+)"')      { $Matches[1] } else { $null }
 $ver  = if ($iss -match '#define\s+AppVersion\s+"([^"]+)"') { $Matches[1] } else { $null }
-if (-not $pin) { throw "hub-setup.iss has no #define KbPin, so this .exe would fetch the moving branch. Add one." }
+if (-not $pin) { throw "godspeed-setup.iss has no #define KbPin, so this .exe would fetch the moving branch. Add one." }
 
 $head     = @(git0 rev-parse HEAD)[0]
 $pinnedAt = @(git0 rev-parse "$pin^{commit}")[0]
 if ($LASTEXITCODE -ne 0) { $pinnedAt = $null }
 if (-not $pinnedAt) {
-    $msg = "the pin in hub-setup.iss is $pin, and no such tag exists here. Tag this commit first:  git tag -a $pin -m '...' ; git push origin $pin"
+    $msg = "the pin in godspeed-setup.iss is $pin, and no such tag exists here. Tag this commit first:  git tag -a $pin -m '...' ; git push origin $pin"
     if ($AllowUnpinnedBuild) { Write-Warning $msg } else { throw $msg }
 } elseif ($pinnedAt -ne $head) {
-    $msg = "the pin in hub-setup.iss is $pin, which names commit $($pinnedAt.Substring(0,7)), but you are building $($head.Substring(0,7)). A reader would download this installer and then fetch different code. Move the tag, or bump KbPin."
+    $msg = "the pin in godspeed-setup.iss is $pin, which names commit $($pinnedAt.Substring(0,7)), but you are building $($head.Substring(0,7)). A reader would download this installer and then fetch different code. Move the tag, or bump KbPin."
     if ($AllowUnpinnedBuild) { Write-Warning $msg } else { throw $msg }
 } else {
     Write-Host "pin:      $pin (this commit)" -ForegroundColor Green
@@ -100,11 +100,11 @@ if ($dirty -and -not $AllowUnpinnedBuild) {
 Write-Host "version:  $ver"
 
 New-Item -ItemType Directory -Force 'dist' | Out-Null
-& $iscc /Qp 'hub-setup.iss'
+& $iscc /Qp 'godspeed-setup.iss'
 if ($LASTEXITCODE -ne 0) { throw "The compiler failed with exit code $LASTEXITCODE." }
 
-$exe = Join-Path $PSScriptRoot 'dist\HubSetup.exe'
-if (-not (Test-Path $exe)) { throw "The compiler reported success but produced no dist\HubSetup.exe." }
+$exe = Join-Path $PSScriptRoot 'dist\GodspeedSetup.exe'
+if (-not (Test-Path $exe)) { throw "The compiler reported success but produced no dist\GodspeedSetup.exe." }
 
 $size = [math]::Round((Get-Item $exe).Length / 1MB, 2)
 $sha  = (Get-FileHash $exe -Algorithm SHA256).Hash
