@@ -2214,6 +2214,8 @@ kb_install_hub_tools() {
 #                       once, whether it is really finished
 #   no-publish-in-my-name  (before each tool call, Claude Code) an assistant may draft a post but
 #                       never publish, schedule or queue one to a social platform in your name
+#   no-homework         a published page, or an ending turn, may not hand you a worksheet of blanks
+#                       to fill in; the assistant asks one question, or fills them itself
 # The assistant never reads these; they speak only when something is wrong. Wired into:
 #   Claude Code  the HUB'S OWN .claude/settings.json, entries appended, never reordered. Never
 #                ~/.claude/settings.json: Claude Code rewrites that file (settings/README.md).
@@ -2230,7 +2232,7 @@ kb_wire_hooks() {
   [ -n "$hub" ] && [ -d "$hub" ] && [ -d "$src" ] || return 0
   command -v node >/dev/null 2>&1 || return 0
   mkdir -p "$hub/.claude/hooks" "$hub/work/commitments"
-  for f in promise-guard.js no-new-top-folder.js ownership-guard.js ownership-patterns.json no-publish-in-my-name.js; do
+  for f in promise-guard.js no-new-top-folder.js ownership-guard.js ownership-patterns.json no-publish-in-my-name.js no-homework.js; do
     [ -f "$src/$f" ] || continue
     cmp -s "$src/$f" "$hub/.claude/hooks/$f" || { cp "$src/$f" "$hub/.claude/hooks/$f"; said=1; }
   done
@@ -2254,10 +2256,11 @@ const cc = (n) => `node "\${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/${n}.js"`;
 merge(path.join(hub, ".claude", "settings.json"), [
   ["SessionStart", cc("no-new-top-folder")], ["UserPromptSubmit", cc("no-new-top-folder")],
   ["Stop", cc("no-new-top-folder")], ["Stop", cc("promise-guard")], ["Stop", cc("ownership-guard")],
-  ["PreToolUse", cc("no-publish-in-my-name")]]);
+  ["PreToolUse", cc("no-publish-in-my-name")], ["PreToolUse", cc("no-homework")], ["Stop", cc("no-homework")]]);
 merge(path.join(hub, ".codex", "hooks.json"), [
   ["SessionStart", "hub-hook no-new-top-folder"], ["UserPromptSubmit", "hub-hook no-new-top-folder"],
-  ["Stop", "hub-hook no-new-top-folder"], ["Stop", "hub-hook promise-guard"], ["Stop", "hub-hook ownership-guard"]]);
+  ["Stop", "hub-hook no-new-top-folder"], ["Stop", "hub-hook promise-guard"], ["Stop", "hub-hook ownership-guard"],
+  ["Stop", "hub-hook no-homework"]]);
 process.exit(changed ? 0 : 1);
 JS
   if [ -d "$HOME/.codex" ] && [ -f "$bindir/codex-trust-hooks.js" ]; then
