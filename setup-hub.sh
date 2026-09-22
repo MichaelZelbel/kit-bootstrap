@@ -134,7 +134,7 @@ fi
 # and the published branch are published by two separate acts, so either can be ahead.
 for fn in kb_install_prereqs kb_new_hub kb_copy_starter_hub kb_link_ai_memory kb_install_hub_cli \
           kb_install_hub_tools kb_install_prompt_harvest kb_sync_report kb_write_prompt_sources \
-          kb_update_hub kb_connect_notebook kb_wire_skills kb_point_hermes_at_hub \
+          kb_update_hub kb_connect_notebook kb_wire_skills kb_wire_hooks kb_point_hermes_at_hub \
           kb_hermes_approvals kb_refuse_hub_path kb_default_hub_dir \
           kb_beside kb_same_path kb_only_menerio kb_only_gmail kb_offer_gmail; do
   if ! command -v "$fn" >/dev/null 2>&1; then
@@ -284,6 +284,7 @@ command -v kb_wire_mail >/dev/null 2>&1 && kb_wire_mail "$HUB"
 [ "$IS_NEW" -eq 1 ] || kb_offer_gmail "$HUB"
 
 kb_wire_skills "$HUB"   # one real room, links to it, and it counts what it wired
+kb_wire_hooks "$HUB"    # the end-of-turn checks: promises written down, no folders nobody asked for
 
 # Where Hermes works. terminal.cwd, never `workspace`, and proved by a file read
 # rather than by reading the setting back. See the long note above the function:

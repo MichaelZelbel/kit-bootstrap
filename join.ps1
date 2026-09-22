@@ -826,6 +826,14 @@ function Install-KitHubTools {
             Copy-Item $_.FullName $dest -Force
             $n++
         }
+        # The end-of-turn checks and plugins live in the kit's tools\hooks\. They are not programs
+        # on PATH: Connect-KitHooks copies them into the hub and wires them into each assistant.
+        $hooksSrc = Join-Path $src 'hooks'
+        if (Test-Path $hooksSrc) {
+            $hooksDst = Join-Path $HOME '.hub\hooks'
+            Remove-Item $hooksDst -Recurse -Force -ErrorAction SilentlyContinue
+            Copy-Item $hooksSrc $hooksDst -Recurse -Force
+        }
         if ($n -eq 0) { return }
 
         # The launchers. A .cmd rather than a shortcut, because a scheduled task and a terminal
@@ -846,7 +854,10 @@ function Install-KitHubTools {
             @{ src = 'work.js';           cmd = 'hub-work'           },
             # 2026-09-14: the work runner's CHECK line names hub-check-written, so without
             # this launcher no written piece of the hub's own work could verify on Windows.
-            @{ src = 'check-written.js';  cmd = 'hub-check-written'  }
+            @{ src = 'check-written.js';  cmd = 'hub-check-written'  },
+            # 2026-09-22: the promise check and the one stable command Codex hook entries call.
+            @{ src = 'promises.js';       cmd = 'hub-promises'       },
+            @{ src = 'hub-hook.js';       cmd = 'hub-hook'           }
         )) {
             if (-not (Test-Path (Join-Path $bin $pair.src))) { continue }
             @('@echo off', "node `"%~dp0$($pair.src)`" %*") |
@@ -1984,6 +1995,100 @@ function Connect-KitAssistants {
 # a name compiled into the code is a task no test can safely look at, and the author's
 # own PC has the real one.
 # =============================================================================
+
+function Connect-KitHooks {
+    <#  The end-of-turn checks, wired into this PC's assistants. The Windows twin of
+        kb_wire_hooks in lib.sh (2026-09-22); the reasons are written there.
+          promise-guard       a turn that promises something on a clock cannot end until the
+                              promise is a file in work\commitments\ (hub-promises checks them)
+          no-new-top-folder   the assistant may not invent folders at the top of the hub;
+                              naming one in a message is the permission
+        Claude Code: the hub's own .claude\settings.json, appended, never reordered.
+        Codex: the hub's .codex\hooks.json, one stable 'hub-hook <name>' entry per event, and
+        Codex's approval recorded. OpenCode and Hermes: their plugin, when they are here. #>
+    param([Parameter(Mandatory)][string]$Hub)
+    $src = Join-Path $HOME '.hub\hooks'
+    if (-not (Test-Path $src) -or -not (Test-Path $Hub)) { return }
+    if (-not (Get-Command node -ErrorAction SilentlyContinue)) { return }
+    $said = $false
+    $hk = Join-Path $Hub '.claude\hooks'
+    New-Item -ItemType Directory -Force $hk, (Join-Path $Hub 'work\commitments') | Out-Null
+    foreach ($f in @('promise-guard.js', 'no-new-top-folder.js')) {
+        $s = Join-Path $src $f; $d = Join-Path $hk $f
+        if (-not (Test-Path $s)) { continue }
+        if (-not (Test-Path $d) -or ((Get-FileHash $s).Hash -ne (Get-FileHash $d).Hash)) { Copy-Item $s $d -Force; $said = $true }
+    }
+    $js = @'
+const fs = require("fs"), path = require("path");
+const hub = process.argv[2];
+let changed = false;
+function merge(file, entries) {
+  let j = {};
+  try { j = JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { if (fs.existsSync(file)) return; }
+  j.hooks = j.hooks || {};
+  for (const [event, command] of entries) {
+    const groups = j.hooks[event] = j.hooks[event] || [];
+    if (!groups.some((g) => (g.hooks || []).some((h) => h.command === command))) {
+      groups.push({ hooks: [{ type: "command", command, timeout: 10 }] }); changed = true;
+    }
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  if (changed) fs.writeFileSync(file, JSON.stringify(j, null, 2) + "\n");
+}
+const cc = (n) => 'node "${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/' + n + '.js"';
+merge(path.join(hub, ".claude", "settings.json"), [
+  ["SessionStart", cc("no-new-top-folder")], ["UserPromptSubmit", cc("no-new-top-folder")],
+  ["Stop", cc("no-new-top-folder")], ["Stop", cc("promise-guard")]]);
+merge(path.join(hub, ".codex", "hooks.json"), [
+  ["SessionStart", "hub-hook no-new-top-folder"], ["UserPromptSubmit", "hub-hook no-new-top-folder"],
+  ["Stop", "hub-hook no-new-top-folder"], ["Stop", "hub-hook promise-guard"]]);
+process.exit(changed ? 0 : 1);
+'@
+    $jsFile = Join-Path ([System.IO.Path]::GetTempPath()) ('kb-hooks-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.js')
+    [System.IO.File]::WriteAllText($jsFile, $js, (New-Object System.Text.UTF8Encoding $false))
+    & node $jsFile $Hub
+    if ($LASTEXITCODE -eq 0) { $said = $true }
+    Remove-Item $jsFile -Force -ErrorAction SilentlyContinue
+    $trust = Join-Path $HOME '.local\bin\codex-trust-hooks.js'
+    $codexDir = Join-Path $HOME '.codex'
+    if ((Test-Path $codexDir) -and (Test-Path $trust)) {
+        $out = & node $trust (Join-Path $Hub '.codex\hooks.json') 2>&1
+        if ($out -match 'approved ') { $said = $true }
+        $cfg = Join-Path $codexDir 'config.toml'
+        $key = "[projects.'$Hub']"
+        $have = if (Test-Path $cfg) { Get-Content $cfg -Raw } else { '' }
+        if ($have -notmatch [regex]::Escape($key)) {
+            Add-Content -Path $cfg -Value ("`n$key`ntrust_level = `"trusted`"") -Encoding ascii
+            $said = $true
+        }
+    }
+    $oc = Join-Path $src 'opencode\no-new-top-folder.ts'
+    if ((Test-Path (Join-Path $Hub '.opencode')) -and (Test-Path $oc)) {
+        $ocd = Join-Path $Hub '.opencode\plugins'
+        New-Item -ItemType Directory -Force $ocd | Out-Null
+        $d = Join-Path $ocd 'no-new-top-folder.ts'
+        if (-not (Test-Path $d) -or ((Get-FileHash $oc).Hash -ne (Get-FileHash $d).Hash)) { Copy-Item $oc $d -Force; $said = $true }
+    }
+    $hsrc = Join-Path $src 'hermes-no-new-top-folder'
+    if ((Get-Command hermes -ErrorAction SilentlyContinue) -and (Test-Path $hsrc)) {
+        $hh = if ($env:HERMES_HOME) { $env:HERMES_HOME } elseif ($env:LOCALAPPDATA -and (Test-Path (Join-Path $env:LOCALAPPDATA 'hermes'))) { Join-Path $env:LOCALAPPDATA 'hermes' } else { Join-Path $HOME '.hermes' }
+        $pd = Join-Path $hh 'plugins\no-new-top-folder'
+        New-Item -ItemType Directory -Force $pd | Out-Null
+        foreach ($f in @('__init__.py', 'plugin.yaml')) { Copy-Item (Join-Path $hsrc $f) (Join-Path $pd $f) -Force }
+        $cfg = Join-Path $hh 'config.yaml'
+        if (Test-Path $cfg) {
+            $raw = Get-Content $cfg -Raw
+            if ($raw -notmatch '- no-new-top-folder') {
+                if ($raw -match '(?m)^plugins:\s*\r?\n\s+enabled:\s*\r?\n') {
+                    $raw = [regex]::Replace($raw, '(?m)(^plugins:\s*\r?\n\s+enabled:\s*\r?\n)', "`$1    - no-new-top-folder`n", 1)
+                } else { $raw = $raw.TrimEnd() + "`n`nplugins:`n  enabled:`n    - no-new-top-folder`n" }
+                [System.IO.File]::WriteAllText($cfg, $raw, (New-Object System.Text.UTF8Encoding $false))
+                $said = $true
+            }
+        }
+    }
+    if ($said) { Write-KbOk "checks: your assistants now check themselves at the end of a turn (promises are written down, no folders nobody asked for)" }
+}
 
 function Connect-KitMail {
     <# Tell every assistant on this PC that the hub has a mail tool. Connects NO mailbox.
@@ -3289,6 +3394,8 @@ if (Get-Command Connect-KitMail -ErrorAction SilentlyContinue) { Connect-KitMail
 # on a hub built by the book meant pointing every non-Claude assistant at the empty
 # folder the top-up had just made.
 Connect-KitSkills -Hub $Hub | Out-Null
+# The end-of-turn checks (promises written down, no folders nobody asked for), on this PC.
+if (Get-Command Connect-KitHooks -ErrorAction SilentlyContinue) { Connect-KitHooks -Hub $Hub }
 
 # Where Hermes works. terminal.cwd, never `workspace`, and proved by a file read
 # rather than by reading the setting back. See the long note above the function: four

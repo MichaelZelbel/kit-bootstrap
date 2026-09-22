@@ -2132,6 +2132,12 @@ kb_install_hub_tools() {
     chmod +x "$bindir/$base" 2>/dev/null || true
     n=$((n + 1))
   done
+  # The end-of-turn checks and plugins (promise-guard, no-new-top-folder, 2026-09-22) live in the
+  # kit's tools/hooks/. They are not programs on PATH: kb_wire_hooks copies them into the hub and
+  # wires them into each assistant, from this machine-level copy.
+  if [ -d "$tmp/$sub/hooks" ]; then
+    rm -rf "$HOME/.hub/hooks"; cp -R "$tmp/$sub/hooks" "$HOME/.hub/hooks" 2>/dev/null || true
+  fi
   rm -rf "$tmp"
   [ "$n" -gt 0 ] || return 0
 
@@ -2158,7 +2164,7 @@ kb_install_hub_tools() {
   for pair in "prompt-harvest.js:hub-prompt-harvest" "compile-rules.js:hub-compile-rules" \
               "check-keys.js:hub-check-keys" "due.js:hub-due" \
               "goals.js:hub-goals" "forecast.js:hub-forecast" "work.js:hub-work" \
-              "check-written.js:hub-check-written"; do
+              "check-written.js:hub-check-written" "promises.js:hub-promises" "hub-hook.js:hub-hook"; do
     lsrc="${pair%%:*}"; lcmd="${pair##*:}"
     [ -f "$bindir/$lsrc" ] || continue
     printf '#!/bin/sh\nexec node "$(dirname "$0")/%s" "$@"\n' "$lsrc" > "$bindir/$lcmd"
@@ -2196,6 +2202,89 @@ kb_install_hub_tools() {
 
   kb_persist_path
   ok "prompt archive: installed the program that files what you type to an AI, and its answers ($bindir)"
+}
+
+# kb_wire_hooks <hub-dir>
+# The two checks that run by themselves at the end of an assistant's turn (2026-09-22):
+#   promise-guard       a turn that promises you something on a clock cannot end until the promise
+#                       is a file in work/commitments/ (checked every morning by hub-promises)
+#   no-new-top-folder   the assistant may not invent new folders at the top of your hub; naming one
+#                       in a message is your permission
+# The assistant never reads these; they speak only when something is wrong. Wired into:
+#   Claude Code  the HUB'S OWN .claude/settings.json, entries appended, never reordered. Never
+#                ~/.claude/settings.json: Claude Code rewrites that file (settings/README.md).
+#   Codex        the hub's .codex/hooks.json, one stable `hub-hook <name>` entry per event, so a
+#                kit update changes the check and never the entry; its approval is recorded with
+#                Codex's own fingerprint (codex-trust-hooks.js), so nobody has to open /hooks.
+#   OpenCode     .opencode/plugins/ in the hub, when the hub has .opencode/
+#   Hermes       a plugin in Hermes' plugins folder, enabled in its config.yaml, when Hermes is here
+# Idempotent and quiet when everything is already wired. A step of its own because
+# kb_copy_starter_hub only copies what does not exist yet, which would never reach a reader
+# whose hub already exists.
+kb_wire_hooks() {
+  local hub="${1:-}" src="$HOME/.hub/hooks" bindir="$HOME/.local/bin" f said=""
+  [ -n "$hub" ] && [ -d "$hub" ] && [ -d "$src" ] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+  mkdir -p "$hub/.claude/hooks" "$hub/work/commitments"
+  for f in promise-guard.js no-new-top-folder.js; do
+    [ -f "$src/$f" ] || continue
+    cmp -s "$src/$f" "$hub/.claude/hooks/$f" || { cp "$src/$f" "$hub/.claude/hooks/$f"; said=1; }
+  done
+  node - "$hub" <<'JS' && said=1
+const fs = require("fs"), path = require("path");
+const hub = process.argv[2];
+let changed = false;
+function merge(file, entries) {
+  let j = {};
+  try { j = JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { if (fs.existsSync(file)) return; }
+  j.hooks = j.hooks || {};
+  for (const [event, command] of entries) {
+    const groups = j.hooks[event] = j.hooks[event] || [];
+    const has = groups.some((g) => (g.hooks || []).some((h) => h.command === command));
+    if (!has) { groups.push({ hooks: [{ type: "command", command, timeout: 10 }] }); changed = true; }
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  if (changed) fs.writeFileSync(file, JSON.stringify(j, null, 2) + "\n");
+}
+const cc = (n) => `node "\${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/${n}.js"`;
+merge(path.join(hub, ".claude", "settings.json"), [
+  ["SessionStart", cc("no-new-top-folder")], ["UserPromptSubmit", cc("no-new-top-folder")],
+  ["Stop", cc("no-new-top-folder")], ["Stop", cc("promise-guard")]]);
+merge(path.join(hub, ".codex", "hooks.json"), [
+  ["SessionStart", "hub-hook no-new-top-folder"], ["UserPromptSubmit", "hub-hook no-new-top-folder"],
+  ["Stop", "hub-hook no-new-top-folder"], ["Stop", "hub-hook promise-guard"]]);
+process.exit(changed ? 0 : 1);
+JS
+  if [ -d "$HOME/.codex" ] && [ -f "$bindir/codex-trust-hooks.js" ]; then
+    node "$bindir/codex-trust-hooks.js" "$hub/.codex/hooks.json" | grep -q '^approved ' && said=1
+    if ! grep -qF "[projects.'$hub']" "$HOME/.codex/config.toml" 2>/dev/null; then
+      printf "\n[projects.'%s']\ntrust_level = \"trusted\"\n" "$hub" >> "$HOME/.codex/config.toml"; said=1
+    fi
+  fi
+  if [ -d "$hub/.opencode" ] && [ -f "$src/opencode/no-new-top-folder.ts" ]; then
+    mkdir -p "$hub/.opencode/plugins"
+    cmp -s "$src/opencode/no-new-top-folder.ts" "$hub/.opencode/plugins/no-new-top-folder.ts" || \
+      { cp "$src/opencode/no-new-top-folder.ts" "$hub/.opencode/plugins/"; said=1; }
+  fi
+  if kb_hermes_here && [ -d "$src/hermes-no-new-top-folder" ]; then
+    local hh="${HERMES_HOME:-$HOME/.hermes}"
+    mkdir -p "$hh/plugins/no-new-top-folder"
+    for f in __init__.py plugin.yaml; do
+      cmp -s "$src/hermes-no-new-top-folder/$f" "$hh/plugins/no-new-top-folder/$f" || \
+        { cp "$src/hermes-no-new-top-folder/$f" "$hh/plugins/no-new-top-folder/$f"; said=1; }
+    done
+    if [ -f "$hh/config.yaml" ] && ! grep -q -- '- no-new-top-folder' "$hh/config.yaml"; then
+      if grep -q '^plugins:' "$hh/config.yaml"; then
+        awk '{print} /^plugins:/{p=1} p&&/^[[:space:]]+enabled:/{print "    - no-new-top-folder"; p=0}' "$hh/config.yaml" > "$hh/config.yaml.kb" && mv "$hh/config.yaml.kb" "$hh/config.yaml"
+        grep -q -- '- no-new-top-folder' "$hh/config.yaml" || printf '  enabled:\n    - no-new-top-folder\n' >> "$hh/config.yaml"
+      else
+        printf '\nplugins:\n  enabled:\n    - no-new-top-folder\n' >> "$hh/config.yaml"
+      fi
+      said=1
+    fi
+  fi
+  [ -n "$said" ] && ok "checks: your assistants now check themselves at the end of a turn (promises are written down, no folders nobody asked for)"
+  return 0
 }
 
 # kb_install_prompt_harvest <hub-dir>

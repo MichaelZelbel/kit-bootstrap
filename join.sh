@@ -125,6 +125,10 @@ kb_connect_notebook "$HUB"
 #     connection made on another computer lives in the hub's locked store, so it works here
 #     as soon as this computer can open the store; there is no second Google sign-in.
 command -v kb_wire_mail >/dev/null 2>&1 && kb_wire_mail "$HUB"
+# 2g. The end-of-turn checks (promises written down, no folders nobody asked for), wired into
+#     this machine's assistants. The hub's own files are shared; Codex's approval and the
+#     Hermes plugin live on each machine, so a joined machine needs this step too.
+command -v kb_wire_hooks >/dev/null 2>&1 && kb_wire_hooks "$HUB"
 
 # 3. Skills, if this hub keeps them where the assistants other than Claude Code
 #    can be pointed at them. Harmless when it has none.
