@@ -2088,6 +2088,32 @@ process.exit(changed ? 0 : 1);
             }
         }
     }
+    # The push check, the same text as kb_wire_hooks in lib.sh (git runs it with its own bash).
+    $pp = Join-Path $Hub '.git\hooks\pre-push'
+    if ((Test-Path (Join-Path $Hub '.git')) -and (-not (Test-Path $pp) -or ((Get-Content $pp -Raw) -match '\(Teach It Once\) push check'))) {
+        $hook = @'
+#!/bin/sh
+# (Teach It Once) push check. Refuses a push that would carry an out-of-date rule block or a
+# promise file nothing can read. A check that is not installed on this computer is skipped.
+cd "$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+if command -v hub-compile-rules >/dev/null 2>&1 && ! hub-compile-rules --check >/dev/null 2>&1; then
+  echo "Push stopped: the rule list in AGENTS.md is out of date. Run hub-compile-rules, then push again." >&2
+  exit 1
+fi
+if command -v hub-promises >/dev/null 2>&1 && ! hub-promises --lint >/dev/null 2>&1; then
+  echo "Push stopped: a promise file in work/commitments/ cannot be read. Run hub-promises --lint to see which." >&2
+  exit 1
+fi
+exit 0
+'@
+        $hook = $hook -replace "`r`n", "`n"
+        $cur = if (Test-Path $pp) { (Get-Content $pp -Raw) -replace "`r`n", "`n" } else { '' }
+        if ($cur -ne $hook) {
+            New-Item -ItemType Directory -Force (Split-Path $pp) | Out-Null
+            [System.IO.File]::WriteAllText($pp, $hook, (New-Object System.Text.UTF8Encoding $false))
+            $said = $true
+        }
+    }
     if ($said) { Write-KbOk "checks: your assistants now check themselves at the end of a turn (promises are written down, no folders nobody asked for)" }
 }
 

@@ -2288,6 +2288,28 @@ JS
       said=1
     fi
   fi
+  # The push check, the reader-sized version of the author's: a push is refused when the rule
+  # block in AGENTS.md is out of date or a promise file cannot be read. Written only when the hub has
+  # no pre-push hook of its own, or has this one (known by its first comment line).
+  local pp="$hub/.git/hooks/pre-push"
+  if [ -d "$hub/.git" ] && { [ ! -f "$pp" ] || grep -q "(Teach It Once) push check" "$pp" 2>/dev/null; }; then
+    cat > "$pp.kb" <<'HOOK'
+#!/bin/sh
+# (Teach It Once) push check. Refuses a push that would carry an out-of-date rule block or a
+# promise file nothing can read. A check that is not installed on this computer is skipped.
+cd "$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+if command -v hub-compile-rules >/dev/null 2>&1 && ! hub-compile-rules --check >/dev/null 2>&1; then
+  echo "Push stopped: the rule list in AGENTS.md is out of date. Run hub-compile-rules, then push again." >&2
+  exit 1
+fi
+if command -v hub-promises >/dev/null 2>&1 && ! hub-promises --lint >/dev/null 2>&1; then
+  echo "Push stopped: a promise file in work/commitments/ cannot be read. Run hub-promises --lint to see which." >&2
+  exit 1
+fi
+exit 0
+HOOK
+    if ! cmp -s "$pp.kb" "$pp"; then mv "$pp.kb" "$pp"; chmod +x "$pp"; said=1; else rm -f "$pp.kb"; fi
+  fi
   [ -n "$said" ] && ok "checks: your assistants now check themselves at the end of a turn (promises are written down, no folders nobody asked for)"
   return 0
 }
