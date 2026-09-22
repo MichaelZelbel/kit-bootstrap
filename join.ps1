@@ -662,7 +662,7 @@ function Get-KitPython {
 function Install-KitGodspeedCli {
     <#  Put the mission control's own commands on this machine's PATH.
 
-        ALL of them, not just `hub`. `mission control memory search` is a wrapper that runs
+        ALL of them, not just `hub`. `hub memory search` is a wrapper that runs
         `hub-memory-lookup` by bare name, so a PATH holding only `hub` gives you a
         command that exists and then fails, which is the worst of the three states.
         Quiet on a mission control that ships no tools, which is every reader's mission control. #>

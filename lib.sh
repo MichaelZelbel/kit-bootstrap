@@ -2024,7 +2024,7 @@ kb_update_godspeed() {
 # kb_install_godspeed_cli <mc-dir>
 # Put the mission control's own command-line tools on this machine's PATH.
 #
-# ALL of them, not just `hub`. `mission control memory search` is a one-line wrapper that runs
+# ALL of them, not just `hub`. `hub memory search` is a one-line wrapper that runs
 # `hub-memory-lookup` by bare name, so a PATH holding only `hub` gives you a command
 # that exists and then fails — the worst of the three possible states. Nothing to do
 # on a mission control that ships no tools, which is every reader's mission control, so this stays quiet there.
