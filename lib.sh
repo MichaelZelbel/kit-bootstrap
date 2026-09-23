@@ -1836,7 +1836,7 @@ KB_TOOLS
 # =============================================================================
 # FINDING A GODSPEED THAT ALREADY EXISTS, AND PUTTING ITS TOOLS WITHIN REACH
 #
-# Written 2026-08-09, after `mission control map` on the Windows work PC answered with a file
+# Written 2026-08-09, after `godspeed map` on the Windows work PC answered with a file
 # path from the rented server. Two separate holes had to be filled, and only the
 # first one was obvious:
 #
@@ -1845,7 +1845,7 @@ KB_TOOLS
 #   2. There was no `godspeed` command on that machine at all. The rented server gets
 #      one because its deploy script copies the tools into /usr/local/bin; no
 #      other machine ran anything that did the same. So the fix in (1) would have
-#      changed nothing for someone sitting at a laptop typing `mission control map`.
+#      changed nothing for someone sitting at a laptop typing `godspeed map`.
 #
 # Hole 2 is install work, so per D-092 it lives here and nowhere else.
 # =============================================================================

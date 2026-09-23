@@ -37,7 +37,7 @@ $UserPath0 = [Environment]::GetEnvironmentVariable('Path', 'User')
 # AND THE SAME MISTAKE, ONE FLOOR DOWN: THE SUITE HAD NO HOME OF ITS OWN.
 #
 # The header above says this file "never touches a real mission control". It did. Found on 2026-09-03 by
-# `mission control demo status`, which reported that the GODSPEED_DIR line in the real ~\.godspeed\device.env and the
+# `godspeed demo status`, which reported that the GODSPEED_DIR line in the real ~\.godspeed\device.env and the
 # real GODSPEED_DIR user variable both named a kb-test-* temporary folder that no longer existed. The
 # daily jobs read that line to find the mission control, so the suite had quietly pointed them at nothing.
 #

@@ -358,7 +358,7 @@ t "Claude Code switched off means its folder is left alone" \
 rm -rf "$_s" "$_s2" "$_g" "$_g2"
 
 # FINDING A GODSPEED THAT IS ALREADY INSTALLED, AND WIRING ITS COMMANDS.
-# Added 2026-08-09 after `mission control map` on the work PC answered with a path from the
+# Added 2026-08-09 after `godspeed map` on the work PC answered with a path from the
 # rented server. Two holes: the tool did not know which copy it was reading, and
 # there was no `godspeed` command on that machine at all. This half is the second hole.
 

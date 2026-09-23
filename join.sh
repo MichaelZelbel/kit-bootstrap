@@ -101,7 +101,7 @@ kb_update_godspeed "$GODSPEED"
 # 2. The shared memory. This is the whole point of joining.
 kb_link_ai_memory "$GODSPEED"
 
-# 2b. The mission control's own commands, so `mission control map ...` works from any folder on this
+# 2b. The mission control's own commands, so `godspeed map ...` works from any folder on this
 #     machine instead of only on the server where the deploy script installs them.
 kb_install_godspeed_cli "$GODSPEED"
 

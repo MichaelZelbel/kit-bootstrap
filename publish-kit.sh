@@ -95,7 +95,7 @@ FILE="$(basename "$TARBALL")"
 SHA="$(sha256sum "$TARBALL" | awk '{print $1}')"
 
 # The path segment is what keeps the download unlisted, the same way the
-# existing `mission control publish` mechanism does. Reuse the kit's own segment across
+# existing `godspeed publish` mechanism does. Reuse the kit's own segment across
 # releases so old links keep working; a new one is only for a new kit.
 if [ -z "$TOKEN_DIR" ]; then
   TOKEN_DIR="$(openssl rand -hex 12)"

@@ -435,7 +435,7 @@ function Write-KitSyncReport {
 # =============================================================================
 # FINDING A GODSPEED THAT IS ALREADY HERE, AND PUTTING ITS COMMANDS WITHIN REACH
 #
-# Added 2026-08-09. `mission control map` on the Windows work PC answered with a file path
+# Added 2026-08-09. `godspeed map` on the Windows work PC answered with a file path
 # from the rented server, and fixing the tool itself only got halfway: there was
 # no `godspeed` command on that machine at all. The server has one because its deploy
 # script copies the tools into /usr/local/bin. Nothing did the same for a laptop.
@@ -720,7 +720,7 @@ function Install-KitGodspeedCli {
         Write-KbOk "added $bin to your PATH (open a new terminal for it to take)"
     }
     $env:Path = "$bin;$env:Path"
-    Write-KbOk "commands: $n mission control tools now run from anywhere, e.g. mission control map lovable"
+    Write-KbOk "commands: $n mission control tools now run from anywhere, e.g. godspeed map lovable"
 }
 
 function Set-KitGodspeedDirRecord {
@@ -3214,7 +3214,7 @@ Update-KitGodspeed -Godspeed $Godspeed
 
 Join-KitMemory -Godspeed $Godspeed
 
-# The mission control's own commands, so `mission control map ...` works from any folder on this machine
+# The mission control's own commands, so `godspeed map ...` works from any folder on this machine
 # instead of only on the server where the deploy script installs them.
 Install-KitGodspeedCli -Godspeed $Godspeed
 
