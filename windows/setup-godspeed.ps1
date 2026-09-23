@@ -44,7 +44,7 @@ param(
     # repository's starter folder rather than written from imagination, so what a
     # reader ends up with is the folder their book actually walks them through.
     # Another kit building its own .exe overrides these two and changes nothing else.
-    [string]$StarterRepo = 'https://github.com/MichaelZelbel/teach-it-once-kit.git',
+    [string]$StarterRepo = 'https://github.com/MichaelZelbel/godspeed-mission-control.git',
     [string]$StarterPath = 'starter-godspeed',
     # Which AI tools have their conversations copied into the mission control from this PC, as a
     # comma list (claude, codex, hermes, opencode). '-', '' or 'none' means none. The

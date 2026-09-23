@@ -262,7 +262,7 @@ The mail tool itself, and the whole Gmail journey, live in the kit
 
 The built installer is published on the repository the reader is already sent to
 by their book, which for *Teach It Once* is
-[teach-it-once-kit](https://github.com/MichaelZelbel/teach-it-once-kit/releases/latest).
+[teach-it-once-kit](https://github.com/MichaelZelbel/godspeed-mission-control/releases/latest).
 
 That split matters, and it is the same distinction as everywhere else here: where
 the code lives is not the same question as where a person downloads from. This
@@ -318,7 +318,7 @@ Publish it as a release asset on **the product's** repository, never as a file
 committed here:
 
 ```powershell
-gh release create v1.0.0 dist\GodspeedSetup.exe --repo MichaelZelbel/teach-it-once-kit `
+gh release create v1.0.0 dist\GodspeedSetup.exe --repo MichaelZelbel/godspeed-mission-control `
   --title "Windows installer v1.0.0" --notes "..."
 ```
 

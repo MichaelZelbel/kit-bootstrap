@@ -249,7 +249,7 @@ Check "a starter that cannot be fetched still leaves a usable mission control, a
 Check "the real book kit's starter folder is reachable and has what the book names" {
     # The one case that must hit the network: it checks the DEFAULT a reader gets.
     $d = Join-Path $Root 'realstarter'
-    $got = Copy-KitStarterGodspeed -Path $d -StarterRepo 'https://github.com/MichaelZelbel/teach-it-once-kit.git'
+    $got = Copy-KitStarterGodspeed -Path $d -StarterRepo 'https://github.com/MichaelZelbel/godspeed-mission-control.git'
     if (-not $got) { Write-Host "        (skipped: no network)"; return $true }
     $missing = @()
     foreach ($f in 'AGENTS.md', 'profile\about-me.md', 'profile\people.md', 'profile\voice.md',

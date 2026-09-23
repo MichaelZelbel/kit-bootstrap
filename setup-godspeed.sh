@@ -69,7 +69,7 @@ REPO_URL=""
 # The book's kit, matching the default windows/setup-godspeed.ps1 has carried since it
 # existed. Without one, an update run fetched no tools, so the notebook step further
 # down had no runner to schedule. Another product overrides it with --starter-repo.
-STARTER_REPO="https://github.com/MichaelZelbel/teach-it-once-kit.git"
+STARTER_REPO="https://github.com/MichaelZelbel/godspeed-mission-control.git"
 STARTER_PATH="starter-godspeed"
 SKIP_PREREQS=0
 SOURCES=""
