@@ -35,9 +35,6 @@
 #             nothing itself.
 # =============================================================================
 param(
-    # -Hub is the name every caller used before 2026-09-22; without the alias PowerShell refuses
-    # the whole run, so an old shortcut or script would stop at the first line.
-    [Alias('Hub')]
     [string]$Godspeed,
     [string]$RepoUrl,
     # Which product this installer is for. A brand-new mission control is copied from that

@@ -2025,15 +2025,6 @@ t "--beside with nothing to sit beside stops" \
 # --godspeed alone could never reach a folder that did not exist yet.
 t "asking for one mission control while this computer works from another now stops" \
   "$(grep -c 'already works from \$FOUND' setup-godspeed.sh)" "1"
-# NEVER ONE NAME (2026-09-23). The rename made --godspeed the only spelling, and --hub fell
-# through to the bare-path branch: GODSPEED became the literal text "--hub" and the folder
-# after it was ignored, so every caller written before the rename (the hub's own demo and move
-# scripts among them) would have installed into a folder called --hub. The real loop is run.
-_argloop="$(sed -n '/^while \[ \$# -gt 0 \]; do/,/^done$/p' setup-godspeed.sh)"
-t "the old --hub still names the folder" \
-  "$(GODSPEED=""; set -- --hub /tmp/kb-old-name --skip-prereqs; eval "$_argloop"; printf '%s' "$GODSPEED")" "/tmp/kb-old-name"
-t "and --godspeed still does" \
-  "$(GODSPEED=""; set -- --godspeed /tmp/kb-new-name; eval "$_argloop"; printf '%s' "$GODSPEED")" "/tmp/kb-new-name"
 _bsrc="$(declare -f kb_find_godspeed)"
 _bneedle='$HOME/godspeed'
 _bpre_env="${_bsrc%%GODSPEED_DIR*}"

@@ -79,9 +79,7 @@ ONLY=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    # --hub is the name every caller used before 2026-09-22. Without it the old spelling fell to
-    # the bare-path branch below and installed into a folder literally called "--hub".
-    --godspeed|--hub)    GODSPEED="${2:-}";          shift 2 ;;
+    --godspeed)          GODSPEED="${2:-}";          shift 2 ;;
     --repo)         REPO_URL="${2:-}";     shift 2 ;;
     --starter-repo) STARTER_REPO="${2:-}"; shift 2 ;;
     --starter-path) STARTER_PATH="${2:-starter-godspeed}"; shift 2 ;;
