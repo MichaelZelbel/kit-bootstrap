@@ -558,8 +558,6 @@ function Find-KitGodspeed {
     # The 'godspeed' names are where readers installed before the 2026-09-22 rename. A person who
     # already has one keeps working without moving anything.
     foreach ($c in @((Join-Path $HOME 'godspeed'), 'C:\godspeed', (Join-Path $HOME 'Documents\godspeed'),
-                     (Join-Path $HOME 'dev\godspeed'),
-                     (Join-Path $HOME 'godspeed'), 'C:\godspeed', (Join-Path $HOME 'Documents\godspeed'),
                      (Join-Path $HOME 'dev\godspeed'))) {
         if (Test-KitGodspeed $c) { return (Resolve-Path $c).Path }
     }
@@ -659,6 +657,22 @@ function Get-KitPython {
     return $null
 }
 
+# Saves a folder into the person's own PATH, the one every new terminal starts with. Only when the
+# folder is inside their real profile: a test run with HOME pointed at a scratch folder used to
+# write that scratch folder into the real PATH, where it stayed after the folder was gone
+# (found on 2026-09-23). This session still gets the folder either way.
+function Add-KitUserPath([string]$bin) {
+    $real = [Environment]::GetFolderPath('UserProfile')
+    if (-not $real -or -not ([IO.Path]::GetFullPath($bin)).StartsWith([IO.Path]::GetFullPath($real) + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        return $false
+    }
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    if (($userPath -split ';') -contains $bin) { return $false }
+    $joined = if ($userPath) { "$bin;$userPath" } else { $bin }
+    [Environment]::SetEnvironmentVariable('Path', $joined, 'User')
+    return $true
+}
+
 function Install-KitGodspeedCli {
     <#  Put the mission control's own commands on this machine's PATH.
 
@@ -713,10 +727,7 @@ function Install-KitGodspeedCli {
             $n++
         }
 
-    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    if (($userPath -split ';') -notcontains $bin) {
-        $joined = if ($userPath) { "$bin;$userPath" } else { $bin }
-        [Environment]::SetEnvironmentVariable('Path', $joined, 'User')
+    if (Add-KitUserPath $bin) {
         Write-KbOk "added $bin to your PATH (open a new terminal for it to take)"
     }
     $env:Path = "$bin;$env:Path"
@@ -942,11 +953,7 @@ function Install-KitGodspeedTools {
         if (-not $hasRepo) { Add-Content -Path $devEnv -Value "GODSPEED_TOOLS_REPO=$ToolsRepo" -Encoding ascii }
 
         Update-KitPath
-        $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-        if (($userPath -split ';') -notcontains $bin) {
-            $joined = if ($userPath) { "$bin;$userPath" } else { $bin }
-            [Environment]::SetEnvironmentVariable('Path', $joined, 'User')
-        }
+        [void](Add-KitUserPath $bin)
         $env:Path = "$bin;$env:Path"
         Write-KbOk "prompt archive: installed the program that files what you type to an AI, and its answers ($bin)"
     } finally {

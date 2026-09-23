@@ -9,6 +9,12 @@
 
 cd "$(dirname "$0")" || exit 1
 
+# The installer's own switches must come from the cases below, never from the machine running
+# them. A computer where the reader once chose KB_NOTEBOOK=skip carries it in every shell, and
+# on 2026-09-23 that silently skipped the connect step and failed three Menerio cases that
+# were fine. So every KB_ setting the caller had is dropped here.
+for _v in $(compgen -e | grep '^KB_'); do unset "$_v"; done; unset _v
+
 echo "== bash -n"
 bash -n lib.sh || { echo "  SYNTAX ERROR in lib.sh"; exit 1; }
 echo "  ok"
