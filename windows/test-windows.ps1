@@ -1168,6 +1168,11 @@ if ((Get-Command age -ErrorAction SilentlyContinue) -and (Get-Command age-keygen
 
 Write-Host ""
 Write-Host "-- the installer's own files"
+# Never one name (2026-09-23): every caller written before the rename passes -Hub, and without
+# the alias PowerShell refuses the whole run. The hub's own demo and move scripts are two.
+Check "setup-godspeed.ps1 still answers to -Hub" {
+    (Get-Command (Join-Path $PSScriptRoot 'setup-godspeed.ps1')).Parameters['Godspeed'].Aliases -contains 'Hub'
+}
 Check "setup-godspeed.ps1 parses"       { $e=$null; [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'setup-godspeed.ps1'), [ref]$null, [ref]$e); $e.Count -eq 0 }
 Check "join.ps1 parses"            { $e=$null; [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\join.ps1'), [ref]$null, [ref]$e); $e.Count -eq 0 }
 Check "build-installer.ps1 parses" { $e=$null; [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'build-installer.ps1'), [ref]$null, [ref]$e); $e.Count -eq 0 }
