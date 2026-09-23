@@ -1842,7 +1842,7 @@ KB_TOOLS
 #
 #   1. The tool did not know which copy of the mission control it was reading. Fixed in the
 #      tool itself.
-#   2. There was no `hub` command on that machine at all. The rented server gets
+#   2. There was no `godspeed` command on that machine at all. The rented server gets
 #      one because its deploy script copies the tools into /usr/local/bin; no
 #      other machine ran anything that did the same. So the fix in (1) would have
 #      changed nothing for someone sitting at a laptop typing `mission control map`.
@@ -1984,10 +1984,10 @@ kb_find_godspeed() {
     kb_godspeed_looks_real "$d" && { printf '%s' "$d"; return 0; }
   done
   # The usual homes, last. /c/godspeed is how Git Bash on Windows spells C:\godspeed.
-  # The `hub` names are where readers installed before the 2026-09-22 rename. A person who
+  # The `godspeed` names are where readers installed before the 2026-09-22 rename. A person who
   # already has one keeps working without moving anything.
   for c in "$HOME/godspeed" /root/godspeed /c/godspeed "$HOME/Documents/godspeed" "$HOME/dev/godspeed" \
-           "$HOME/hub" /root/hub /c/hub "$HOME/Documents/hub" "$HOME/dev/hub"; do
+           "$HOME/godspeed" /root/godspeed /c/godspeed "$HOME/Documents/godspeed" "$HOME/dev/godspeed"; do
     kb_godspeed_looks_real "$c" && { (cd "$c" && pwd -P); return 0; }
   done
   return 1
@@ -2024,19 +2024,19 @@ kb_update_godspeed() {
 # kb_install_godspeed_cli <mc-dir>
 # Put the mission control's own command-line tools on this machine's PATH.
 #
-# ALL of them, not just `hub`. `hub memory search` is a one-line wrapper that runs
-# `hub-memory-lookup` by bare name, so a PATH holding only `hub` gives you a command
+# ALL of them, not just `godspeed`. `godspeed memory search` is a one-line wrapper that runs
+# `mc-memory-lookup` by bare name, so a PATH holding only `godspeed` gives you a command
 # that exists and then fails — the worst of the three possible states. Nothing to do
 # on a mission control that ships no tools, which is every reader's mission control, so this stays quiet there.
 kb_install_godspeed_cli() {
   local godspeed="${1:-}" src bindir n
-  src="$godspeed/agents/hub-cli"
+  src="$godspeed/agents/mc-cli"
   [ -d "$src" ] || return 0
-  [ -f "$src/hub" ] || return 0
+  [ -f "$src/godspeed" ] || return 0
   bindir="$HOME/.local/bin"
   mkdir -p "$bindir"
   n=0
-  for f in "$src"/hub "$src"/hub-*; do
+  for f in "$src"/godspeed "$src"/mc-*; do
     [ -f "$f" ] || continue
     case "$f" in *.env|*.md) continue ;; esac
     # Only when it is not already runnable. An unconditional chmod rewrites the file's mode

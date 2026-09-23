@@ -2499,12 +2499,12 @@ foreach ($fn in 'Get-KitHermesBin', 'Test-KitHermesHere', 'Test-KitHermesCredent
 }
 
 $GodspeedOk = New-TestDir 'hermescwd-godspeed'
-$HubRes = Invoke-GodspeedCase -Godspeed $GodspeedOk
+$GodspeedRes = Invoke-GodspeedCase -Godspeed $GodspeedOk
 
 Check "terminal.cwd is set to the mission control's absolute path" {
     (Get-Content -LiteralPath $env:STUB_CWDFILE -Raw).Trim() -eq (Get-KitRealPath $GodspeedOk)
 }
-Check "and the whole thing succeeds when the folder is readable" { $HubRes.Ok }
+Check "and the whole thing succeeds when the folder is readable" { $GodspeedRes.Ok }
 Check "workspace is never set, because it is not a key" {
     -not ((Get-Content -LiteralPath $env:STUB_LOG -Raw) -like '*[[]workspace[]]*')
 }
@@ -3096,8 +3096,8 @@ Check "and it puts it back AFTER both dot-sources, not between them" {
 # --- A SHIM RUNS THE PROGRAM'S OWN INTERPRETER (2026-09-03) -----------------------------
 # Every .cmd this writes said `bash "<file>" %*` until today, and 18 of the mission control's own
 # commands are Python or Node. bash handed a file as an argument does not honour its
-# shebang, it reads it as bash, so `hub-check-voice` answered "import: command not found"
-# and all 18 were broken when typed by name. Unnoticed because the `hub` dispatcher runs its
+# shebang, it reads it as bash, so `mc-check-voice` answered "import: command not found"
+# and all 18 were broken when typed by name. Unnoticed because the `godspeed` dispatcher runs its
 # siblings through its own interpreter, never through these shims. No bash twin:
 # kb_install_godspeed_cli makes symlinks and chmods them, and a kernel reads a shebang.
 Check "Get-KitPython is defined" { [bool](Get-Command Get-KitPython -ErrorAction SilentlyContinue) }
@@ -3113,11 +3113,11 @@ Check "and the python it names actually runs, not a Store stub that opens a shop
 }
 Check "a bash command still gets bash, a python one python, a node one node" {
     $godspeed = New-TestDir 'shim-godspeed'
-    $cli = Join-Path $godspeed 'agents\hub-cli'
+    $cli = Join-Path $godspeed 'agents\mc-cli'
     New-Item -ItemType Directory -Force $cli | Out-Null
-    Set-Content (Join-Path $cli 'hub')          "#!/usr/bin/env bash`necho hi"
-    Set-Content (Join-Path $cli 'hub-pytool')  "#!/usr/bin/env python3`nprint(1)"
-    Set-Content (Join-Path $cli 'hub-nodetool') "#!/usr/bin/env node`nconsole.log(1)"
+    Set-Content (Join-Path $cli 'godspeed')          "#!/usr/bin/env bash`necho hi"
+    Set-Content (Join-Path $cli 'mc-pytool')  "#!/usr/bin/env python3`nprint(1)"
+    Set-Content (Join-Path $cli 'mc-nodetool') "#!/usr/bin/env node`nconsole.log(1)"
     $home0 = $HOME
     try {
         $h = New-TestDir 'shim-home'
@@ -3125,9 +3125,9 @@ Check "a bash command still gets bash, a python one python, a node one node" {
         Set-Variable -Name HOME -Value $h -Scope Global -Force
         Install-KitGodspeedCli -Godspeed $godspeed | Out-Null
         $bin = Join-Path $h '.local\bin'
-        $b = (Get-Content (Join-Path $bin 'hub.cmd') -Raw)
-        $p = (Get-Content (Join-Path $bin 'hub-pytool.cmd') -Raw)
-        $nd = (Get-Content (Join-Path $bin 'hub-nodetool.cmd') -Raw)
+        $b = (Get-Content (Join-Path $bin 'godspeed.cmd') -Raw)
+        $p = (Get-Content (Join-Path $bin 'mc-pytool.cmd') -Raw)
+        $nd = (Get-Content (Join-Path $bin 'mc-nodetool.cmd') -Raw)
         ($b -match 'bash') -and
         ($p -notmatch 'bash') -and ($p -match 'py') -and
         ($nd -notmatch 'bash') -and ($nd -match 'node')

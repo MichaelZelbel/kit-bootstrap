@@ -57,7 +57,7 @@ fi
 HOST="${KIT_HOST:-root@srv1328602.hstgr.cloud}"
 KEY="${KIT_SSH_KEY:-$HOME/godspeed/.secrets/claude-desktop_ed25519}"
 ROOT="${KIT_ARTIFACT_ROOT:-/srv/mc-artifacts/kits}"
-BASE="${KIT_BASE_URL:-https://srv1328602.hstgr.cloud/hub/kits}"
+BASE="${KIT_BASE_URL:-https://srv1328602.hstgr.cloud/godspeed/kits}"
 
 log()  { printf "\033[1;34m[publish]\033[0m %s\n" "$*"; }
 die()  { printf "\033[1;31m[stop]\033[0m %s\n" "$*" >&2; exit 1; }

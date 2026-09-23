@@ -437,7 +437,7 @@ function Write-KitSyncReport {
 #
 # Added 2026-08-09. `mission control map` on the Windows work PC answered with a file path
 # from the rented server, and fixing the tool itself only got halfway: there was
-# no `hub` command on that machine at all. The server has one because its deploy
+# no `godspeed` command on that machine at all. The server has one because its deploy
 # script copies the tools into /usr/local/bin. Nothing did the same for a laptop.
 # =============================================================================
 
@@ -555,12 +555,12 @@ function Find-KitGodspeed {
         if (Test-KitGodspeed $d) { return (Resolve-Path $d).Path }
     }
 
-    # The 'hub' names are where readers installed before the 2026-09-22 rename. A person who
+    # The 'godspeed' names are where readers installed before the 2026-09-22 rename. A person who
     # already has one keeps working without moving anything.
     foreach ($c in @((Join-Path $HOME 'godspeed'), 'C:\godspeed', (Join-Path $HOME 'Documents\godspeed'),
                      (Join-Path $HOME 'dev\godspeed'),
-                     (Join-Path $HOME 'hub'), 'C:\hub', (Join-Path $HOME 'Documents\hub'),
-                     (Join-Path $HOME 'dev\hub'))) {
+                     (Join-Path $HOME 'godspeed'), 'C:\godspeed', (Join-Path $HOME 'Documents\godspeed'),
+                     (Join-Path $HOME 'dev\godspeed'))) {
         if (Test-KitGodspeed $c) { return (Resolve-Path $c).Path }
     }
     return $null
@@ -662,14 +662,14 @@ function Get-KitPython {
 function Install-KitGodspeedCli {
     <#  Put the mission control's own commands on this machine's PATH.
 
-        ALL of them, not just `hub`. `hub memory search` is a wrapper that runs
-        `hub-memory-lookup` by bare name, so a PATH holding only `hub` gives you a
+        ALL of them, not just `godspeed`. `godspeed memory search` is a wrapper that runs
+        `mc-memory-lookup` by bare name, so a PATH holding only `godspeed` gives you a
         command that exists and then fails, which is the worst of the three states.
         Quiet on a mission control that ships no tools, which is every reader's mission control. #>
     param([Parameter(Mandatory)][string]$Godspeed)
 
-    $src = Join-Path $Godspeed 'agents\hub-cli'
-    if (-not (Test-Path (Join-Path $src 'hub'))) { return }
+    $src = Join-Path $Godspeed 'agents\mc-cli'
+    if (-not (Test-Path (Join-Path $src 'godspeed'))) { return }
 
     $bash = Get-KitGitBash
     if (-not $bash) {
@@ -683,16 +683,16 @@ function Install-KitGodspeedCli {
     $py   = Get-KitPython
     $n = 0
     Get-ChildItem $src -File |
-        Where-Object { ($_.Name -eq 'hub' -or $_.Name -like 'hub-*') -and $_.Extension -notin '.env', '.md' } |
+        Where-Object { ($_.Name -eq 'godspeed' -or $_.Name -like 'mc-*') -and $_.Extension -notin '.env', '.md' } |
         ForEach-Object {
             $target = $_.FullName -replace '\\', '/'
             # WHICH RUNNER, read from the file's own first line.
             #
             # Every one of these got `bash "<file>" %*` until 2026-09-03, and 18 of the mission control's
             # own commands are Python or Node. bash does not honour a shebang in a file it is
-            # handed as an argument, it just reads it as bash, so `hub-check-voice` answered
+            # handed as an argument, it just reads it as bash, so `mc-check-voice` answered
             # "import: command not found" and every one of those 18 was broken when typed by
-            # name. It went unnoticed because the `hub` dispatcher runs its siblings through
+            # name. It went unnoticed because the `godspeed` dispatcher runs its siblings through
             # its own interpreter and never through these shims.
             #
             # No bash twin: kb_install_godspeed_cli makes symlinks and chmods them, and a kernel

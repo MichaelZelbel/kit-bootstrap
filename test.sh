@@ -360,11 +360,11 @@ rm -rf "$_s" "$_s2" "$_g" "$_g2"
 # FINDING A GODSPEED THAT IS ALREADY INSTALLED, AND WIRING ITS COMMANDS.
 # Added 2026-08-09 after `mission control map` on the work PC answered with a path from the
 # rented server. Two holes: the tool did not know which copy it was reading, and
-# there was no `hub` command on that machine at all. This half is the second hole.
+# there was no `godspeed` command on that machine at all. This half is the second hole.
 
 _f=$(mktemp -d)
 _home0="${HOME:-}"
-mkdir -p "$_f/notagodspeed" "$_f/godspeed/.git" "$_f/godspeed/memory" "$_f/godspeed/agents/hub-cli"
+mkdir -p "$_f/notagodspeed" "$_f/godspeed/.git" "$_f/godspeed/memory" "$_f/godspeed/agents/mc-cli"
 t "a folder that is not a mission control is refused"  "$(kb_godspeed_looks_real "$_f/notagodspeed" && echo yes || echo no)" "no"
 t "a real mission control is recognised"               "$(kb_godspeed_looks_real "$_f/godspeed" && echo yes || echo no)"     "yes"
 t "a folder that does not exist is refused" "$(kb_godspeed_looks_real "$_f/nope" && echo yes || echo no)"   "no"
@@ -387,16 +387,16 @@ else
 fi
 rm -rf "$_empty"
 
-# THE ONE THAT MATTERS. `hub memory search` is a wrapper that runs
-# `hub-memory-lookup` by bare name. Wiring only `hub` gives a command that exists
+# THE ONE THAT MATTERS. `godspeed memory search` is a wrapper that runs
+# `mc-memory-lookup` by bare name. Wiring only `godspeed` gives a command that exists
 # and then fails, which is worse than no command at all. This dispatcher belongs to
 # Michael's own engine; a reader's mission control ships none of it.
-printf '#!/bin/sh\necho hub\n'      > "$_f/godspeed/agents/hub-cli/hub"
-printf '#!/bin/sh\necho lookup\n'   > "$_f/godspeed/agents/hub-cli/hub-memory-lookup"
-printf 'MODEL=x\n'                  > "$_f/godspeed/agents/hub-cli/models.env"
+printf '#!/bin/sh\necho godspeed\n'      > "$_f/godspeed/agents/mc-cli/godspeed"
+printf '#!/bin/sh\necho lookup\n'   > "$_f/godspeed/agents/mc-cli/mc-memory-lookup"
+printf 'MODEL=x\n'                  > "$_f/godspeed/agents/mc-cli/models.env"
 ( HOME="$_f" kb_install_godspeed_cli "$_f/godspeed" ) >/dev/null 2>&1
-t "the dispatcher command is wired  "          "$([ -e "$_f/.local/bin/hub" ] && echo yes)"               "yes"
-t "the sibling tools are wired too"   "$([ -e "$_f/.local/bin/hub-memory-lookup" ] && echo yes)" "yes"
+t "the dispatcher command is wired  "          "$([ -e "$_f/.local/bin/godspeed" ] && echo yes)"               "yes"
+t "the sibling tools are wired too"   "$([ -e "$_f/.local/bin/mc-memory-lookup" ] && echo yes)" "yes"
 t "a config file is not wired as a command" "$([ -e "$_f/.local/bin/models.env" ] && echo yes || echo no)" "no"
 # A mission control with no tools is every reader's mission control. It must not warn or half-wire.
 mkdir -p "$_f/bare/.git" "$_f/bare/memory"
