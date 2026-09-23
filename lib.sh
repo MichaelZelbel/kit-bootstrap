@@ -3387,6 +3387,12 @@ kb_install_notebook_sync() {
   # 1. On save. A saved change is the folder's own definition of "this is real", and it
   #    is what every routine in the book already ends with.
   if [ -d "$godspeed/.git" ]; then
+    # Our own hook under a runner name the 2026-09-22 rename retired is ours to replace. It was
+    # "left alone" as a stranger's, so on the server every save called a program that no longer
+    # existed and nothing reached Menerio until it was found by hand (2026-09-23).
+    if [ -f "$hook" ] && grep -q '(Teach It Once)' "$hook" 2>/dev/null        && grep -q 'notebook-sync' "$hook" 2>/dev/null && ! grep -q 'mc-notebook-sync' "$hook" 2>/dev/null; then
+      rm -f "$hook"
+    fi
     if [ -f "$hook" ] && ! grep -q 'mc-notebook-sync' "$hook" 2>/dev/null; then
       ok "mission control job: you already have a post-commit hook, so I left it alone. To run the job on save too, add this line to it: \"$runner\" >/dev/null 2>&1 &"
     elif [ ! -f "$hook" ]; then

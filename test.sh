@@ -896,6 +896,13 @@ printf '#!/bin/sh\n# someone elses hook\n' > "$_n/godspeed/.git/hooks/post-commi
 ( KB_CRONTAB="$_n/fakecrontab" kb_install_notebook_sync "$_n/godspeed" ) >/dev/null 2>&1
 t "a hook the reader wrote themselves is left exactly as it was" \
   "$(grep -c 'someone elses hook' "$_n/godspeed/.git/hooks/post-commit")" "1"
+# Our own hook under a runner name a rename retired (2026-09-23): replaced, not left alone.
+printf '#!/bin/sh\n# Keep your notebook current the moment you save (Teach It Once).\n"/x/.local/bin/old-notebook-sync" >/dev/null 2>&1 &\nexit 0\n' \
+  > "$_n/godspeed/.git/hooks/post-commit"
+( KB_CRONTAB="$_n/fakecrontab" kb_install_notebook_sync "$_n/godspeed" ) >/dev/null 2>&1
+t "our own hook under a retired runner name is rewritten to the current runner" \
+  "$(grep -c 'mc-notebook-sync' "$_n/godspeed/.git/hooks/post-commit"):$(grep -c 'old-notebook-sync' "$_n/godspeed/.git/hooks/post-commit")" "1:0"
+printf '#!/bin/sh\n# someone elses hook\n' > "$_n/godspeed/.git/hooks/post-commit"
 
 # The shell start-up line that supplies the value .mcp.json only names.
 printf '#!/bin/sh\nexit 0\n' > "$_n/home/.local/bin/mc-notebook-env"
