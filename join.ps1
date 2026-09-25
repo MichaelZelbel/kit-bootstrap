@@ -3103,6 +3103,43 @@ function Get-KitHermesDenyRules {
     )
 }
 
+function Set-KitHermesOneMemory {
+    <#  One memory, the mission control's. Hermes keeps a small memory of its own beside it
+        (memories\MEMORY.md and USER.md, written by the assistant as you chat) and ships with
+        it switched ON. That second store is invisible to every check in the mission control,
+        it goes stale, and then the two disagree: on the author's own server it still described
+        the system by a name that had been retired weeks earlier, and no file could show it.
+
+        This switches it off and says so, with the line that turns it back on. It never empties
+        anything: `hermes memory reset` is the reader's to run once they have read what is in
+        there. The twin of kb_hermes_one_memory in lib.sh; change both or neither. #>
+
+    if (-not (Test-KitHermesHere)) {
+        Write-KbOk "memory: Hermes is not on this PC yet, so it has no second memory to switch off. Run this again once it is."
+        return $true
+    }
+    $bin = Get-KitHermesBin
+    $failed = $false
+
+    foreach ($key in @('memory.memory_enabled', 'memory.user_profile_enabled')) {
+        $cur = (& $bin config get $key 2>$null | Select-Object -Last 1)
+        if ("$cur".Trim() -ieq 'false') { continue }
+        [void](Invoke-KitHermesConfigSet -Key $key -Value 'false')
+        $cur = (& $bin config get $key 2>$null | Select-Object -Last 1)
+        if ("$cur".Trim() -ine 'false') {
+            $failed = $true
+            Write-KbWarn "memory: could not switch off Hermes' own memory ($key). Your assistant will keep a
+     second set of notes about you that nothing in your mission control can see. Run this by hand:
+     hermes config set $key false"
+        }
+    }
+
+    if ($failed) { return $false }
+    Write-KbOk "memory: Hermes' own note-keeping is off, so what your assistant remembers lives in your
+     mission control, where every machine reads it. Want it back? hermes config set memory.memory_enabled true"
+    return $true
+}
+
 function Set-KitHermesApprovals {
     <#  Add the kit's deny rules to approvals.deny, keeping anything already there.
         `hermes config set` REPLACES a list, so this is read, merge, write.

@@ -54,6 +54,7 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_hermes_skills_dir kb_wire_skills kb_hermes_bin kb_hermes_here \
          kb_hermes_has_credential kb_hermes_reads_godspeed kb_point_hermes_at_godspeed \
          kb_hermes_deny_rules kb_hermes_approvals kb_hermes_approvals_selfcheck \
+         kb_hermes_one_memory \
          kb_gateway_state kb_install_gateway kb_cron_has_job kb_cron_job \
          kb_hermes_signin kb_hermes_has_provider kb_room_twin; do
   declare -F "$f" >/dev/null || printf "%s " "$f"
@@ -1640,6 +1641,52 @@ out="$(kb_hermes_approvals 2>&1)"; _rc=$?
 t "no Hermes is not a failure here either" "$_rc" "0"
 t "and it says there is nothing to give rules to" \
   "$(printf '%s' "$out" | grep -c 'no rules to give it')" "1"
+
+# ONE MEMORY: Hermes' own note-keeping is switched off by the install (2026-09-24).
+# Hermes ships it ON. A second memory beside the mission control's is invisible to every check
+# there, goes stale, and then the two disagree: on the author's server it still called the
+# system by a name retired weeks before, and no file in the mission control could show it. The
+# stub stores the two settings the way `config set` does, so "already off" and "could not write"
+# are both real paths here.
+_om=$(mktemp -d); mkdir -p "$_om/bin"
+cat > "$_om/bin/hermes" <<'STUB'
+#!/bin/sh
+f="$STUB_MEM/$3"
+if [ "$1" = "config" ] && [ "$2" = "get" ]; then
+  if [ -f "$f" ]; then cat "$f"; else echo "Config key not set: $3"; exit 1; fi
+fi
+if [ "$1" = "config" ] && [ "$2" = "set" ]; then
+  [ "${STUB_REFUSE:-0}" = "1" ] && exit 1
+  printf '%s' "$4" > "$f"
+fi
+exit 0
+STUB
+chmod +x "$_om/bin/hermes"
+export KB_HERMES_BIN="$_om/bin/hermes" STUB_MEM="$_om"
+
+out="$(kb_hermes_one_memory 2>&1)"; _rc=$?
+t "the second memory is switched off, and says so" "$_rc" "0"
+t "the assistant's own note-keeping is off" "$(cat "$_om/memory.memory_enabled" 2>/dev/null)" "false"
+t "and so is its private sketch of the reader" "$(cat "$_om/memory.user_profile_enabled" 2>/dev/null)" "false"
+t "the reader is told how to get it back" "$(printf '%s' "$out" | grep -c 'memory.memory_enabled true')" "1"
+
+out="$(kb_hermes_one_memory 2>&1)"; _rc=$?
+t "a second run changes nothing and still passes" "$_rc" "0"
+
+printf 'true' > "$_om/memory.memory_enabled"
+export STUB_REFUSE=1
+out="$(kb_hermes_one_memory 2>&1)"; _rc=$?
+t "a setting that will not write is a failure, not a shrug" "$_rc" "1"
+t "and the reader gets the line to run by hand" \
+  "$(printf '%s' "$out" | grep -c 'hermes config set memory.memory_enabled false')" "1"
+unset STUB_REFUSE
+
+KB_HERMES_BIN="$_om/bin/no-such-hermes"
+out="$(kb_hermes_one_memory 2>&1)"; _rc=$?
+t "no Hermes on this machine is not a failure" "$_rc" "0"
+t "and it says there is no second memory to switch off" \
+  "$(printf '%s' "$out" | grep -c 'no second memory')" "1"
+KB_HERMES_BIN="$_ap/bin/hermes"
 
 # THE VERSION THAT STORES THE LIST AS TEXT. Hermes 0.20.0 does not parse a JSON
 # list on `config set`: it stores the whole text as ONE STRING, its readers

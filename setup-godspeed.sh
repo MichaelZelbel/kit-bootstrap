@@ -135,7 +135,7 @@ fi
 for fn in kb_install_prereqs kb_new_godspeed kb_copy_starter_godspeed kb_link_ai_memory kb_install_godspeed_cli \
           kb_install_godspeed_tools kb_install_prompt_harvest kb_sync_report kb_write_prompt_sources \
           kb_update_godspeed kb_connect_notebook kb_wire_skills kb_point_hermes_at_godspeed \
-          kb_hermes_approvals kb_refuse_godspeed_path kb_default_godspeed_dir \
+          kb_hermes_approvals kb_hermes_one_memory kb_refuse_godspeed_path kb_default_godspeed_dir \
           kb_beside kb_same_path kb_only_menerio kb_only_gmail kb_gmail_retired; do
   if ! command -v "$fn" >/dev/null 2>&1; then
     echo "[stop] the install code on this computer is incomplete ($fn is missing)." >&2
@@ -292,6 +292,10 @@ kb_point_hermes_at_godspeed "$GODSPEED"
 # already allows every command the kit runs, so this writes no allowlist at all and
 # only closes the gaps its own floor leaves open. Measured, both ways.
 kb_hermes_approvals
+
+# One memory. Hermes keeps its own beside the mission control's unless told not to, and a second
+# memory nothing can see is how an assistant starts telling you what used to be true.
+kb_hermes_one_memory
 
 # -----------------------------------------------------------------------------
 # 5. What just happened, in words.

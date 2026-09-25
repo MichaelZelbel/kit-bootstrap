@@ -191,7 +191,7 @@ foreach ($fn in 'Install-KitPrereqs', 'New-KitGodspeed', 'Copy-KitStarterGodspee
                  'Install-KitPromptHarvest', 'Update-KitPath',
                  'Find-KitAiTools', 'Set-KitPromptSources', 'Write-KitSyncReport', 'Get-KitDeviceEnvValue',
                  'Connect-KitNotebook', 'Write-KitMcpConfig', 'Install-KitNotebookSync',
-                 'Connect-KitSkills', 'Set-KitHermesGodspeed', 'Set-KitHermesApprovals',
+                 'Connect-KitSkills', 'Set-KitHermesGodspeed', 'Set-KitHermesApprovals', 'Set-KitHermesOneMemory',
                  'Get-KitDefaultGodspeedDir', 'Get-KitGodspeedPathRefusal',
                  'Test-KitBeside', 'Test-KitSamePath',
                  'Connect-KitAssistants', 'Connect-KitMenerioOnly',
@@ -364,6 +364,10 @@ Set-KitHermesGodspeed -Godspeed $Godspeed | Out-Null
 # already allows every command the kit runs, so this writes no allowlist at all and
 # only closes the gaps its own floor leaves open. Measured, both ways.
 Set-KitHermesApprovals | Out-Null
+
+# One memory. Hermes keeps its own beside the mission control's unless told not to, and a second
+# memory nothing can see is how an assistant starts telling you what used to be true.
+Set-KitHermesOneMemory | Out-Null
 
 # Remember where it is, so the next run of the installer finds it instantly and so
 # other tools on this PC can stop guessing. One of the five things that answer "which

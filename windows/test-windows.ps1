@@ -2842,6 +2842,71 @@ Check "and the real GODSPEED_DIR user variable is exactly what it was before the
     [Environment]::GetEnvironmentVariable('GODSPEED_DIR', 'User') -eq $GodspeedDir0
 }
 
+# --- ONE MEMORY (2026-09-24) ---------------------------------------------------------------
+# Twin of the cases in test.sh. Hermes ships its own note-keeping ON, beside the mission
+# control's memory. A second memory nothing in the mission control can see goes stale and then
+# contradicts the files: on the author's own server it still called the system by a name retired
+# weeks earlier. The stub stores the two settings the way `config set` does.
+function New-HermesMemoryStub {
+    param([string]$Dir)
+    New-Item -ItemType Directory -Force $Dir | Out-Null
+    Set-KbTextFile -Path (Join-Path $Dir 'stub.ps1') -Lines @(
+        '$f = Join-Path $env:STUB_MEM $args[2]',
+        'if ($args[0] -eq "config" -and $args[1] -eq "get") {',
+        '    if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f -Raw; exit 0 }',
+        '    "Config key not set: " + $args[2]; exit 1',
+        '}',
+        'if ($args[0] -eq "config" -and $args[1] -eq "set") {',
+        '    if ($env:STUB_REFUSE -eq "1") { exit 1 }',
+        '    Set-Content -LiteralPath $f -Value $args[3] -NoNewline; exit 0',
+        '}',
+        'exit 0'
+    )
+    $cmd = Join-Path $Dir 'hermes.cmd'
+    Set-KbTextFile -Path $cmd -Lines @(
+        '@echo off',
+        '"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0stub.ps1" %*'
+    )
+    return $cmd
+}
+
+function Invoke-OneMemoryCase {
+    $all = @(Set-KitHermesOneMemory 3>&1 6>&1)
+    $ret = $false
+    if ($all.Count -gt 0) { $ret = $all[$all.Count - 1] }
+    $txt = ((@($all) | ForEach-Object { [string]$_ }) -join [Environment]::NewLine)
+    return [pscustomobject]@{ Text = $txt; Ok = ($ret -eq $true) }
+}
+
+$OmRoot = New-TestDir 'onememory'
+$env:STUB_MEM = $OmRoot
+$env:KB_HERMES_BIN = New-HermesMemoryStub -Dir (Join-Path $OmRoot 'bin')
+
+Check "Set-KitHermesOneMemory is defined" { [bool](Get-Command 'Set-KitHermesOneMemory' -ErrorAction SilentlyContinue) }
+$OmRes = Invoke-OneMemoryCase
+Check "the second memory is switched off, and says so" { $OmRes.Ok }
+Check "the assistant's own note-keeping is off" {
+    (Get-Content -LiteralPath (Join-Path $OmRoot 'memory.memory_enabled') -Raw).Trim() -eq 'false' }
+Check "and so is its private sketch of the reader" {
+    (Get-Content -LiteralPath (Join-Path $OmRoot 'memory.user_profile_enabled') -Raw).Trim() -eq 'false' }
+Check "the reader is told how to get it back" { $OmRes.Text -match 'memory\.memory_enabled true' }
+Check "a second run changes nothing and still passes" { (Invoke-OneMemoryCase).Ok }
+
+Set-Content -LiteralPath (Join-Path $OmRoot 'memory.memory_enabled') -Value 'true' -NoNewline
+$env:STUB_REFUSE = '1'
+$OmFail = Invoke-OneMemoryCase
+Check "a setting that will not write is a failure, not a shrug" { -not $OmFail.Ok }
+Check "and the reader gets the line to run by hand" {
+    $OmFail.Text -match 'hermes config set memory\.memory_enabled false' }
+$env:STUB_REFUSE = $null
+
+$env:KB_HERMES_BIN = Join-Path $OmRoot 'no-such-hermes.cmd'
+$OmNone = Invoke-OneMemoryCase
+Check "no Hermes on this PC is not a failure" { $OmNone.Ok }
+Check "and it says there is no second memory to switch off" { $OmNone.Text -match 'no second memory' }
+$env:KB_HERMES_BIN = $null
+$env:STUB_MEM = $null
+
 # The real home back, and the GODSPEED_DIR variable with it. See $Home0 at the top.
 try {
     Set-Variable -Name HOME -Value $Home0 -Scope Global -Force

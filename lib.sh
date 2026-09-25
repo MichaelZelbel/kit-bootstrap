@@ -1162,6 +1162,46 @@ EOF
   kb_hermes_approvals_selfcheck
 }
 
+# kb_hermes_one_memory
+# One memory, the mission control's. Hermes keeps a small memory of its own beside it
+# (memories/MEMORY.md and USER.md, written by the assistant as you chat) and ships with it
+# switched ON. That second store is invisible to every check in the mission control, it goes
+# stale, and then the two disagree: on Michael's own server it still described the system by a
+# name that had been retired weeks earlier, and no file in the mission control could show it.
+#
+# So the installer switches it off and says so, with the one line that turns it back on. It
+# never empties anything: `hermes memory reset` is the reader's to run once they have read what
+# is in there. What the assistant should remember goes into the mission control's own folders,
+# where every AI on every machine reads the same thing.
+kb_hermes_one_memory() {
+  local bin key cur failed=0
+  kb_hermes_here || {
+    ok "memory: Hermes is not on this machine yet, so it has no second memory to switch off. Run this again once it is."
+    return 0
+  }
+  bin="$(kb_hermes_bin)"
+
+  for key in memory.memory_enabled memory.user_profile_enabled; do
+    cur="$("$bin" config get "$key" 2>/dev/null | tail -n 1 | tr -d "[:space:]")"
+    case "$cur" in
+      false|False|FALSE) continue ;;
+    esac
+    "$bin" config set "$key" false >/dev/null 2>&1
+    cur="$("$bin" config get "$key" 2>/dev/null | tail -n 1 | tr -d "[:space:]")"
+    case "$cur" in
+      false|False|FALSE) ;;
+      *) failed=1
+         warn "memory: could not switch off Hermes' own memory ($key). Your assistant will keep a
+     second set of notes about you that nothing in your mission control can see. Run this by hand:
+     hermes config set $key false" ;;
+    esac
+  done
+
+  [ "$failed" = "0" ] || return 1
+  ok "memory: Hermes' own note-keeping is off, so what your assistant remembers lives in your
+     mission control, where every machine reads it. Want it back? hermes config set memory.memory_enabled true"
+}
+
 # kb_hermes_approvals_selfcheck
 # Prove the rules bite, and prove they did not break ordinary work. `approvals test`
 # never executes the command and never persists anything, and its exit codes are
