@@ -59,7 +59,7 @@ stale:
 curl -fsSL "https://raw.githubusercontent.com/MichaelZelbel/kit-bootstrap/$(git rev-parse origin/v1)/lib.sh"
 ```
 
-**Vendored at build time** — for the paid kits, which ship as one self-contained
+**Vendored at build time**: for the Ko-fi kits, which ship as one self-contained
 offline tarball. Their `build.sh` already pins and copies two other repos in
 (the OSS watchdog and the Chrome bridge); this is the same move with one more
 source:
@@ -378,7 +378,7 @@ is the failure that otherwise looks exactly like success.
 
 ## Why not just put this inside the Hermes kit
 
-Because that kit's installer exists to fetch a paid tarball with its fingerprint
-checked. Anything built on top of it inherits a dependency on a paid download
+Because that kit's installer exists to fetch the kit's own tarball with its fingerprint
+checked. Anything built on top of it inherits a dependency on that download
 and a private repository. The shared piece belongs *underneath* all four
 products, not inside one of them.
