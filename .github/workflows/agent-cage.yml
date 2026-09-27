@@ -1,0 +1,70 @@
+# The agent cage on real, fresh Linux servers: install it, prove it with its own selftest,
+# and prove the SSH path end to end with a caged key. Its selftest is kept short and small
+# because products also run it on live servers; this is where it may take its time.
+name: agent-cage
+on:
+  push:
+    paths: [agent-cage.sh, .github/workflows/agent-cage.yml]
+  pull_request:
+    paths: [agent-cage.sh, .github/workflows/agent-cage.yml]
+  workflow_dispatch:
+jobs:
+  cage:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: syntax
+        run: bash -n agent-cage.sh
+      - name: install (twice, it must be idempotent)
+        run: |
+          sudo bash agent-cage.sh install
+          sudo bash agent-cage.sh install
+          sudo systemctl start agent-cage-watch.service
+          sudo bash agent-cage.sh check
+      - name: selftest
+        run: sudo bash agent-cage.sh selftest
+      - name: a caged SSH key, end to end
+        run: |
+          set -eux
+          sudo systemctl start ssh || sudo systemctl start sshd
+          ssh-keygen -q -t ed25519 -N '' -C agent-cage-ci -f ~/cagekey
+          sudo mkdir -p /root/.ssh && sudo chmod 700 /root/.ssh
+          sudo sh -c "cat $HOME/cagekey.pub >> /root/.ssh/authorized_keys"
+          sudo bash agent-cage.sh cage-key /root/.ssh/authorized_keys agent-cage-ci --max 6s
+          S="ssh -i $HOME/cagekey -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o BatchMode=yes root@localhost"
+          $S 'cat /proc/self/cgroup' | tee /tmp/cg; grep -q agent.slice /tmp/cg
+          test "$($S 'echo "a b" $((2+3))')" = "a b 5"
+          set +e; $S 'exit 7'; rc=$?; set -e; test "$rc" = 7
+          echo payload > /tmp/up; scp -i ~/cagekey -o IdentitiesOnly=yes -o StrictHostKeyChecking=no /tmp/up root@localhost:/tmp/up2
+          test "$($S 'cat /tmp/up2')" = payload
+          t0=$(date +%s); $S 'sleep 60' || true; t1=$(date +%s)
+          echo "ran $((t1 - t0))s"; test $((t1 - t0)) -lt 20
+      - name: a caged crontab
+        run: |
+          set -eux
+          printf 'SHELL=/usr/local/sbin/agent-cage-shell\nAGENT_CAGE_MAX=1m\n* * * * * cat /proc/self/cgroup > /tmp/cron-cg\n' | sudo crontab -
+          for i in $(seq 1 80); do sudo test -s /tmp/cron-cg && break; sleep 2; done
+          sudo cat /tmp/cron-cg; sudo grep -q agent.slice /tmp/cron-cg
+      - name: the watch stops a busy leftover of a closed session
+        run: |
+          set -eux
+          echo 'REAP_MIN_AGE=0' | sudo tee -a /etc/agent-cage/config
+          sudo sh -c 'echo REAP_PCT=30 >> /etc/agent-cage/config'
+          # A busy process that outlives the SSH call that started it (not caged: plain key).
+          ssh-keygen -q -t ed25519 -N '' -C plain-ci -f ~/plainkey
+          sudo sh -c "cat $HOME/plainkey.pub >> /root/.ssh/authorized_keys"
+          ssh -i ~/plainkey -o IdentitiesOnly=yes -o StrictHostKeyChecking=no root@localhost 'nohup sh -c "while :; do :; done # ci-leftover" >/dev/null 2>&1 &'
+          sleep 3; pgrep -f ci-leftover
+          sudo /usr/local/sbin/agent-cage-watch; sleep 15; sudo /usr/local/sbin/agent-cage-watch; sleep 8
+          sudo cat /var/log/agent-cage.log
+          ! pgrep -f ci-leftover
+      - name: uninstall leaves nothing behind
+        run: |
+          sudo crontab -r || true
+          sudo bash agent-cage.sh uninstall
+          test ! -e /usr/local/bin/agent-cage
+          ! sudo grep -q agent-cage-ssh /root/.ssh/authorized_keys
