@@ -78,12 +78,16 @@ jobs:
       - name: a watch run is cheap
         run: |
           set -eux
-          for i in $(seq 200); do sleep 600 & done
+          # 300 processes inside a watched service, so every one of them is read.
+          sudo systemd-run --unit=cagetest-many sh -c 'for i in $(seq 300); do sleep 600 & done; wait'
+          sudo bash agent-cage.sh watch-unit 'cagetest-many.service'
+          sleep 2; n=$(wc -l < /sys/fs/cgroup/system.slice/cagetest-many.service/cgroup.procs)
           sudo systemctl start agent-cage-watch.service
           cpu=$(systemctl show agent-cage-watch.service -p CPUUsageNSec --value)
-          echo "one watch run with ~$(ps -e --no-headers | wc -l) processes: $((cpu / 1000000)) ms CPU"
+          echo "one watch run over $n watched processes: $((cpu / 1000000)) ms CPU"
+          test "$n" -ge 300
           test "$cpu" -lt 2000000000
-          kill $(jobs -p) || true
+          sudo systemctl stop cagetest-many.service
       - name: uninstall leaves nothing behind
         run: |
           sudo crontab -r || true
