@@ -380,6 +380,7 @@ cmd_selftest() {
 
   # 2. A leftover: the command returns at once, the busy child it left behind must still die.
   ( "$BIN" --max 4s --cpu 10% -- bash -c 'nohup sh -c "while :; do :; done # agent-cage-orphan" >/dev/null 2>&1 & exit 0' ) >/dev/null 2>&1
+  i=0; until pgrep -f agent-cage-orphan >/dev/null || [ $i -ge 3 ]; do sleep 1; i=$((i + 1)); done
   pgrep -f agent-cage-orphan >/dev/null; _r "a leftover is still running before the limit" "$?"
   _gone agent-cage-orphan 20; _r "the leftover is gone after the limit" "$?"
 
