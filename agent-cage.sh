@@ -398,7 +398,7 @@ cmd_selftest() {
   pct=$(( (${u2:-0} - ${u1:-0}) / 20000 ))
   _r "one command stays under its own cap (${pct}% of a core, cap 20%)" "$([ -n "$u1" ] && [ "$pct" -le 25 ]; echo $?)"
   _gone agent-cage-burn 10; _r "and is gone after its limit" "$?"
-  quota=$(sed -n 's/^CPUQuota=\([0-9]*\)%//p' "$SLICE")
+  quota=$(sed -n 's/^CPUQuota=\([0-9]*\)%/\1/p' "$SLICE")
   cpumax=$(cat /sys/fs/cgroup/agent.slice/cpu.max 2>/dev/null)
   _r "the kernel enforces the net under all of them (agent.slice cpu.max: $cpumax, ${quota}%)" "$(set -- $cpumax; [ "${1:-max}" != max ] && [ $(( $1 * 100 / $2 )) -eq "$quota" ]; echo $?)"
 
