@@ -49,7 +49,7 @@
 # =============================================================================
 set -u
 
-AGENT_CAGE_VERSION="1.0.1"
+AGENT_CAGE_VERSION="1.0.2"
 CONF_DIR=/etc/agent-cage
 CONF="$CONF_DIR/config"
 BIN=/usr/local/bin/agent-cage
@@ -207,52 +207,66 @@ prev="$DIR/ticks.prev"; cur="$DIR/ticks.cur"; : >"$cur"
 t_prev=$(cat "$DIR/ticks.time" 2>/dev/null || echo 0)
 dt=$(( t_now - t_prev )); [ "$dt" -gt 0 ] || dt=1
 
-# consider WHY CGROUP_DIR [skip-oldest]
-consider() {
-  local why=$1 procs="$2/cgroup.procs" skip=${3:-} pids pid st ticks start age old pct cmd oldest=""
-  pids=$(cat "$procs" 2>/dev/null) || return 0
-  if [ -n "$skip" ]; then # the service's main process is its oldest
-    oldest=$(for p in $pids; do s=$(cat /proc/$p/stat 2>/dev/null) || continue; set -- ${s##*) }; echo "${20} $p"; done | sort -n | head -1 | cut -d' ' -f2)
-  fi
-  for pid in $pids; do
-    [ "$pid" = "$oldest" ] && continue
-    st=$(cat "/proc/$pid/stat" 2>/dev/null) || continue
-    set -- ${st##*) }   # $1 is field 3 of stat: utime=$12 stime=$13 starttime=$20
-    ticks=$(( ${12} + ${13} )); start=${20}
-    echo "$pid $start $ticks" >>"$cur"
-    age=$(( up - start / HZ ))
-    [ "$age" -ge "$REAP_MIN_AGE" ] || continue
-    old=$(awk -v p="$pid" -v s="$start" '$1==p && $2==s {print $3}' "$prev" 2>/dev/null)
-    [ -n "$old" ] && [ "$t_prev" -gt 0 ] || continue
-    pct=$(( (ticks - old) * 100 / HZ / dt ))
-    [ "$pct" -ge "$REAP_PCT" ] || continue
-    cmd=$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | cut -c1-200)
-    echo "$(now) stop pid=$pid why=$why age=${age}s cpu=${pct}% cmd=$cmd dry=$DRY" >>"$LOG"
-    [ "$DRY" = 1 ] && continue
-    kill -TERM "$pid" 2>/dev/null; sleep 5; kill -KILL "$pid" 2>/dev/null
-  done
-}
-
+# Candidates, one line each: WHY GROUP SKIP PID. SKIP=1 marks a service, whose own main
+# process (its oldest) is never touched. Everything below reads each process once, in one
+# awk, because this runs every ten minutes on the machine it is protecting: 1.0.1 forked a
+# few programs per process and spent 10 s of CPU per run on a box with 300 processes.
+cands="$DIR/cands"; : >"$cands"; [ -f "$prev" ] || : >"$prev"
 # 1a. leftovers of closed login sessions
 if command -v loginctl >/dev/null 2>&1; then
-  for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+  loginctl list-sessions --no-legend 2>/dev/null | while read -r s uid _; do
     [ "$(loginctl show-session "$s" -p State --value 2>/dev/null)" = closing ] || continue
-    uid=$(loginctl show-session "$s" -p User --value 2>/dev/null)
-    consider "closed-session-$s" "/sys/fs/cgroup/user.slice/user-$uid.slice/session-$s.scope"
+    f="/sys/fs/cgroup/user.slice/user-$uid.slice/session-$s.scope/cgroup.procs"
+    [ -r "$f" ] && sed "s#^#closed-session-$s $s 0 #" "$f" >>"$cands"
   done
 fi
 # 1b. children of watched agent services
 for g in $WATCH_UNITS; do
   for d in /sys/fs/cgroup/system.slice/$g /sys/fs/cgroup/user.slice/user-*.slice/user@*.service/*/$g; do
     [ -d "$d" ] || continue
-    for sub in $(find "$d" -type d); do consider "${d##*/}" "$sub" skip; done
+    for f in $(find "$d" -name cgroup.procs); do sed "s#^#${d##*/} $f 1 #" "$f" >>"$cands"; done
   done
+done
+
+stops=$(awk -v hz="$HZ" -v up="$up" -v dt="$dt" -v tprev="$t_prev" -v pctmin="$REAP_PCT" \
+            -v agemin="$REAP_MIN_AGE" -v cur="$cur" '
+  FILENAME == ARGV[1] { old[$1 " " $2] = $3; next }   # ticks.prev: pid start ticks
+  {
+    why = $1; grp = $2; skip = $3; pid = $4; line = ""
+    if ((getline line < ("/proc/" pid "/stat")) <= 0) next
+    close("/proc/" pid "/stat")
+    sub(/.*\) /, "", line); split(line, f, " ")     # f[1] is field 3 of stat
+    ticks = f[12] + f[13]; start = f[20]
+    print pid, start, ticks > cur
+    n++; P[n] = pid; W[n] = why; G[n] = grp; S[n] = skip; T[n] = ticks; ST[n] = start
+    if (skip && (!(grp in first) || start < first[grp])) { first[grp] = start; main[grp] = pid }
+  }
+  END {
+    for (k = 1; k <= n; k++) {
+      if (S[k] && main[G[k]] == P[k]) continue
+      age = up - int(ST[k] / hz)
+      if (age < agemin || tprev <= 0) continue
+      key = P[k] " " ST[k]
+      if (!(key in old)) continue
+      pct = int((T[k] - old[key]) * 100 / hz / dt)
+      if (pct >= pctmin) print P[k], W[k], age, pct
+    }
+  }' "$prev" "$cands" 2>/dev/null)
+[ -f "$cur" ] || : >"$cur"
+printf '%s\n' "$stops" | while read -r pid why age pct; do
+  [ -n "$pid" ] || continue
+  cmd=$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | cut -c1-200)
+  echo "$(now) stop pid=$pid why=$why age=${age}s cpu=${pct}% cmd=$cmd dry=$DRY" >>"$LOG"
+  [ "$DRY" = 1 ] && continue
+  kill -TERM "$pid" 2>/dev/null; sleep 5; kill -KILL "$pid" 2>/dev/null
 done
 mv "$cur" "$prev"; echo "$t_now" >"$DIR/ticks.time"
 
 # 2. warn when the whole machine stays busy
 read -r _ u n s i w q sq st _ </proc/stat
-busy=$((u + n + s + q + sq + st)); total=$((busy + i + w))
+# Steal is time the hosting company took away (it is ~90% while they throttle us), so it is
+# not our load: counting it made 1.0.1 warn "busy" exactly when the box had nothing to run on.
+busy=$((u + n + s + q + sq)); total=$((busy + i + w + st))
 read -r pb pt 2>/dev/null <"$DIR/stat.prev" || { pb=0; pt=0; }
 echo "$busy $total" >"$DIR/stat.prev"
 [ "$pt" -gt 0 ] && [ "$total" -gt "$pt" ] || exit 0
@@ -266,7 +280,7 @@ today=$(date -u +%F)
 # A Hermes gateway's command line is a python bootstrap; name it by its profile instead.
 top=$(ps -eo pcpu,etimes,user,args --sort=-pcpu --no-headers | awk '$4 != "ps"' | head -3 \
       | sed -E "s#^( *[0-9.]+ +[0-9]+ +[a-z0-9_-]+ ).*'-p', '([^']+)'.*#\1hermes-\2#; s#^( *[0-9.]+ +[0-9]+ +[a-z0-9_-]+ ).*'gateway', 'run'.*#\1hermes-default#" \
-      | awk '{c=$4; for(i=5;i<=NF&&i<8;i++) c=c" "$i; printf "%s (%s%%, user %s, running %dh); ", c, $1, $3, $2/3600}')
+      | awk '{c=""; for(i=4;i<=NF&&i<8;i++){a=$i; sub(/.*\//,"",a); c=c (c==""?"":" ") a}; printf "%s (%s%%, user %s, running %dh); ", c, $1, $3, $2/3600}')
 msg="This server has been above ${WARN_PCT}% CPU for $(( WARN_RUNS * 10 )) minutes. Hosting companies throttle a server that stays like this. Busiest: ${top%; }."
 [ "$DRY" = 1 ] && { echo "$(now) would warn: $msg" >>"$LOG"; exit 0; }
 logger -t agent-cage "$msg" 2>/dev/null

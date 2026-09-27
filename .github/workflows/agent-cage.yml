@@ -65,6 +65,25 @@ jobs:
           sudo /usr/local/sbin/agent-cage-watch; sleep 15; sudo /usr/local/sbin/agent-cage-watch; sleep 8
           sudo cat /var/log/agent-cage.log
           ! pgrep -f ci-leftover
+      - name: the watch stops a busy child of a watched service, never the service itself
+        run: |
+          set -eux
+          sudo systemd-run --unit=cagetest-svc sh -c 'sleep 100000 & sh -c "while :; do :; done # ci-svc-child" & wait'
+          sudo bash agent-cage.sh watch-unit 'cagetest-svc.service'
+          sleep 3; pgrep -f ci-svc-child
+          sudo /usr/local/sbin/agent-cage-watch; sleep 15; sudo /usr/local/sbin/agent-cage-watch; sleep 8
+          ! pgrep -f ci-svc-child
+          systemctl is-active cagetest-svc.service
+          sudo systemctl stop cagetest-svc.service
+      - name: a watch run is cheap
+        run: |
+          set -eux
+          for i in $(seq 200); do sleep 600 & done
+          sudo systemctl start agent-cage-watch.service
+          cpu=$(systemctl show agent-cage-watch.service -p CPUUsageNSec --value)
+          echo "one watch run with ~$(ps -e --no-headers | wc -l) processes: $((cpu / 1000000)) ms CPU"
+          test "$cpu" -lt 2000000000
+          kill $(jobs -p) || true
       - name: uninstall leaves nothing behind
         run: |
           sudo crontab -r || true
