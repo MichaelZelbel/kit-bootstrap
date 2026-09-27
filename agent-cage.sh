@@ -49,7 +49,7 @@
 # =============================================================================
 set -u
 
-AGENT_CAGE_VERSION="1.0.0"
+AGENT_CAGE_VERSION="1.0.1"
 CONF_DIR=/etc/agent-cage
 CONF="$CONF_DIR/config"
 BIN=/usr/local/bin/agent-cage
@@ -308,6 +308,9 @@ cmd_install() {
   systemctl daemon-reload
   systemctl start agent.slice 2>/dev/null || true
   systemctl enable --now agent-cage-watch.timer >/dev/null 2>&1 || _die "could not start agent-cage-watch.timer"
+  # One run now, so `check` and `selftest` pass right after a fresh install (1.0.0 needed the
+  # timer's first run, up to ten minutes later, and every installer's selftest failed).
+  systemctl start agent-cage-watch.service >/dev/null 2>&1 || true
   _say "installed $AGENT_CAGE_VERSION: agent.slice (net $(sed -n 's/^CPUQuota=//p' "$SLICE") CPU, one core per command), agent-cage, agent-cage-ssh, agent-cage-shell, agent-cage-watch (every 10 min)"
 }
 

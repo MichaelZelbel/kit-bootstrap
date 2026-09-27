@@ -19,11 +19,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: syntax
         run: bash -n agent-cage.sh
-      - name: install (twice, it must be idempotent)
+      - name: install, check and selftest at once, as every installer does
         run: |
           sudo bash agent-cage.sh install
+          sudo bash agent-cage.sh check
+          sudo bash agent-cage.sh selftest
+      - name: install again (idempotent)
+        run: |
           sudo bash agent-cage.sh install
-          sudo systemctl start agent-cage-watch.service
           sudo bash agent-cage.sh check
       - name: selftest
         run: sudo bash agent-cage.sh selftest
