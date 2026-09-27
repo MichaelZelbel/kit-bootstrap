@@ -36,6 +36,31 @@ design and it stays. These are the steps that are the same for every product:
 Product-specific steps stay with the product. Only what is genuinely shared
 lives here.
 
+**`agent-cage.sh`**: the server's own limit on every command an AI agent runs.
+Every product that puts an agent on a Linux server installs it. It is one
+self-contained file, so a kit copies it into its package, pinned to a tag
+(`agent-cage-v1.0.0`) and its SHA-256. It exists because on 2026-09-21 an
+agent's `grep -rln ... $D/..` ran with an empty `$D`, searched the whole disk
+including `/proc`, outlived the SSH call that started it, and held a CPU core
+for 5.4 days until the hosting company throttled the server. Rules asking
+agents to write better commands do not hold, so the server draws the line:
+
+- `agent-cage [--max 1h] [--cpu 100%] -- cmd` runs one command in its own
+  cage. It gets at most one core, and it ends after its time limit together
+  with everything it started, even when nobody is waiting for it any more.
+  Put it in front of every scheduled agent run.
+- `agent-cage.sh cage-key FILE MATCH` routes an agent's SSH key through the
+  cage. Interactive logins and file copies behave as before.
+- `SHELL=/usr/local/sbin/agent-cage-shell` at the top of a crontab cages every
+  job in it.
+- `agent-cage.sh watch-unit 'hermes-gateway*.service'` has the ten-minute
+  watch stop a child of an always-on agent service that stays busy for over
+  an hour. Warnings about sustained load go to `--notify CMD`.
+- `agent-cage.sh selftest` replays the 2026-09-21 command and proves it is
+  stopped. `.github/workflows/agent-cage.yml` runs the selftest on fresh Ubuntu
+  22.04 and 24.04, together with a caged SSH key end to end, a caged crontab
+  and the watch.
+
 ## Using it
 
 Two ways, one source. Nothing is copied by hand in either.
