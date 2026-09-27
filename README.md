@@ -39,7 +39,7 @@ lives here.
 **`agent-cage.sh`**: the server's own limit on every command an AI agent runs.
 Every product that puts an agent on a Linux server installs it. It is one
 self-contained file, so a kit copies it into its package, pinned to a tag
-(`agent-cage-v1.0.1`) and its SHA-256. It exists because on 2026-09-21 an
+(`agent-cage-v1.0.2`) and its SHA-256. It exists because on 2026-09-21 an
 agent's `grep -rln ... $D/..` ran with an empty `$D`, searched the whole disk
 including `/proc`, outlived the SSH call that started it, and held a CPU core
 for 5.4 days until the hosting company throttled the server. Rules asking
