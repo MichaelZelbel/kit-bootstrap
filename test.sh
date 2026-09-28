@@ -627,6 +627,30 @@ printf 'my own version\n' > "$_c/made/skills/next-action/SKILL.md"
 t "a recipe the reader has edited is never overwritten" \
   "$(cat "$_c/made/skills/next-action/SKILL.md")" "my own version"
 
+# The deadline stop check the starter ships (2026-09-28) reaches a mission control that already has a
+# .claude/ folder: the hook file is added, settings.json gains the entry and keeps everything the
+# reader had, and a second run adds nothing. Twin of the block in Copy-KitStarterGodspeed.
+mkdir -p "$_starter/starter-godspeed/.claude/hooks"
+printf '// the stop check\n' > "$_starter/starter-godspeed/.claude/hooks/obligation-close-check.js"
+printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"node .claude/hooks/obligation-close-check.js"}]}]}}\n' \
+  > "$_starter/starter-godspeed/.claude/settings.json"
+( cd "$_starter" && git add -A && git -c user.email=t@t -c user.name=t commit -q -m hook ) >/dev/null 2>&1
+mkdir -p "$_c/made/.claude"
+printf '{"permissions":{"allow":["Read"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"node mine.js"}]}]}}\n' \
+  > "$_c/made/.claude/settings.json"
+( HOME="$_c" kb_copy_starter_godspeed "$_c/made" "$_starter" ) >/dev/null 2>&1
+t "an existing .claude/ folder gets the stop check file" \
+  "$(cat "$_c/made/.claude/hooks/obligation-close-check.js" 2>/dev/null)" "// the stop check"
+if command -v node >/dev/null 2>&1; then
+  t "its settings gain the stop check" "$(grep -c 'obligation-close-check.js' "$_c/made/.claude/settings.json")" "1"
+  t "and keep the reader's own hook" "$(grep -c 'mine.js' "$_c/made/.claude/settings.json")" "1"
+  t "and the reader's own permissions" "$(grep -c '"Read"' "$_c/made/.claude/settings.json")" "1"
+  ( HOME="$_c" kb_copy_starter_godspeed "$_c/made" "$_starter" ) >/dev/null 2>&1
+  t "a second run adds nothing" "$(grep -c 'obligation-close-check.js' "$_c/made/.claude/settings.json")" "1"
+fi
+t "a new mission control has the stop check from day one" \
+  "$( ( HOME="$_c" kb_new_godspeed "$_c/withhook" "" "$_starter" ) >/dev/null 2>&1; cat "$_c/withhook/.claude/hooks/obligation-close-check.js" 2>/dev/null)" "// the stop check"
+
 # =============================================================================
 # --- WHERE A GODSPEED MAY GO (D-179, 2026-09-02) ----------------------------------
 # The default is the top of the home folder on every OS, and the folders a cloud drive

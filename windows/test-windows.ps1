@@ -239,6 +239,26 @@ Check "a recipe the reader has edited is never overwritten" {
     Copy-KitStarterGodspeed -Path $d -StarterRepo (Join-Path $Root 'starter-src') | Out-Null
     (Get-Content (Join-Path $d 'skills\next-action\SKILL.md') -Raw).Contains('my own version')
 }
+# The deadline stop check the starter ships (2026-09-28) reaches a mission control that already has a
+# .claude\ folder, keeps the reader's own settings, and adds nothing twice. Twins of the cases in test.sh.
+Check "an existing .claude folder gets the stop check, and keeps what the reader set" {
+    $sr = Join-Path $Root 'starter-src'
+    New-Item -ItemType Directory -Force (Join-Path $sr 'starter-godspeed\.claude\hooks') | Out-Null
+    Set-Content (Join-Path $sr 'starter-godspeed\.claude\hooks\obligation-close-check.js') '// the stop check'
+    Set-Content (Join-Path $sr 'starter-godspeed\.claude\settings.json') '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"node .claude/hooks/obligation-close-check.js"}]}]}}'
+    git -C $sr add -A 2>&1 | Out-Null
+    git -C $sr -c user.email='t@t' -c user.name='t' commit -q -m 'hook' 2>&1 | Out-Null
+    $d = Join-Path $Root 'fromstarter'
+    New-Item -ItemType Directory -Force (Join-Path $d '.claude') | Out-Null
+    Set-Content (Join-Path $d '.claude\settings.json') '{"permissions":{"allow":["Read"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"node mine.js"}]}]}}'
+    Copy-KitStarterGodspeed -Path $d -StarterRepo $sr | Out-Null
+    Copy-KitStarterGodspeed -Path $d -StarterRepo $sr | Out-Null
+    $set = Get-Content (Join-Path $d '.claude\settings.json') -Raw
+    $hookThere = Test-Path (Join-Path $d '.claude\hooks\obligation-close-check.js')
+    $noNode = -not (Get-Command node -ErrorAction SilentlyContinue)
+    $hookThere -and $set.Contains('mine.js') -and $set.Contains('"Read"') -and
+        ($noNode -or ([regex]::Matches($set, 'obligation-close-check').Count -eq 1))
+}
 Check "a starter that cannot be fetched still leaves a usable mission control, and warns" {
     $d = Join-Path $Root 'nostarter'
     $warned = $false

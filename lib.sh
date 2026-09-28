@@ -2515,9 +2515,34 @@ kb_copy_starter_godspeed() {
       mkdir -p "$room/$base" && cp -R "$f/." "$room/$base/" 2>/dev/null || true
     done
   fi
+  # A STOP CHECK THE STARTER SHIPS REACHES AN EXISTING MISSION CONTROL TOO (2026-09-28). A mission control
+  # made in Claude Code already has a .claude/ folder, so skip-if-present at the top level would
+  # keep the deadline stop check (.claude/hooks/obligation-close-check.js: a session that finished
+  # a deadline with the person closes it before it ends) from exactly the readers who use Claude
+  # Code. A hook file is copied only when none of that name is there, and settings.json only gains
+  # the hook entries it does not already carry: nothing the reader set is changed or removed, and
+  # a settings file node cannot read is left alone. Twin of the block in Copy-KitStarterGodspeed
+  # in join.ps1; change one, change both.
+  if [ -d "$tmp/$sub/.claude/hooks" ]; then
+    mkdir -p "$path/.claude/hooks" 2>/dev/null || true
+    for f in "$tmp/$sub/.claude/hooks"/*; do
+      [ -f "$f" ] || continue
+      [ -e "$path/.claude/hooks/$(basename "$f")" ] || cp "$f" "$path/.claude/hooks/" 2>/dev/null || true
+    done
+    if [ -f "$tmp/$sub/.claude/settings.json" ]; then
+      if [ ! -f "$path/.claude/settings.json" ]; then
+        cp "$tmp/$sub/.claude/settings.json" "$path/.claude/settings.json" 2>/dev/null || true
+      elif command -v node >/dev/null 2>&1; then
+        node -e "$KB_MERGE_HOOKS_JS" "$tmp/$sub/.claude/settings.json" "$path/.claude/settings.json" >/dev/null 2>&1 || true
+      fi
+    fi
+  fi
   rm -rf "$tmp"
   return 0
 }
+
+# Adds to a Claude Code settings.json the hook entries another one carries and it does not.
+KB_MERGE_HOOKS_JS='const fs=require("fs");const [s,d]=process.argv.slice(1);let a,b;try{a=JSON.parse(fs.readFileSync(s,"utf8"));b=JSON.parse(fs.readFileSync(d,"utf8"));}catch(e){process.exit(0);}if(!b||typeof b!=="object"||Array.isArray(b))process.exit(0);const cmds=(g)=>[].concat(...(g||[]).map((x)=>(x&&x.hooks||[]).map((h)=>h&&h.command)));b.hooks=b.hooks||{};let n=0;for(const ev of Object.keys(a.hooks||{})){const have=new Set(cmds(b.hooks[ev]));for(const grp of a.hooks[ev]){if(cmds([grp]).every((c)=>have.has(c)))continue;b.hooks[ev]=(b.hooks[ev]||[]).concat([grp]);n++;}}if(n)fs.writeFileSync(d,JSON.stringify(b,null,2)+"\n");'
 
 # kb_new_godspeed <path> [their-existing-repo-url] [starter-repo] [folder-inside-it]
 #
@@ -2922,7 +2947,7 @@ LINK:           https://example.com/book-a-service
 SOURCE:         me, 2026-08-29
 
 ## Windows
-STRIP: 2026-09-01 2027-02-28 open
+STRIP: 2026-09-01 2027-02-28
 
 ## Log
 - 2026-08-29 created, window 2026-09-01 to 2027-02-28
@@ -2960,8 +2985,18 @@ between this folder and a to-do app you stop maintaining.
 ## Three states, and only three
 
 **open, done, dropped.** Done can happen by itself when there is a self check. **Dropped only ever
-comes from you**, and it deletes the file and everything it remembers, which is why the command
-makes you type `--yes`.
+comes from you**, which is why the command makes you type `--yes`.
+
+**Done is never written in here.** A file in this room is the plan. When a thing is finished,
+that is something that happened, so it goes where the things that happened go: a small file in
+`world/events/` that says `closes: [due/car-service]` and, on an `evidence:` line, what shows it
+(your words, a receipt, a commit). A drop is the same with `drops:`. Everything that asks "is this
+still open" works it out from those, so there is only one place the answer can live and nothing
+can disagree with it. Why: in the mission control this kit comes from, a post was approved and
+published in a working session, the memory wrote that down the same day, and the deadline file
+kept saying open, so the morning brief told its owner for five mornings that the finished work was
+waiting. `mc-due done` and `mc-due drop` write the event for you, and when your assistant finishes
+one of these with you in a session it closes it before the session ends.
 
 Something whose window closed without being done **stays open**. Nothing tidies it away, because
 for a deadline "nobody got to it" is the failure, not a quiet success.
@@ -2994,9 +3029,10 @@ acted.**
 mc-due                     everything, loudest first
 mc-due today               at most three, which is what your morning brief reads
 mc-due add <name> ...      make one
-mc-due done <name>         you did it
-mc-due drop <name> --yes   delete it
+mc-due done <name>         you did it (an event in world/events/ says so)
+mc-due drop <name> --yes   call it off; nothing is deleted
 mc-due check               run the self checks, close what is provably done
+mc-due state               which are open, and what closed the others
 ```
 
 The card is `procedures/what-runs-out-and-when.md` in the kit. Chapter 27.

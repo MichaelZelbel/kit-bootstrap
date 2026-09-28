@@ -1273,6 +1273,31 @@ function Copy-KitStarterGodspeed {
                 Copy-Item $_.FullName $rdest -Recurse -Force
             }
         }
+        # A stop check the starter ships reaches an existing mission control too (2026-09-28): a
+        # mission control made in Claude Code already has .claude\, so skip-if-present would keep the
+        # deadline stop check from exactly those readers. A hook file only when none of that name
+        # is there; settings.json only gains hook entries it does not carry. Twin of the block in
+        # kb_copy_starter_godspeed in lib.sh; change one, change both.
+        $hooksSrc = Join-Path $src '.claude\hooks'
+        if (Test-Path $hooksSrc) {
+            $hooksDest = Join-Path $Path '.claude\hooks'
+            New-Item -ItemType Directory -Force $hooksDest | Out-Null
+            Get-ChildItem $hooksSrc -File | ForEach-Object {
+                $hd = Join-Path $hooksDest $_.Name
+                if (-not (Test-Path $hd)) { Copy-Item $_.FullName $hd -Force }
+            }
+            $setSrc = Join-Path $src '.claude\settings.json'
+            $setDest = Join-Path $Path '.claude\settings.json'
+            if (Test-Path $setSrc) {
+                if (-not (Test-Path $setDest)) { Copy-Item $setSrc $setDest -Force }
+                elseif (Get-Command node -ErrorAction SilentlyContinue) {
+                    $mergeJs = @'
+const fs=require("fs");const [s,d]=process.argv.slice(1);let a,b;try{a=JSON.parse(fs.readFileSync(s,"utf8"));b=JSON.parse(fs.readFileSync(d,"utf8"));}catch(e){process.exit(0);}if(!b||typeof b!=="object"||Array.isArray(b))process.exit(0);const cmds=(g)=>[].concat(...(g||[]).map((x)=>(x&&x.hooks||[]).map((h)=>h&&h.command)));b.hooks=b.hooks||{};let n=0;for(const ev of Object.keys(a.hooks||{})){const have=new Set(cmds(b.hooks[ev]));for(const grp of a.hooks[ev]){if(cmds([grp]).every((c)=>have.has(c)))continue;b.hooks[ev]=(b.hooks[ev]||[]).concat([grp]);n++;}}if(n)fs.writeFileSync(d,JSON.stringify(b,null,2)+"\n");
+'@
+                    & node -e $mergeJs $setSrc $setDest 2>$null | Out-Null
+                }
+            }
+        }
         return $true
     } catch {
         return $false
@@ -1747,7 +1772,7 @@ function Write-KitDueFolder {
         'SOURCE:         me, 2026-08-29'
         ''
         '## Windows'
-        'STRIP: 2026-09-01 2027-02-28 open'
+        'STRIP: 2026-09-01 2027-02-28'
         ''
         '## Log'
         '- 2026-08-29 created, window 2026-09-01 to 2027-02-28'
@@ -1785,8 +1810,18 @@ function Write-KitDueFolder {
         '## Three states, and only three'
         ''
         '**open, done, dropped.** Done can happen by itself when there is a self check. **Dropped only ever'
-        'comes from you**, and it deletes the file and everything it remembers, which is why the command'
-        'makes you type `--yes`.'
+        'comes from you**, which is why the command makes you type `--yes`.'
+        ''
+        '**Done is never written in here.** A file in this room is the plan. When a thing is finished,'
+        'that is something that happened, so it goes where the things that happened go: a small file in'
+        '`world/events/` that says `closes: [due/car-service]` and, on an `evidence:` line, what shows it'
+        '(your words, a receipt, a commit). A drop is the same with `drops:`. Everything that asks "is this'
+        'still open" works it out from those, so there is only one place the answer can live and nothing'
+        'can disagree with it. Why: in the mission control this kit comes from, a post was approved and'
+        'published in a working session, the memory wrote that down the same day, and the deadline file'
+        'kept saying open, so the morning brief told its owner for five mornings that the finished work was'
+        'waiting. `mc-due done` and `mc-due drop` write the event for you, and when your assistant finishes'
+        'one of these with you in a session it closes it before the session ends.'
         ''
         'Something whose window closed without being done **stays open**. Nothing tidies it away, because'
         'for a deadline "nobody got to it" is the failure, not a quiet success.'
@@ -1819,9 +1854,10 @@ function Write-KitDueFolder {
         'mc-due                     everything, loudest first'
         'mc-due today               at most three, which is what your morning brief reads'
         'mc-due add <name> ...      make one'
-        'mc-due done <name>         you did it'
-        'mc-due drop <name> --yes   delete it'
+        'mc-due done <name>         you did it (an event in world/events/ says so)'
+        'mc-due drop <name> --yes   call it off; nothing is deleted'
         'mc-due check               run the self checks, close what is provably done'
+        'mc-due state               which are open, and what closed the others'
         '```'
         ''
         'The card is `procedures/what-runs-out-and-when.md` in the kit. Chapter 27.'
