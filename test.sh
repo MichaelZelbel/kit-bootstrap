@@ -1453,6 +1453,7 @@ if [ "$1" = "-z" ]; then
     http400) echo 'HTTP 400: {"detail":"The model is not supported when using Codex with a ChatGPT account."}'; exit 0 ;;
     ratelimit) echo 'API call failed after 3 retries: HTTP 429: Rate limit reached for this account.'; exit 0 ;;
     noprovider) echo "hermes -z: agent failed: No inference provider configured. Run 'hermes model' to choose a provider and model, or set an API key."; exit 0 ;;
+    noaiprovider) echo "hermes -z: agent failed: Hermes is not connected to any AI provider yet. Run 'hermes model' to pick one (the free Nous tier needs no API key), type '/login' in a chat, or set an API key."; exit 0 ;;
     ignore) d="$STUB_ELSEWHERE" ;;
     *)      if [ -s "$STUB_CWDFILE" ]; then d=$(cat "$STUB_CWDFILE"); else d="."; fi ;;
   esac
@@ -1523,6 +1524,13 @@ t "a rate limit is the same story" "$(kb_hermes_reads_godspeed "$_hu")" "unreach
 # own rehearsal server, where the miss called a correctly wired mission control broken.
 STUB_MODE=noprovider
 t "a missing inference provider is unreachable, not a broken folder" \
+  "$(kb_hermes_reads_godspeed "$_hu")" "unreachable"
+unset STUB_MODE
+# Hermes 0.21's wording for it (measured in the Docker image, v2026.9.24, 2026-09-30) no
+# longer says "inference provider", so the net missed it and a reader who postponed the
+# sign-in was told their folder could not be read.
+STUB_MODE=noaiprovider; export STUB_MODE
+t "no AI provider yet (Hermes 0.21 wording) is unreachable, not a broken folder" \
   "$(kb_hermes_reads_godspeed "$_hu")" "unreachable"
 unset STUB_MODE
 

@@ -3004,7 +3004,7 @@ function Test-KitHermesReadsGodspeed {
     foreach ($sign in 'HTTP 4', 'HTTP 5', 'API call failed', 'not supported', 'ate limit',
                        'no authentication', 'not configured', 'credit', 'quota',
                        'nauthorized', 'Connection', 'timed out', 'o provider',
-                       'nference provider') {
+                       'nference provider', 'AI provider') {
         if ([string]$out -like "*$sign*") { return 'unreachable' }
     }
     return 'no'

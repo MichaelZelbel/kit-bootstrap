@@ -949,7 +949,7 @@ kb_hermes_reads_godspeed() {
   # back "HTTP 400 ... not supported when using Codex with a ChatGPT account" and the
   # installer told the reader their mission control was half connected. It was not.
   case "$out" in
-    *"HTTP 4"*|*"HTTP 5"*|*"API call failed"*|*"not supported"*|*"ate limit"*|    *"no authentication"*|*"not configured"*|*"credit"*|*"quota"*|*"nauthorized"*|    *"Connection"*|*"timed out"*|*"No provider"*|*"no provider"*|*"nference provider"*)
+    *"HTTP 4"*|*"HTTP 5"*|*"API call failed"*|*"not supported"*|*"ate limit"*|    *"no authentication"*|*"not configured"*|*"credit"*|*"quota"*|*"nauthorized"*|    *"Connection"*|*"timed out"*|*"No provider"*|*"no provider"*|*"nference provider"*|*"AI provider"*)
       printf 'unreachable'; return 0 ;;
   esac
   printf 'no'

@@ -2471,6 +2471,8 @@ function New-HermesCwdStub {
         '    if ($mode -eq "http400") { ''HTTP 400: {"detail":"The model is not supported when using Codex with a ChatGPT account."}''; exit 0 }',
         '    # Hermes 0.20.0 wording for the same condition. Measured on the rehearsal server.',
         '    if ($mode -eq "noprovider") { "hermes -z: agent failed: No inference provider configured. Run ''hermes model'' to choose a provider and model, or set an API key."; exit 0 }',
+        '    # Hermes 0.21 wording. Measured in the Docker image, 2026-09-30.',
+        '    if ($mode -eq "noaiprovider") { "hermes -z: agent failed: Hermes is not connected to any AI provider yet. Run ''hermes model'' to pick one, or set an API key."; exit 0 }',
         '    if ($mode -eq "ignore") { $d = $env:STUB_ELSEWHERE }',
         '    elseif (Test-Path -LiteralPath $env:STUB_CWDFILE) { $d = (Get-Content -LiteralPath $env:STUB_CWDFILE -Raw).Trim() }',
         '    else { $d = "." }',
@@ -2590,6 +2592,15 @@ Check "a missing inference provider is unreachable, not a broken folder" {
     # book's own rehearsal server, where the miss called a wired mission control broken.
     $env:STUB_MODE = 'noprovider'
     $r = Test-KitHermesReadsGodspeed -Godspeed (New-TestDir 'hermescwd-noprov')
+    $env:STUB_MODE = ''
+    $r -eq 'unreachable'
+}
+Check "no AI provider yet (Hermes 0.21 wording) is unreachable, not a broken folder" {
+    # Hermes 0.21 no longer says "inference provider", so the net missed it and a reader
+    # who postponed the sign-in was told the folder could not be read. Measured in the
+    # Docker image (Hermes v2026.9.24), 2026-09-30.
+    $env:STUB_MODE = 'noaiprovider'
+    $r = Test-KitHermesReadsGodspeed -Godspeed (New-TestDir 'hermescwd-noaiprov')
     $env:STUB_MODE = ''
     $r -eq 'unreachable'
 }
