@@ -3301,8 +3301,13 @@ if ((Test-KitCommand 'node') -and (Test-Path (Join-Path $MailSrc 'mc-mail.js')))
         Check "installing it asked nothing and connected nothing" { -not ($out1 -match 'Client ID|password|Connected:') }.GetNewClosure()
         $launch = (ConvertFrom-Json $mcp).mcpServers.'mc-mail'.args[1]
         $godspeedDir0 = $env:GODSPEED_DIR; $env:GODSPEED_DIR = $mailGodspeed; $env:GODSPEED_MAIL_HOME = $SuiteHome
+        # A mailbox key in the caller's own environment would count as connected, so the case drops it.
+        $mailKey0 = $env:AGENTMAIL_READ_KEY; $mailInbox0 = $env:GODSPEED_MAIL_AGENTMAIL_INBOX
+        Remove-Item Env:AGENTMAIL_READ_KEY, Env:GODSPEED_MAIL_AGENTMAIL_INBOX -ErrorAction SilentlyContinue
         $st = & node -e $launch status 2>&1 | Out-String; $rc = $LASTEXITCODE
         $env:GODSPEED_DIR = $godspeedDir0; Remove-Item Env:GODSPEED_MAIL_HOME -ErrorAction SilentlyContinue
+        if ($mailKey0) { $env:AGENTMAIL_READ_KEY = $mailKey0 }
+        if ($mailInbox0) { $env:GODSPEED_MAIL_AGENTMAIL_INBOX = $mailInbox0 }
         Check "the entry every assistant is given starts the tool on Windows, and 'not connected' is not an error" {
             ([regex]::Matches($st, 'not connected')).Count -eq 2 -and $rc -eq 0
         }.GetNewClosure()

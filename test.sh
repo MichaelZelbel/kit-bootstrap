@@ -1189,7 +1189,8 @@ if command -v node >/dev/null 2>&1 && [ -f "$_mailsrc/mc-mail.js" ]; then
   out2="$(HOME="$_l/home" USERPROFILE="$_l/home" CODEX_HOME="$_l/home/.codex" HERMES_HOME="$_l/home/.hermes" kb_wire_mail "$_l/godspeed" 2>&1 </dev/null)"
   t "a second run changes nothing" "$(printf '%s' "$out2" | grep -c 'already has the mail tool')" "3"
   launch="$(node -e 'const j=require(process.argv[1]);console.log(j.mcpServers["mc-mail"].args[1])' "$_l/godspeed/.mcp.json")"
-  st="$(cd "$_l/godspeed" && HOME="$_l/home" USERPROFILE="$_l/home" GODSPEED_DIR="$_l/godspeed" GODSPEED_MAIL_HOME="$_l/home" node -e "$launch" status 2>&1 </dev/null)"; rc=$?
+  # A mailbox key in the caller's own environment would count as connected, so the case drops it.
+  st="$(cd "$_l/godspeed" && env -u AGENTMAIL_READ_KEY -u GODSPEED_MAIL_AGENTMAIL_INBOX HOME="$_l/home" USERPROFILE="$_l/home" GODSPEED_DIR="$_l/godspeed" GODSPEED_MAIL_HOME="$_l/home" node -e "$launch" status 2>&1 </dev/null)"; rc=$?
   t "the entry every assistant is given starts the tool, and with nothing connected it says so" \
     "$(printf '%s' "$st" | grep -c 'not connected')" "2"
   t "and not being connected is not an error" "$rc" "0"
