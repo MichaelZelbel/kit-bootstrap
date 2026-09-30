@@ -1201,6 +1201,16 @@ function Install-KitPrereqs {
     return $missing
 }
 
+function Get-KitSha256Lf {
+    <#  The file's sha256 with Windows line endings taken out (every carriage-return byte
+        dropped, byte for byte what `tr -d '\r'` does in kb_sha256_lf), so a recipe checked
+        out with CRLF is still recognised as the version that shipped. #>
+    param([Parameter(Mandatory)][string]$Path)
+    $bytes = [byte[]]@([IO.File]::ReadAllBytes($Path) | Where-Object { $_ -ne 13 })
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { (@($sha.ComputeHash($bytes)) | ForEach-Object { $_.ToString('x2') }) -join '' } finally { $sha.Dispose() }
+}
+
 function Copy-KitStarterGodspeed {
     <#  Lay down a product's real starter folder, fetched from its own public
         repository.
@@ -1268,7 +1278,20 @@ function Copy-KitStarterGodspeed {
             Get-ChildItem $skillsSrc -Directory | ForEach-Object {
                 if (-not (Test-Path (Join-Path $_.FullName 'SKILL.md'))) { return }
                 $rdest = Join-Path $room $_.Name
-                if (Test-Path $rdest) { return }
+                if (Test-Path $rdest) {
+                    # A stock recipe is kept current (2026-09-30): the kit lists every SKILL.md it
+                    # ever shipped in .shipped-sha256; a reader's copy equal to one of them was never
+                    # edited and gets the new version. An edited copy matches none and is never
+                    # touched. Twin of the block in kb_copy_starter_godspeed in lib.sh.
+                    $recipeSrc = $_.FullName
+                    $shipped = Join-Path $recipeSrc '.shipped-sha256'
+                    $mine = Join-Path $rdest 'SKILL.md'
+                    if ((Test-Path $shipped) -and (Test-Path $mine) -and
+                        (@(Get-Content $shipped | ForEach-Object { $_.Trim() }) -contains (Get-KitSha256Lf -Path $mine))) {
+                        Get-ChildItem $recipeSrc -Force | Copy-Item -Destination $rdest -Recurse -Force
+                    }
+                    return
+                }
                 New-Item -ItemType Directory -Force $room | Out-Null
                 Copy-Item $_.FullName $rdest -Recurse -Force
             }

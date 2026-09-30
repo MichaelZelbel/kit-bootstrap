@@ -239,6 +239,33 @@ Check "a recipe the reader has edited is never overwritten" {
     Copy-KitStarterGodspeed -Path $d -StarterRepo (Join-Path $Root 'starter-src') | Out-Null
     (Get-Content (Join-Path $d 'skills\next-action\SKILL.md') -Raw).Contains('my own version')
 }
+# A stock recipe is kept current (2026-09-30): a copy equal to a version the kit shipped (Windows
+# line endings aside) is replaced by the new one; an edited copy is not. Twins of the cases in test.sh.
+Check "a recipe the reader never edited is replaced by the new version" {
+    $sr = Join-Path $Root 'starter-src'
+    $rs = Join-Path $sr 'starter-godspeed\skills\next-action'
+    $sha = [Security.Cryptography.SHA256]::Create()
+    $lf = { param($s) (@($sha.ComputeHash([Text.UTF8Encoding]::new($false).GetBytes($s))) | ForEach-Object { $_.ToString('x2') }) -join '' }
+    Set-Content -Path (Join-Path $rs '.shipped-sha256') -Value @((& $lf "the recipe`n"), (& $lf "the recipe, version two`n"))
+    Set-Content (Join-Path $rs 'SKILL.md') 'the recipe, version two'
+    git -C $sr add -A 2>&1 | Out-Null
+    git -C $sr -c user.email='t@t' -c user.name='t' commit -q -m 'recipe2' 2>&1 | Out-Null
+    $d = Join-Path $Root 'withrecipe'   # made above with 'the recipe', never edited
+    Copy-KitStarterGodspeed -Path $d -StarterRepo $sr | Out-Null
+    (Get-Content (Join-Path $d 'skills\next-action\SKILL.md') -Raw).Contains('the recipe, version two')
+}
+Check "  a stock copy with Windows line endings counts as unedited" {
+    $d = Join-Path $Root 'crlf'
+    New-Item -ItemType Directory -Force (Join-Path $d 'skills\next-action') | Out-Null
+    Set-Content -Path (Join-Path $d 'skills\next-action\SKILL.md') -Value "the recipe`r`n" -NoNewline
+    Copy-KitStarterGodspeed -Path $d -StarterRepo (Join-Path $Root 'starter-src') | Out-Null
+    (Get-Content (Join-Path $d 'skills\next-action\SKILL.md') -Raw).Contains('the recipe, version two')
+}
+Check "  an edited recipe is still never overwritten" {
+    $d = Join-Path $Root 'fromstarter'
+    Copy-KitStarterGodspeed -Path $d -StarterRepo (Join-Path $Root 'starter-src') | Out-Null
+    (Get-Content (Join-Path $d 'skills\next-action\SKILL.md') -Raw).Contains('my own version')
+}
 # The deadline stop check the starter ships (2026-09-28) reaches a mission control that already has a
 # .claude\ folder, keeps the reader's own settings, and adds nothing twice. Twins of the cases in test.sh.
 Check "an existing .claude folder gets the stop check, and keeps what the reader set" {

@@ -627,6 +627,24 @@ printf 'my own version\n' > "$_c/made/skills/next-action/SKILL.md"
 t "a recipe the reader has edited is never overwritten" \
   "$(cat "$_c/made/skills/next-action/SKILL.md")" "my own version"
 
+# A stock recipe is kept current (2026-09-30): a copy byte-for-byte equal to a version the kit
+# shipped (Windows line endings aside) is replaced by the new one; an edited copy is not.
+_old='---\nname: next-action\n---\nthe recipe\n'
+printf -- "$_old" | tr -d '\r' | sha256sum | cut -d' ' -f1 > "$_starter/starter-godspeed/skills/next-action/.shipped-sha256"
+printf -- '---\nname: next-action\n---\nthe recipe, version two\n' > "$_starter/starter-godspeed/skills/next-action/SKILL.md"
+printf -- '---\nname: next-action\n---\nthe recipe, version two\n' | sha256sum | cut -d' ' -f1 >> "$_starter/starter-godspeed/skills/next-action/.shipped-sha256"
+( cd "$_starter" && git add -A && git -c user.email=t@t -c user.name=t commit -q -m recipe2 ) >/dev/null 2>&1
+( HOME="$_c" kb_copy_starter_godspeed "$_c/withrecipe" "$_starter" ) >/dev/null 2>&1
+t "a recipe the reader never edited is replaced by the new version" \
+  "$(tail -1 "$_c/withrecipe/skills/next-action/SKILL.md" 2>/dev/null)" "the recipe, version two"
+mkdir -p "$_c/crlf/skills/next-action"; printf -- '---\r\nname: next-action\r\n---\r\nthe recipe\r\n' > "$_c/crlf/skills/next-action/SKILL.md"
+( HOME="$_c" kb_copy_starter_godspeed "$_c/crlf" "$_starter" ) >/dev/null 2>&1
+t "  a stock copy with Windows line endings counts as unedited" \
+  "$(tail -1 "$_c/crlf/skills/next-action/SKILL.md" 2>/dev/null)" "the recipe, version two"
+( HOME="$_c" kb_copy_starter_godspeed "$_c/made" "$_starter" ) >/dev/null 2>&1
+t "  an edited recipe is still never overwritten" \
+  "$(cat "$_c/made/skills/next-action/SKILL.md")" "my own version"
+
 # The deadline stop check the starter ships (2026-09-28) reaches a mission control that already has a
 # .claude/ folder: the hook file is added, settings.json gains the entry and keeps everything the
 # reader had, and a second run adds nothing. Twin of the block in Copy-KitStarterGodspeed.

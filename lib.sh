@@ -2461,6 +2461,12 @@ kb_install_prereqs() {
 #
 # Nothing here may invent content a product already ships. Generic on purpose: the
 # caller names the repository and the folder, so this stays the shared floor.
+# kb_sha256_lf <file>: the file's sha256 with Windows line endings taken out, so a recipe checked
+# out with CRLF is still recognised as the version that shipped.
+kb_sha256_lf() {
+  if command -v sha256sum >/dev/null 2>&1; then tr -d '\r' < "$1" | sha256sum | cut -d' ' -f1
+  else tr -d '\r' < "$1" | shasum -a 256 | cut -d' ' -f1; fi
+}
 kb_copy_starter_godspeed() {
   local path="${1:-}" repo="${2:-}" sub="${3:-starter-godspeed}" tmp f base
   [ -n "$path" ] && [ -n "$repo" ] || return 1
@@ -2511,7 +2517,17 @@ kb_copy_starter_godspeed() {
     for f in "$tmp/$sub/skills"/*/; do
       [ -f "$f/SKILL.md" ] || continue
       base="$(basename "$f")"
-      [ -e "$room/$base" ] && continue
+      if [ -e "$room/$base" ]; then
+        # A STOCK RECIPE IS KEPT CURRENT (2026-09-30). The kit lists every SKILL.md it ever shipped
+        # in .shipped-sha256; a reader's copy equal to one of them was never edited and gets the
+        # new version. An edited copy matches none and is never touched. Twin of the block in
+        # Copy-KitStarterGodspeed in join.ps1; change one, change both.
+        if [ -f "$f/.shipped-sha256" ] && [ -f "$room/$base/SKILL.md" ] \
+           && grep -qxF "$(kb_sha256_lf "$room/$base/SKILL.md")" "$f/.shipped-sha256"; then
+          cp -R "$f/." "$room/$base/" 2>/dev/null || true
+        fi
+        continue
+      fi
       mkdir -p "$room/$base" && cp -R "$f/." "$room/$base/" 2>/dev/null || true
     done
   fi
