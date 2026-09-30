@@ -1508,7 +1508,12 @@ function Test-KitInteractive {
         the worst of the three possible outcomes. Found by this kit's own test suite
         on 2026-08-16, where it hung for seven minutes on a case that was meant to
         return in a millisecond. The bash side has always had this guard (have_tty);
-        this side did not. #>
+        this side did not.
+
+        KB_UNATTENDED=1 says no without looking. The console a silent wizard opens IS
+        interactive by both tests below, and nobody reads it: on 2026-09-30 the first
+        silent install of a v2.16 .exe waited there for ever at the install-count question. #>
+    if ($env:KB_UNATTENDED -eq '1') { return $false }
     try { return ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) }
     catch { return $false }
 }

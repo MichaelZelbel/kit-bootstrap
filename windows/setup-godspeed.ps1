@@ -52,6 +52,10 @@ param(
     [switch]$SkipPrereqs,
     [switch]$NoPause,
     [switch]$Beside,
+    # Nobody is at the keyboard. The wizard passes this when it runs with /SILENT or
+    # /VERYSILENT, so no question waits in a console that nobody reads (found 2026-09-30: the
+    # first silent install of a v2.16 .exe waited for ever at the install-count question).
+    [switch]$Unattended,
     # One step instead of the whole install: 'menerio' or 'gmail'.
     [string]$Only,
     # Which kit-bootstrap tag or branch the shared install code comes from. The wizard
@@ -130,6 +134,7 @@ Write-Host ""
 # than a fallback for a machine with no network.
 if (-not $KbBranch) { $KbBranch = if ($env:KB_BRANCH) { $env:KB_BRANCH } else { 'v2' } }
 $env:KB_BRANCH = $KbBranch   # the install count reports it as this installer's version
+if ($Unattended) { $env:KB_UNATTENDED = '1' }   # Test-KitInteractive in join.ps1 reads it
 
 # WHAT THE CALLER ASKED FOR, KEPT SAFE ACROSS THE LIBRARY LOAD.
 #

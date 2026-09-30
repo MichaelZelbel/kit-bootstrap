@@ -2258,6 +2258,36 @@ Check "the Windows installer asks it before Done and says it is a Windows instal
     $src.Contains("Send-KitInstallCount -What 'installed' -Kind 'windows'") -and
         ($src.IndexOf('Select-KitInstallCount') -lt $src.IndexOf('Write-KbSay "Done"'))
 }
+# THE SILENT INSTALL. Found by the kit's windows-installer workflow on 2026-09-30, the first time
+# a v2.16 .exe ran on a fresh machine: /VERYSILENT installed everything, then the console the
+# wizard opens printed the question and waited for ever, because that console is interactive
+# whether or not anybody reads it. Every case above stands in for Test-KitInteractive, so none
+# of them could see it; these use the real one.
+Check "KB_UNATTENDED=1 means nobody is at the keyboard, even in a console" {
+    $u0 = $env:KB_UNATTENDED
+    try { $env:KB_UNATTENDED = '1'; -not (Test-KitInteractive) } finally { $env:KB_UNATTENDED = $u0 }
+}
+Check "so a silent install is not asked, nothing is written and nothing is sent" {
+    $u0 = $env:KB_UNATTENDED
+    try {
+        $env:KB_UNATTENDED = '1'
+        Invoke-CountCase {
+            param($h)
+            function Read-Host { param($Prompt) throw 'asked' }
+            Select-KitInstallCount 6>&1 | Out-Null
+            Send-KitInstallCount -What 'installed' -Kind 'windows' -Run 'new' 6>&1 | Out-Null
+            ((Get-CountLine $h 'GODSPEED_INSTALL_COUNT') -eq '') -and ($script:posted.Count -eq 0)
+        }
+    } finally { $env:KB_UNATTENDED = $u0 }
+}
+Check "a silent wizard tells the engine, and the engine sets KB_UNATTENDED" {
+    $iss = Get-Content (Join-Path $PSScriptRoot 'godspeed-setup.iss') -Raw
+    $src = Get-Content (Join-Path $PSScriptRoot 'setup-godspeed.ps1') -Raw
+    (@($iss -split "`n" | Where-Object { $_ -match 'setup-godspeed\.ps1.*-NoPause' -and $_ -match '\{code:GetUnattendedFlag\}' }).Count -eq 1) -and
+        ($iss -match "if WizardSilent then Result := ' -Unattended'") -and
+        ($src -match '\[switch\]\$Unattended') -and
+        ($src -match 'if \(\$Unattended\) \{ \$env:KB_UNATTENDED = ''1'' \}')
+}
 
 Write-Host ""
 Write-Host "-- one skills room, and the installer proves it wired something"
