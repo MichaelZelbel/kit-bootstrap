@@ -2201,7 +2201,7 @@ kb_install_godspeed_tools() {
   for pair in "prompt-harvest.js:mc-prompt-harvest" "compile-rules.js:mc-compile-rules" \
               "check-keys.js:mc-check-keys" "due.js:mc-due" \
               "goals.js:mc-goals" "forecast.js:mc-forecast" "work.js:mc-work" \
-              "check-written.js:mc-check-written"; do
+              "check-written.js:mc-check-written" "check-moves.js:mc-check-moves"; do
     lsrc="${pair%%:*}"; lcmd="${pair##*:}"
     [ -f "$bindir/$lsrc" ] || continue
     printf '#!/bin/sh\nexec node "$(dirname "$0")/%s" "$@"\n' "$lsrc" > "$bindir/$lcmd"

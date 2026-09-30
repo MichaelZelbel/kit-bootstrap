@@ -193,7 +193,7 @@ foreach ($fn in 'Install-KitPrereqs', 'New-KitGodspeed', 'Copy-KitStarterGodspee
                  'Connect-KitNotebook', 'Write-KitMcpConfig', 'Install-KitNotebookSync',
                  'Connect-KitSkills', 'Set-KitHermesGodspeed', 'Set-KitHermesApprovals', 'Set-KitHermesOneMemory',
                  'Get-KitDefaultGodspeedDir', 'Get-KitGodspeedPathRefusal',
-                 'Test-KitBeside', 'Test-KitSamePath',
+                 'Test-KitBeside', 'Test-KitSamePath', 'Get-KitHeadShort',
                  'Connect-KitAssistants', 'Connect-KitMenerioOnly',
                  'Select-KitNotebookMirror', 'Request-KitPassphrase',
                  'Show-KitGmailRetired', 'Connect-KitGmailOnly') {
@@ -279,9 +279,9 @@ $isNew = $false
 if ($found) {
     $Godspeed = $found
     Write-KbSay "Found your mission control already on this PC at $Godspeed"
-    $before = (git -C $Godspeed rev-parse --short HEAD 2>$null)
+    $before = Get-KitHeadShort -Godspeed $Godspeed   # $null, never an error, when nothing is committed yet
     Update-KitGodspeed -Godspeed $Godspeed
-    $after = (git -C $Godspeed rev-parse --short HEAD 2>$null)
+    $after = Get-KitHeadShort -Godspeed $Godspeed
     if ($before -and $after -and $before -ne $after) {
         Write-KbOk "it was out of date. Brought it up to date ($before to $after)."
     }

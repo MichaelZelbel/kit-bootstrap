@@ -705,6 +705,40 @@ Check "the three programs land on the PC and a README does not" {
         $env:HOME = $home0
     }
 }
+# Found by the clean-machine test of 2026-09-30: the next-action recipe tells the assistant to run
+# mc-check-moves, and on Windows nothing made it a command.
+Check "the moves check is a command on Windows too" {
+    $kit = New-TestDir 'kit-moves'; New-TestKit -Path $kit
+    Set-Content (Join-Path $kit 'tools\check-moves.js') 'console.log(1)'
+    git -C $kit add -A 2>&1 | Out-Null
+    git -C $kit -c user.email='t@t' -c user.name='t' commit -q -m 'moves' 2>&1 | Out-Null
+    $home0 = $HOME
+    try {
+        $env:HOME = New-TestDir 'tools-home-moves'
+        Set-Variable -Name HOME -Value $env:HOME -Scope Global -Force
+        Install-KitGodspeedTools -Godspeed (New-TestDir 'tools-godspeed-moves') -ToolsRepo $kit | Out-Null
+        $cmd = Join-Path $HOME '.local\bin\mc-check-moves.cmd'
+        (Test-Path $cmd) -and (Get-Content $cmd -Raw).Contains('check-moves.js')
+    } finally {
+        Set-Variable -Name HOME -Value $home0 -Scope Global -Force
+        $env:HOME = $home0
+    }
+}
+# Found the same day: running the installer again over a mission control with no commit yet
+# stopped at "Found your mission control", because git's "Needed a single revision" on stderr is
+# a terminating error under 'Stop', which is how setup-godspeed.ps1 runs. The update never ran.
+Check "the commit of a mission control with no commit yet is nothing, not an error, even under 'Stop'" {
+    $d = New-TestDir 'no-commit-yet'; git -C $d init -q 2>&1 | Out-Null
+    $eap = $ErrorActionPreference; $ErrorActionPreference = 'Stop'
+    $ok = $false
+    try { $h = Get-KitHeadShort -Godspeed $d; $ok = ($null -eq $h) } catch { $ok = $false }
+    finally { $ErrorActionPreference = $eap }
+    $c = New-TestDir 'one-commit'; git -C $c init -q 2>&1 | Out-Null
+    Set-Content (Join-Path $c 'a.txt') 'a'; git -C $c add -A 2>&1 | Out-Null
+    git -C $c -c user.email='t@t' -c user.name='t' commit -q -m a 2>&1 | Out-Null
+    $ok -and ((Get-KitHeadShort -Godspeed $c) -match '^[0-9a-f]{7,}$') -and
+        -not ((Get-Content (Join-Path $PSScriptRoot 'setup-godspeed.ps1') -Raw) -match 'rev-parse --short HEAD')
+}
 Check "the notebook runner lands with them, and a join refreshes from the kit written down" {
     # The notebook step schedules ~\.local\bin\mc-notebook-sync and silently does
     # nothing when it is missing, so this install is what decides whether a reader's

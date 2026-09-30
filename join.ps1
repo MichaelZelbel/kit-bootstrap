@@ -861,7 +861,10 @@ function Install-KitGodspeedTools {
             @{ src = 'work.js';           cmd = 'mc-work'           },
             # 2026-09-14: the work runner's CHECK line names mc-check-written, so without
             # this launcher no written piece of the mission control's own work could verify on Windows.
-            @{ src = 'check-written.js';  cmd = 'mc-check-written'  }
+            @{ src = 'check-written.js';  cmd = 'mc-check-written'  },
+            # 2026-09-30: the next-action recipe tells the assistant to run mc-check-moves, and
+            # the clean-machine test found no Windows launcher for it since it shipped (09-24).
+            @{ src = 'check-moves.js';    cmd = 'mc-check-moves'    }
         )) {
             if (-not (Test-Path (Join-Path $bin $pair.src))) { continue }
             @('@echo off', "node `"%~dp0$($pair.src)`" %*") |
@@ -1199,6 +1202,22 @@ function Install-KitPrereqs {
     if (-not (Confirm-KitHermes)) { $missing += 'Hermes' }
 
     return $missing
+}
+
+function Get-KitHeadShort {
+    <#  The mission control's current commit, short, or $null when it has none yet. Never throws,
+        even under 'Stop': a folder the installer made and nobody has committed in answers git
+        with "Needed a single revision" on stderr, and under 'Stop' that line ended the whole
+        update before it began (found by the clean-machine test, 2026-09-30). #>
+    param([Parameter(Mandatory)][string]$Godspeed)
+    $eap = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $h = & git -C $Godspeed rev-parse --short -q --verify HEAD 2>$null
+        if ($LASTEXITCODE -eq 0 -and $h) { return [string]@($h)[0] }
+        return $null
+    } catch { return $null }
+    finally { $ErrorActionPreference = $eap; $global:LASTEXITCODE = 0 }
 }
 
 function Get-KitSha256Lf {
