@@ -786,10 +786,14 @@ rm -rf "$_c"
 _hm="$(mktemp -d)"
 mkdir -p "$_hm/fresh" "$_hm/empty"
 
+# The stand-in is a file this suite writes, never /bin/true: a Mac has no /bin/true (it is
+# /usr/bin/true), so there the first case fetched and ran the real Hermes installer from the
+# network and failed, and only passed on a second run because the first had installed it.
+printf '#!/bin/sh\nexit 0\n' > "$_hm/hermes-here"; chmod +x "$_hm/hermes-here"
 t "a Hermes already here is not reinstalled" \
-  "$(KB_HERMES_BIN=/bin/true kb_install_hermes >/dev/null 2>&1; echo $?)" "0"
+  "$(KB_HERMES_BIN="$_hm/hermes-here" kb_install_hermes >/dev/null 2>&1; echo $?)" "0"
 t "and it is reported as already here, not fetched" \
-  "$(KB_HERMES_BIN=/bin/true kb_install_hermes 2>&1 | grep -c 'already here')" "1"
+  "$(KB_HERMES_BIN="$_hm/hermes-here" kb_install_hermes 2>&1 | grep -c 'already here')" "1"
 
 # The install path, end to end, with the network stood in for by a local script.
 # The official installer's one observable promise is a hermes command that works
