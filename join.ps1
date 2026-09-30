@@ -1317,7 +1317,13 @@ function Copy-KitStarterGodspeed {
                     $mergeJs = @'
 const fs=require("fs");const [s,d]=process.argv.slice(1);let a,b;try{a=JSON.parse(fs.readFileSync(s,"utf8"));b=JSON.parse(fs.readFileSync(d,"utf8"));}catch(e){process.exit(0);}if(!b||typeof b!=="object"||Array.isArray(b))process.exit(0);const cmds=(g)=>[].concat(...(g||[]).map((x)=>(x&&x.hooks||[]).map((h)=>h&&h.command)));b.hooks=b.hooks||{};let n=0;for(const ev of Object.keys(a.hooks||{})){const have=new Set(cmds(b.hooks[ev]));for(const grp of a.hooks[ev]){if(cmds([grp]).every((c)=>have.has(c)))continue;b.hooks[ev]=(b.hooks[ev]||[]).concat([grp]);n++;}}if(n)fs.writeFileSync(d,JSON.stringify(b,null,2)+"\n");
 '@
-                    & node -e $mergeJs $setSrc $setDest 2>$null | Out-Null
+                    # Run from a file, never as `node -e <code>`: Windows PowerShell 5.1 (the one
+                    # the .exe installer runs) strips the double quotes inside an argument to a
+                    # native program, so the code arrived broken and the merge silently did
+                    # nothing there (found 2026-09-30). From a file, argv gains the file name.
+                    $mergeFile = Join-Path $tmp 'merge-hooks.js'
+                    [IO.File]::WriteAllText($mergeFile, $mergeJs.Replace('process.argv.slice(1)', 'process.argv.slice(2)'))
+                    & node $mergeFile $setSrc $setDest 2>$null | Out-Null
                 }
             }
         }
