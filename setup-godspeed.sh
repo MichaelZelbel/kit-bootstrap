@@ -297,6 +297,16 @@ kb_hermes_approvals
 # memory nothing can see is how an assistant starts telling you what used to be true.
 kb_hermes_one_memory
 
+# The install count, asked once per computer, default no (THE INSTALL COUNT in lib.sh). The
+# server installer runs this file for its folder and asks the question itself, with its own
+# kind of install, so it sets KB_INSTALL_COUNT_SKIP and nothing here is asked or sent twice.
+if [ -z "${KB_INSTALL_COUNT_SKIP:-}" ] && command -v kb_choose_install_count >/dev/null 2>&1; then
+  kb_choose_install_count
+  case "$(uname -s 2>/dev/null)" in Darwin) KB_KIND=mac ;; *) KB_KIND=linux ;; esac
+  if [ "$IS_NEW" -eq 1 ]; then kb_install_count_send installed "$KB_KIND" new
+  else kb_install_count_send installed "$KB_KIND" update; fi
+fi
+
 # -----------------------------------------------------------------------------
 # 5. What just happened, in words.
 # -----------------------------------------------------------------------------

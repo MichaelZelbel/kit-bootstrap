@@ -2173,6 +2173,93 @@ Check "the first question no longer promises that the whole mission control beco
 }
 
 Write-Host ""
+Write-Host "-- the install count: asked once per PC, default no, nothing sent without a yes"
+# Every case stands in for Invoke-KitInstallCountPost, the one network call, so nothing here can
+# reach the real receiver. Invoke-NotebookCase hands each case a fresh home.
+function Invoke-CountCase([scriptblock]$Body) {
+    $c0 = $env:GODSPEED_INSTALL_COUNT; $d0 = $env:DO_NOT_TRACK; $b0 = $env:KB_BRANCH
+    try {
+        $env:GODSPEED_INSTALL_COUNT = $null; $env:DO_NOT_TRACK = $null; $env:KB_BRANCH = 'v9.9'
+        $script:posted = @()
+        function Invoke-KitInstallCountPost { param($Body) $script:posted += $Body }
+        Invoke-NotebookCase $Body
+    } finally { $env:GODSPEED_INSTALL_COUNT = $c0; $env:DO_NOT_TRACK = $d0; $env:KB_BRANCH = $b0 }
+}
+function Get-CountLine([string]$HomeDir, [string]$Name) {
+    $f = Join-Path $HomeDir '.godspeed\device.env'
+    if (-not (Test-Path $f)) { return '' }
+    return (@(Get-Content $f | Where-Object { $_ -match "^$Name=" } | ForEach-Object { $_.Substring($Name.Length + 1) }) -join ',')
+}
+foreach ($fn in 'Get-KitInstallCount', 'Select-KitInstallCount', 'Send-KitInstallCount', 'Invoke-KitInstallCountPost') {
+    Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
+}
+Check "nobody at the keyboard means no question, nothing written, nothing sent" {
+    Invoke-CountCase {
+        param($h)
+        function Test-KitInteractive { $false }
+        Select-KitInstallCount 6>&1 | Out-Null
+        Send-KitInstallCount -What 'installed' -Kind 'windows' -Run 'new' 6>&1 | Out-Null
+        ((Get-CountLine $h 'GODSPEED_INSTALL_COUNT') -eq '') -and ($script:posted.Count -eq 0)
+    }
+}
+Check "Enter means no, it is written down, and a second run does not ask again" {
+    Invoke-CountCase {
+        param($h)
+        $script:asked = @()
+        function Test-KitInteractive { $true }
+        function Read-Host { param($Prompt) $script:asked += $Prompt; '' }
+        Select-KitInstallCount 6>&1 | Out-Null
+        Select-KitInstallCount 6>&1 | Out-Null
+        Send-KitInstallCount -What 'installed' -Kind 'windows' -Run 'new' 6>&1 | Out-Null
+        (($script:asked -join '|') -eq 'Tell Michael this install worked? (y/N)') -and
+            ((Get-CountLine $h 'GODSPEED_INSTALL_COUNT') -eq '0') -and ($script:posted.Count -eq 0)
+    }
+}
+Check "a yes records an id and sends exactly the agreed fields, once, even on an update run" {
+    Invoke-CountCase {
+        param($h)
+        function Test-KitInteractive { $true }
+        function Read-Host { param($Prompt) 'y' }
+        Select-KitInstallCount 6>&1 | Out-Null
+        Send-KitInstallCount -What 'installed' -Kind 'windows' -Run 'new' 6>&1 | Out-Null
+        Send-KitInstallCount -What 'installed' -Kind 'windows' -Run 'update' 6>&1 | Out-Null
+        $id = Get-CountLine $h 'GODSPEED_INSTALL_ID'
+        ($id -match '^[0-9a-f]{32}$') -and ($script:posted.Count -eq 1) -and
+            ($script:posted[0] -eq ('{"product":"mission-control","event":"installed","install":"' + $id + '","version":"v9.9","kind":"windows","run":"new"}')) -and
+            ((Get-CountLine $h 'GODSPEED_INSTALL_COUNT_SENT') -eq 'installed')
+    }
+}
+Check "DO_NOT_TRACK is a no without a question, and stops a send after an earlier yes" {
+    Invoke-CountCase {
+        param($h)
+        $env:DO_NOT_TRACK = '1'
+        function Test-KitInteractive { $true }
+        function Read-Host { param($Prompt) throw 'asked' }
+        Select-KitInstallCount 6>&1 | Out-Null
+        $no = (Get-CountLine $h 'GODSPEED_INSTALL_COUNT') -eq '0'
+        Set-KitDeviceEnvValue -Name 'GODSPEED_INSTALL_COUNT' -Value '1'
+        Set-KitDeviceEnvValue -Name 'GODSPEED_INSTALL_ID' -Value ('a' * 32)
+        Send-KitInstallCount -What 'installed' -Kind 'windows' 6>&1 | Out-Null
+        $no -and ($script:posted.Count -eq 0)
+    }
+}
+Check "a receiver that cannot be reached is not recorded as sent, and nothing is thrown" {
+    Invoke-CountCase {
+        param($h)
+        $env:GODSPEED_INSTALL_COUNT = 'yes'
+        Select-KitInstallCount 6>&1 | Out-Null
+        function Invoke-KitInstallCountPost { param($Body) throw 'unreachable' }
+        Send-KitInstallCount -What 'installed' -Kind 'windows' 6>&1 | Out-Null
+        (Get-CountLine $h 'GODSPEED_INSTALL_COUNT_SENT') -eq ''
+    }
+}
+Check "the Windows installer asks it before Done and says it is a Windows install" {
+    $src = Get-Content (Join-Path $PSScriptRoot 'setup-godspeed.ps1') -Raw
+    $src.Contains("Send-KitInstallCount -What 'installed' -Kind 'windows'") -and
+        ($src.IndexOf('Select-KitInstallCount') -lt $src.IndexOf('Write-KbSay "Done"'))
+}
+
+Write-Host ""
 Write-Host "-- one skills room, and the installer proves it wired something"
 #
 # THE BUG THESE EXIST FOR. Until 2026-09-01 both installers junctioned .agents\skills to

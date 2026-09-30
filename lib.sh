@@ -3712,3 +3712,116 @@ kb_persist_notebook_env() {
     ok "notebook: new terminals on this computer will know your notebook credential ($rc)"
   done
 }
+
+# =============================================================================
+# THE INSTALL COUNT (2026-09-30)
+# =============================================================================
+# Until now nobody could tell whether anybody installs Mission Control. The installers sent
+# nothing anywhere, so a reader whose install worked and one who gave up halfway looked the
+# same from outside: invisible. So the installer asks, ONCE PER COMPUTER, whether it may say
+# that the install worked. The default is no. With nobody at the keyboard the answer is no and
+# nothing is written, so the question is still there on the day somebody is.
+#
+# WHAT IS SENT, AND NOTHING ELSE. A few short fields to one address: the product, the event
+# ("installed" when an install finishes; "first-brief" once a server's first morning brief was
+# delivered, sent by the kit's mc-install-count), this installer's version, the kind of install
+# (mac, linux, windows, server, docker), whether this run made the mission control or updated
+# one, and a random number made here at the moment of the yes, so the two events of one install
+# can be matched and a repeat counted once. No name, no folder, no file, no account. The
+# receiver (vps/godspeed/install-signal.py in godspeed-engine) keeps no address. A send that
+# fails is silent, never stops an install, and is tried again on the next run.
+#
+#   GODSPEED_INSTALL_COUNT=yes|no   answers it without asking, and always wins
+#   DO_NOT_TRACK=1                  a no, never asked (the consoledonottrack.com convention)
+#   a line already in device.env    is the answer, and nobody is asked again
+#
+# Recorded in ~/.godspeed/device.env: GODSPEED_INSTALL_COUNT=1|0, GODSPEED_INSTALL_ID, and
+# GODSPEED_INSTALL_COUNT_SENT, the events already sent, so an update never counts twice.
+# The Windows twins are Get-KitInstallCount, Select-KitInstallCount and Send-KitInstallCount in
+# join.ps1, which ask in the same words (test.sh compares them).
+#
+# THE PAID KITS DO NOT CALL THIS. They promise their buyers no telemetry and no callback, and
+# they vendor this file, so a kit's installer must never call these functions. Their downloads
+# are counted on the server that serves the tarball instead, which the buyer's machine was
+# already talking to.
+KB_INSTALL_COUNT_URL="${KB_INSTALL_COUNT_URL:-https://srv1328602.hstgr.cloud/signal/v1}"
+
+# kb_device_env_get <NAME> -> the value of its last line in ~/.godspeed/device.env, or nothing
+kb_device_env_get() {
+  sed -n "s/^[[:space:]]*$1=//p" "$HOME/.godspeed/device.env" 2>/dev/null | tail -1 | tr -d ' \r'
+}
+
+# kb_install_count -> 1 | 0 | (nothing: this computer has never been asked)
+kb_install_count() {
+  case "$(kb_device_env_get GODSPEED_INSTALL_COUNT)" in 1) printf 1 ;; 0) printf 0 ;; esac
+}
+
+kb_dnt() { case "${DO_NOT_TRACK:-}" in ""|0|false|no) return 1 ;; *) return 0 ;; esac; }
+
+kb_new_install_id() {
+  local id=""
+  id="$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+  [ -n "$id" ] || id="$(openssl rand -hex 16 2>/dev/null)"
+  printf '%s' "$id"
+}
+
+# kb_choose_install_count
+# The question. Asked last, after the install did its work, so a no costs the reader nothing.
+kb_choose_install_count() {
+  local answer=""
+  case "${GODSPEED_INSTALL_COUNT:-}" in
+    [Yy]*|1) answer=1 ;;
+    [Nn]*|0) answer=0 ;;
+  esac
+  [ -z "$answer" ] && kb_dnt && answer=0
+  if [ -z "$answer" ]; then
+    [ -n "$(kb_install_count)" ] && return 0
+    have_tty || return 0
+    # THE SAME WORDS AS THE WINDOWS TWIN, line for line. test.sh compares the two.
+    kb_tell ""
+    kb_tell "One last question, and it changes nothing on this computer. Michael, who made"
+    kb_tell "this, cannot see whether anybody installs it. May this computer tell him once"
+    kb_tell "that the install worked? It sends the word 'installed', this installer's"
+    kb_tell "version, the kind of computer and a random number made just now. No name, no"
+    kb_tell "files, and the server that receives it keeps no address. On a server it sends"
+    kb_tell "one more word when your first morning brief arrives. Say no and nothing is sent."
+    if ask_yes "Tell Michael this install worked?" "n"; then answer=1; else answer=0; fi
+  fi
+  kb_device_env_set GODSPEED_INSTALL_COUNT "$answer"
+  if [ "$answer" = "1" ]; then
+    [ -n "$(kb_device_env_get GODSPEED_INSTALL_ID)" ] || kb_device_env_set GODSPEED_INSTALL_ID "$(kb_new_install_id)"
+    ok "install count: yes, thank you. To take it back, set GODSPEED_INSTALL_COUNT=0 in ~/.godspeed/device.env"
+  else
+    ok "install count: no. Nothing is sent, and this computer is not asked again."
+  fi
+  return 0
+}
+
+# kb_install_count_send <event> <kind> [new|update]
+# One event, once per computer, and only after a yes. Always returns 0: counting never breaks
+# an install. KB_PRODUCT names the product (default mission-control).
+kb_install_count_send() {
+  local event="${1:-}" kind="${2:-}" run="${3:-}" id sent version product body
+  [ "$(kb_install_count)" = "1" ] || return 0
+  kb_dnt && return 0
+  id="$(kb_device_env_get GODSPEED_INSTALL_ID)"
+  [ -n "$id" ] && [ -n "$event" ] || return 0
+  sent="$(kb_device_env_get GODSPEED_INSTALL_COUNT_SENT)"
+  case ",$sent," in *",$event,"*) return 0 ;; esac
+  command -v curl >/dev/null 2>&1 || return 0
+  product="$(printf '%s' "${KB_PRODUCT:-mission-control}" | tr -cd 'a-z0-9-')"
+  version="$(printf '%s' "${KB_BRANCH:-${KB_PIN:-}}" | tr -cd 'A-Za-z0-9._+-' | cut -c1-32)"
+  kind="$(printf '%s' "$kind" | tr -cd 'a-z0-9-')"
+  case "$run" in new|update) ;; *) run="" ;; esac
+  body="{\"product\":\"$product\",\"event\":\"$event\",\"install\":\"$id\""
+  [ -n "$version" ] && body="$body,\"version\":\"$version\""
+  [ -n "$kind" ] && body="$body,\"kind\":\"$kind\""
+  [ -n "$run" ] && body="$body,\"run\":\"$run\""
+  body="$body}"
+  if curl -fsS -m 8 -o /dev/null -X POST -H 'Content-Type: application/json' \
+       --data "$body" "$KB_INSTALL_COUNT_URL" >/dev/null 2>&1; then
+    kb_device_env_set GODSPEED_INSTALL_COUNT_SENT "${sent:+$sent,}$event"
+    ok "install count: told Michael this install worked. Thank you."
+  fi
+  return 0
+}

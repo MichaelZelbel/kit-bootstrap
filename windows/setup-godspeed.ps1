@@ -129,6 +129,7 @@ Write-Host ""
 # for by the copy of join.ps1 inside the .exe, which is now the same code as the pin rather
 # than a fallback for a machine with no network.
 if (-not $KbBranch) { $KbBranch = if ($env:KB_BRANCH) { $env:KB_BRANCH } else { 'v2' } }
+$env:KB_BRANCH = $KbBranch   # the install count reports it as this installer's version
 
 # WHAT THE CALLER ASKED FOR, KEPT SAFE ACROSS THE LIBRARY LOAD.
 #
@@ -376,6 +377,14 @@ Set-KitHermesOneMemory | Out-Null
 if (-not (Test-KitBeside)) {
     [Environment]::SetEnvironmentVariable('GODSPEED_DIR', $Godspeed, 'User')
     $env:GODSPEED_DIR = $Godspeed
+}
+
+# The install count, asked once per PC, default no (THE INSTALL COUNT in lib.sh; the twins
+# are in join.ps1). An older join.ps1 from the cache has no such function, and then nothing
+# is asked and nothing is sent.
+if (Get-Command Select-KitInstallCount -ErrorAction SilentlyContinue) {
+    Select-KitInstallCount
+    Send-KitInstallCount -What 'installed' -Kind 'windows' -Run $(if ($isNew) { 'new' } else { 'update' })
 }
 
 # -----------------------------------------------------------------------------

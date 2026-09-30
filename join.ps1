@@ -2286,6 +2286,91 @@ function Select-KitNotebookMirror {
     }
 }
 
+# THE INSTALL COUNT (2026-09-30). The Windows twins of kb_install_count, kb_choose_install_count
+# and kb_install_count_send in lib.sh, where the whole story is: asked once per PC, default no,
+# and nothing leaves the PC without a yes. Same address, same fields, same words.
+$script:KitInstallCountUrl = if ($env:KB_INSTALL_COUNT_URL) { $env:KB_INSTALL_COUNT_URL } else { 'https://srv1328602.hstgr.cloud/signal/v1' }
+
+function Get-KitInstallCount {
+    <#  '1', '0', or $null when this PC has never been asked. #>
+    $v = Get-KitDeviceEnvValue 'GODSPEED_INSTALL_COUNT'
+    if ($v -eq '1' -or $v -eq '0') { return $v }
+    return $null
+}
+
+function Test-KitDoNotTrack {
+    return ($env:DO_NOT_TRACK -and $env:DO_NOT_TRACK -notmatch '^(0|false|no)$')
+}
+
+function Select-KitInstallCount {
+    <#  The question. Asked last, after the install did its work.
+
+          GODSPEED_INSTALL_COUNT=yes|no  answers it without asking, and always wins
+          DO_NOT_TRACK=1                 a no, never asked
+          a line already in device.env   is the answer, and nobody is asked again
+          no keyboard and no answer      no, and nothing is written #>
+    $answer = $null
+    if ($env:GODSPEED_INSTALL_COUNT -match '^([Yy]|1$)') { $answer = '1' }
+    elseif ($env:GODSPEED_INSTALL_COUNT -match '^([Nn]|0$)') { $answer = '0' }
+    if ($null -eq $answer -and (Test-KitDoNotTrack)) { $answer = '0' }
+    if ($null -eq $answer) {
+        if (Get-KitInstallCount) { return }
+        if (-not (Test-KitInteractive)) { return }
+        # THE SAME WORDS AS THE BASH TWIN, line for line. test.sh compares the two.
+        Write-Host ""
+        Write-Host "One last question, and it changes nothing on this computer. Michael, who made"
+        Write-Host "this, cannot see whether anybody installs it. May this computer tell him once"
+        Write-Host "that the install worked? It sends the word 'installed', this installer's"
+        Write-Host "version, the kind of computer and a random number made just now. No name, no"
+        Write-Host "files, and the server that receives it keeps no address. On a server it sends"
+        Write-Host "one more word when your first morning brief arrives. Say no and nothing is sent."
+        $yn = Read-Host "Tell Michael this install worked? (y/N)"
+        $answer = if ($yn -match '^[Yy]') { '1' } else { '0' }
+    }
+    Set-KitDeviceEnvValue -Name 'GODSPEED_INSTALL_COUNT' -Value $answer
+    if ($answer -eq '1') {
+        if (-not (Get-KitDeviceEnvValue 'GODSPEED_INSTALL_ID')) {
+            Set-KitDeviceEnvValue -Name 'GODSPEED_INSTALL_ID' -Value ([guid]::NewGuid().ToString('N'))
+        }
+        Write-KbOk "install count: yes, thank you. To take it back, set GODSPEED_INSTALL_COUNT=0 in $HOME\.godspeed\device.env"
+    } else {
+        Write-KbOk "install count: no. Nothing is sent, and this computer is not asked again."
+    }
+}
+
+function Invoke-KitInstallCountPost {
+    <#  The one network call, alone in its own function so the tests can stand in for it. #>
+    param([Parameter(Mandatory)][string]$Body)
+    Invoke-RestMethod -Method Post -Uri $script:KitInstallCountUrl -ContentType 'application/json' `
+        -Body $Body -TimeoutSec 8 -UseBasicParsing -ErrorAction Stop | Out-Null
+}
+
+function Send-KitInstallCount {
+    <#  One event, once per PC, and only after a yes. Never throws: counting never breaks an install. #>
+    param([Parameter(Mandatory)][string]$What, [string]$Kind = '', [string]$Run = '')
+    try {
+        if ((Get-KitInstallCount) -ne '1') { return }
+        if (Test-KitDoNotTrack) { return }
+        $id = Get-KitDeviceEnvValue 'GODSPEED_INSTALL_ID'
+        if (-not $id) { return }
+        $sent = Get-KitDeviceEnvValue 'GODSPEED_INSTALL_COUNT_SENT'
+        if (",$sent," -like "*,$What,*") { return }
+        $product = ($(if ($env:KB_PRODUCT) { $env:KB_PRODUCT } else { 'mission-control' })) -replace '[^a-z0-9-]', ''
+        $version = ("$env:KB_BRANCH" -replace '[^A-Za-z0-9._+-]', '')
+        if ($version.Length -gt 32) { $version = $version.Substring(0, 32) }
+        $Kind = $Kind -replace '[^a-z0-9-]', ''
+        if ($Run -notmatch '^(new|update)$') { $Run = '' }
+        $body = '{"product":"' + $product + '","event":"' + $What + '","install":"' + $id + '"'
+        if ($version) { $body += ',"version":"' + $version + '"' }
+        if ($Kind) { $body += ',"kind":"' + $Kind + '"' }
+        if ($Run) { $body += ',"run":"' + $Run + '"' }
+        $body += '}'
+        Invoke-KitInstallCountPost -Body $body
+        Set-KitDeviceEnvValue -Name 'GODSPEED_INSTALL_COUNT_SENT' -Value $(if ($sent) { "$sent,$What" } else { $What })
+        Write-KbOk "install count: told Michael this install worked. Thank you."
+    } catch { }
+}
+
 function Request-KitPassphrase {
     <#  The passphrase, only when it is wanted.
 

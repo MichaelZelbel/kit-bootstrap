@@ -56,7 +56,9 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_hermes_deny_rules kb_hermes_approvals kb_hermes_approvals_selfcheck \
          kb_hermes_one_memory \
          kb_gateway_state kb_install_gateway kb_cron_has_job kb_cron_job \
-         kb_hermes_signin kb_hermes_has_provider kb_room_twin; do
+         kb_hermes_signin kb_hermes_has_provider kb_room_twin \
+         kb_device_env_get kb_install_count kb_dnt kb_new_install_id \
+         kb_choose_install_count kb_install_count_send; do
   declare -F "$f" >/dev/null || printf "%s " "$f"
 done')"
 [ -z "$missing" ] || { echo "  MISSING: $missing"; exit 1; }
@@ -2615,6 +2617,65 @@ done
 t "the first question no longer promises that the whole mission control becomes searchable" \
   "$(cat lib.sh join.ps1 | grep -c 'Your whole mission control also')" "0"
 rm -rf "$_c"
+
+# THE INSTALL COUNT (2026-09-30). Asked once per computer, default no, and nothing leaves the
+# machine without a yes. Every send goes to a fake curl that writes its arguments down, so no
+# case below can reach the real receiver.
+_ic="$(mktemp -d)"
+mkdir -p "$_ic/bin"
+cat > "$_ic/bin/curl" <<'FAKE'
+#!/bin/sh
+printf '%s\n' "$*" >> "$FAKE_CURL_LOG"
+exit "${FAKE_CURL_EXIT:-0}"
+FAKE
+chmod +x "$_ic/bin/curl"
+_icrun() {  # <name> <shell code>: a fresh HOME, the fake curl first on PATH, no terminal
+  mkdir -p "$_ic/$1"
+  ( HOME="$_ic/$1"; PATH="$_ic/bin:$PATH"; FAKE_CURL_LOG="$_ic/$1/curl.log"; export FAKE_CURL_LOG
+    unset GODSPEED_INSTALL_COUNT DO_NOT_TRACK
+    have_tty() { return 1; }
+    eval "$2" ) >/dev/null 2>&1
+}
+_icenv() { sed -n "s/^$2=//p" "$_ic/$1/.godspeed/device.env" 2>/dev/null | tail -1; }
+_icsent() { if [ -f "$_ic/$1/curl.log" ]; then grep -c . "$_ic/$1/curl.log"; else echo 0; fi; }
+
+_icrun quiet 'kb_choose_install_count; kb_install_count_send installed linux new'
+t "install count: nobody at the keyboard means no question, nothing written, nothing sent" \
+  "$(_icenv quiet GODSPEED_INSTALL_COUNT):$(_icsent quiet)" ":0"
+_icrun yes 'GODSPEED_INSTALL_COUNT=yes kb_choose_install_count; KB_BRANCH=v9.9 kb_install_count_send installed linux new'
+t "a yes records 1 and a 32-character random id" \
+  "$(_icenv yes GODSPEED_INSTALL_COUNT):$(_icenv yes GODSPEED_INSTALL_ID | tr -d '0-9a-f' | wc -c | tr -d ' '):$(_icenv yes GODSPEED_INSTALL_ID | wc -c | tr -d ' ')" "1:1:33"
+t "and sends exactly the agreed fields, once" \
+  "$(_icsent yes):$(grep -o '{.*}' "$_ic/yes/curl.log" | sed "s/$(_icenv yes GODSPEED_INSTALL_ID)/ID/")" \
+  '1:{"product":"mission-control","event":"installed","install":"ID","version":"v9.9","kind":"linux","run":"new"}'
+_icrun yes 'kb_install_count_send installed linux update; kb_choose_install_count'
+t "an update run never counts the same computer twice, and never asks again" \
+  "$(_icsent yes):$(_icenv yes GODSPEED_INSTALL_COUNT_SENT)" "1:installed"
+_icrun yes 'kb_install_count_send first-brief server'
+t "a second event is its own send, remembered beside the first" \
+  "$(_icsent yes):$(_icenv yes GODSPEED_INSTALL_COUNT_SENT)" "2:installed,first-brief"
+_icrun no 'GODSPEED_INSTALL_COUNT=no kb_choose_install_count; kb_install_count_send installed mac new'
+t "a no records 0 and sends nothing" "$(_icenv no GODSPEED_INSTALL_COUNT):$(_icsent no)" "0:0"
+_icrun dnt 'DO_NOT_TRACK=1 kb_choose_install_count; kb_install_count_send installed mac new'
+t "DO_NOT_TRACK=1 is a no without a question" "$(_icenv dnt GODSPEED_INSTALL_COUNT):$(_icsent dnt)" "0:0"
+_icrun dnt2 'GODSPEED_INSTALL_COUNT=yes kb_choose_install_count; DO_NOT_TRACK=1 kb_install_count_send installed mac new'
+t "and it stops a send even after an earlier yes" "$(_icsent dnt2)" "0"
+_icrun down 'GODSPEED_INSTALL_COUNT=yes kb_choose_install_count; FAKE_CURL_EXIT=7 kb_install_count_send installed mac new; echo "rc=$?" > "$HOME/rc"'
+t "a receiver that cannot be reached is not recorded as sent, and the install goes on" \
+  "$(_icenv down GODSPEED_INSTALL_COUNT_SENT):$(cat "$_ic/down/rc")" ":rc=0"
+_icrun blank 'GODSPEED_INSTALL_COUNT=yes kb_choose_install_count; KB_BRANCH= KB_PIN= kb_install_count_send installed "" ""'
+t "an empty field is left out, never sent empty (the receiver refuses an empty field)" \
+  "$(grep -c '"kind"\|"run"\|"version"' "$_ic/blank/curl.log")" "0"
+t "the question has six lines" \
+  "$(_words lib.sh kb_tell 'One last question' 'Say no and nothing is sent' | grep -c .)" "6"
+t "and Windows asks it in the same words" \
+  "$(_words join.ps1 Write-Host 'One last question' 'Say no and nothing is sent')" \
+  "$(_words lib.sh kb_tell 'One last question' 'Say no and nothing is sent')"
+t "both platforms ask it with no as the answer" \
+  "$(grep -c 'ask_yes "Tell Michael this install worked?" "n"' lib.sh):$(grep -c 'Read-Host "Tell Michael this install worked? (y/N)"' join.ps1)" "1:1"
+t "both platforms send to the same address" \
+  "$(grep -c 'https://srv1328602.hstgr.cloud/signal/v1' lib.sh):$(grep -c 'https://srv1328602.hstgr.cloud/signal/v1' join.ps1)" "1:1"
+rm -rf "$_ic"
 
 echo
 echo "  $pass passed, $fail failed"
