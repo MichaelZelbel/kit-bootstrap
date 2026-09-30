@@ -821,7 +821,7 @@ case "$out" in *"rc=1"*Hermes*) t "a failed fetch warns and notes the miss" yes 
 # The composition: which assistant the prereqs ask for. The tool half is stubbed
 # so this never reaches a package manager, per this file's own first promise.
 out="$( ( kb_install_one() { ok "$4 is already here"; }
-          KB_HERMES_BIN=/bin/true; kb_install_prereqs ) 2>&1 )"
+          KB_HERMES_BIN="$_hm/hermes-here"; kb_install_prereqs ) 2>&1 )"
 case "$out" in *Hermes*) t "the prereqs fetch Hermes" yes yes ;;
                *) t "the prereqs fetch Hermes" "$out" "mentions Hermes" ;; esac
 t "and no longer fetch Claude Code" "$(printf '%s' "$out" | grep -c 'Claude Code')" "0"
