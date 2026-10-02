@@ -2357,7 +2357,7 @@ t "and hands it to the single step before it checks a single prerequisite" \
   "$(awk '/kb_only_menerio "\$FOUND"/{a=NR} /^\[ "\$SKIP_PREREQS" -eq 1 \] \|\| kb_install_prereqs/{b=NR} END{print (a>0 && b>0 && a<b) ? "yes" : "no"}' setup-godspeed.sh)" "yes"
 t "join.sh takes --only too"   "$(grep -c -- '--only)      ONLY=' join.sh)" "1"
 t "an unknown step is refused by name on both front doors" \
-  "$(cat setup-godspeed.sh join.sh | grep -c -- '--only knows two steps: menerio and gmail')" "2"
+  "$(grep -c -- '--only knows three steps: menerio, gmail and computer-remove' setup-godspeed.sh):$(grep -c -- '--only knows two steps: menerio and gmail' join.sh)" "1:1"
 
 # THE SAME QUESTION ON BOTH PLATFORMS. lib.sh said Menerio from 2026-09-05 while
 # join.ps1 still asked about "a notebook". The two texts are compared, not eyeballed.

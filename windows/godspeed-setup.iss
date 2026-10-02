@@ -19,16 +19,16 @@
 ; =============================================================================
 
 #define AppName        "Godspeed Mission Control"
-#define AppVersion     "2.17.0"
+#define AppVersion     "2.18.0"
 ; THE PIN. The kit-bootstrap tag this .exe carries and fetches from, so a reader runs
 ; exactly the code that passed its runs. build-installer.ps1 refuses to build unless this
 ; tag exists and names the very commit being built, which is what stops it drifting from
 ; the .exe it labels. install-godspeed.sh carries the same pin for macOS and Linux.
 ; Since 2026-09-30 the public .exe is built by the kit's windows-installer workflow
 ; (godspeed-mission-control), which sets both defines from install-godspeed.sh's pin
-; (v2.17 is Installer 2.17.0) and publishes only after a fresh Windows machine installed it.
+; (v2.18 is Installer 2.18.0) and publishes only after a fresh Windows machine installed it.
 ; The values here matter only for a local build.
-#define KbPin         "v2.17"
+#define KbPin         "v2.18"
 #define AppPublisher   "Michael Zelbel"
 #define AppURL         "https://github.com/MichaelZelbel/kit-bootstrap"
 
