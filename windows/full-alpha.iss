@@ -28,10 +28,29 @@ Source: "{#PayloadRoot}\*"; DestDir: "{app}\payload"; Flags: ignoreversion recur
 Source: "setup-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "start-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "stop-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "ensure-hermes-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "open-hermes-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "vendor\*"; DestDir: "{app}\vendor"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Icons]
 Name: "{group}\Godspeed Mission Control Full Alpha"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\start-full-alpha.ps1"""
+Name: "{group}\Godspeed Mission Control Full Alpha Assistant"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\open-hermes-full-alpha.ps1"""
 [Run]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\setup-full-alpha.ps1"" -AppRoot ""{app}"""; Flags: runhidden waituntilterminated
 Filename: "http://127.0.0.1:47831/"; Description: "Open the alpha notebook"; Flags: shellexec postinstall skipifsilent
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\stop-full-alpha.ps1"" -Uninstall"; Flags: runhidden waituntilterminated
+[Code]
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var ExitCode: Integer;
+begin
+  Result := '';
+  if FileExists(ExpandConstant('{app}\stop-full-alpha.ps1')) then
+    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + ExpandConstant('{app}\stop-full-alpha.ps1') + '"', '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
+      Result := 'The existing candidate service could not stop. Its files were preserved.';
+end;
+procedure CurStepChanged(CurStep: TSetupStep);
+var ExitCode: Integer;
+begin
+  if CurStep = ssPostInstall then
+    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + ExpandConstant('{app}\setup-full-alpha.ps1') + '" -AppRoot "' + ExpandConstant('{app}') + '"', '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
+      RaiseException('Candidate setup did not finish. Check its saved installation log. Your knowledge files remain available.');
+end;

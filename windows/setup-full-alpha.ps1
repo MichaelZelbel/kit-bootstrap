@@ -1,4 +1,4 @@
-param([string]$AppRoot=$PSScriptRoot,[string]$Workspace,[switch]$NoStart,[switch]$NoStartup)
+param([string]$AppRoot=$PSScriptRoot,[string]$Workspace,[int]$Port=47831,[switch]$NoStart,[switch]$NoStartup,[switch]$SkipHermes)
 $ErrorActionPreference='Stop'
 $AppRoot=[IO.Path]::GetFullPath($AppRoot)
 $payload=Join-Path $AppRoot 'payload'
@@ -22,18 +22,23 @@ if(Test-Path -LiteralPath $configFile){
   $Workspace=[IO.Path]::GetFullPath($Workspace)
   if((Test-Path -LiteralPath $Workspace) -and (Get-ChildItem -LiteralPath $Workspace -Force|Select-Object -First 1)){throw 'Choose an empty alpha workspace. Existing records are never adopted automatically.'}
   New-Item -ItemType Directory -Force -Path $Workspace|Out-Null
-  $config=[pscustomobject]@{channel='full-alpha';workspace=$Workspace;media=(Join-Path $state 'media');port=47831;owner='local';appRoot=$AppRoot;dataFormat=1}
+  if($Port -lt 1024 -or $Port -gt 65535){throw 'Choose an unused candidate port above 1023.'}
+  $config=[pscustomobject]@{channel='full-alpha';workspace=$Workspace;media=(Join-Path $state 'media');port=$Port;owner='local';appRoot=$AppRoot;dataFormat=1}
 }
 if($config.channel -ne 'full-alpha'){throw 'Refusing to modify a stable installation.'}
 if(Test-Path -LiteralPath (Join-Path $AppRoot 'stop-full-alpha.ps1')){& (Join-Path $AppRoot 'stop-full-alpha.ps1')}
 # Record and media backup precede replacement of runtime settings. Software changes never alter data format here.
 if(Test-Path -LiteralPath (Join-Path $config.workspace 'records')){
   $backup=Join-Path $state ('backups\'+(Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
-  New-Item -ItemType Directory -Force -Path $backup|Out-Null
-  Copy-Item -LiteralPath (Join-Path $config.workspace 'records') -Destination $backup -Recurse
-  if(Test-Path -LiteralPath $config.media){Copy-Item -LiteralPath $config.media -Destination (Join-Path $backup 'media') -Recurse}
+  $env:GODSPEED_WORKSPACE=$config.workspace;$env:GODSPEED_MEDIA_ROOT=$config.media
+  & (Join-Path $payload 'runtime\node.exe') (Join-Path $payload 'kit\notebook\bin\godspeed.mjs') backup $backup|Out-Null
+  if($LASTEXITCODE -ne 0){throw 'Candidate backup failed. Upgrade stopped.'}
 }
 $config.appRoot=$AppRoot
+$env:GODSPEED_WORKSPACE=$config.workspace;$env:GODSPEED_MEDIA_ROOT=$config.media
+& (Join-Path $payload 'runtime\node.exe') (Join-Path $payload 'kit\notebook\bin\godspeed.mjs') init|Out-Null
+if($LASTEXITCODE -ne 0){throw 'Candidate workspace initialization failed.'}
+if(-not $SkipHermes){& (Join-Path $AppRoot 'ensure-hermes-full-alpha.ps1') -State $state -Workspace $config.workspace -Provision|Out-Null}
 $temporary=$configFile+'.tmp';$config|ConvertTo-Json -Depth 20|Set-Content -LiteralPath $temporary -Encoding UTF8
 Move-Item -LiteralPath $temporary -Destination $configFile -Force
 if(-not $NoStartup){

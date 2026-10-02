@@ -30,6 +30,10 @@ Expand-Archive -LiteralPath $download -DestinationPath $payload -Force
 New-Item -ItemType Directory -Force -Path (Join-Path $payload 'runtime')|Out-Null
 Copy-Item -LiteralPath (Join-Path $payload ('node-v'+$nodeVersion+'-win-x64\node.exe')) -Destination (Join-Path $payload 'runtime\node.exe') -Force
 Copy-Item -LiteralPath (Join-Path $payload ('node-v'+$nodeVersion+'-win-x64\LICENSE')) -Destination (Join-Path $payload 'runtime\NODE-LICENSE') -Force
+$unpacked=[IO.Path]::GetFullPath((Join-Path $payload ('node-v'+$nodeVersion+'-win-x64')))
+if(-not $unpacked.StartsWith($payload+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'Unsafe staging directory.'}
+Remove-Item -LiteralPath $unpacked -Recurse -Force
+Remove-Item -LiteralPath $download
 $files=@(Get-ChildItem -LiteralPath (Join-Path $payload 'kit'),(Join-Path $payload 'runtime') -Recurse -File|ForEach-Object {[pscustomobject]@{path=$_.FullName.Substring($payload.Length+1).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}})
 $manifest=[pscustomobject]@{channel='full-alpha';version='0.1.0-alpha.1';kitCommit=$kitCommit;bootstrapCommit=$bootstrapCommit;nodeVersion=$nodeVersion;nodeArchiveSha256=$checksum;dataFormat=1;files=$files}
 $manifest|ConvertTo-Json -Depth 10|Set-Content -LiteralPath (Join-Path $payload 'candidate-manifest.json') -Encoding UTF8
