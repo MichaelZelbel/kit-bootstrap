@@ -40,6 +40,7 @@ $manifest=[pscustomobject]@{channel='full-alpha';version='0.1.0-alpha.1';kitComm
 $manifest|ConvertTo-Json -Depth 10|Set-Content -LiteralPath (Join-Path $payload 'candidate-manifest.json') -Encoding UTF8
 $compiler=Get-Command iscc -ErrorAction SilentlyContinue
 if($compiler){$iscc=$compiler.Source}else{$iscc=Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'}
+if(-not(Test-Path -LiteralPath $iscc)){$iscc=Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'}
 if(-not(Test-Path -LiteralPath $iscc)){throw 'Inno Setup compiler is required.'}
 Push-Location $PSScriptRoot
 try{& $iscc /Qp ("/DPayloadRoot="+$payload) 'full-alpha.iss';if($LASTEXITCODE -ne 0){throw 'Full alpha compilation failed.'}}finally{Pop-Location}

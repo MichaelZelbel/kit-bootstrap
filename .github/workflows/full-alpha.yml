@@ -41,5 +41,7 @@ jobs:
             windows/dist/candidate-manifest.json
             windows/dist/clean-install-evidence.json
             windows/dist/installer-test.log
+            windows/dist/setup.log
+            windows/dist/hermes-install*.log
             windows/dist/SHA256SUMS
           retention-days: 30

@@ -26,6 +26,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 [Files]
 Source: "{#PayloadRoot}\*"; DestDir: "{app}\payload"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "setup-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "install-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "start-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "stop-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "ensure-hermes-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
@@ -39,6 +40,11 @@ Filename: "http://127.0.0.1:47831/"; Description: "Open the alpha notebook"; Fla
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\stop-full-alpha.ps1"" -Uninstall"; Flags: runhidden waituntilterminated
 [Code]
+var SetupFailed: Boolean;
+function GetCustomSetupExitCode: Integer;
+begin
+  if SetupFailed then Result := 1 else Result := 0;
+end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var ExitCode: Integer;
 begin
@@ -51,6 +57,9 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var ExitCode: Integer;
 begin
   if CurStep = ssPostInstall then
-    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + ExpandConstant('{app}\setup-full-alpha.ps1') + '" -AppRoot "' + ExpandConstant('{app}') + '"', '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
+    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + ExpandConstant('{app}\install-full-alpha.ps1') + '" -AppRoot "' + ExpandConstant('{app}') + '"', '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
+    begin
+      SetupFailed := True;
       RaiseException('Candidate setup did not finish. Check its saved installation log. Your knowledge files remain available.');
+    end;
 end;

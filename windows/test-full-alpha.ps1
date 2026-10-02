@@ -10,7 +10,8 @@ if($FreshInstaller){
   $app=Join-Path $testRoot 'application'
   $installer=Join-Path $output 'GodspeedSetup-Full-Alpha.exe'
   $p=Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="'+$app+'"'),('/LOG="'+(Join-Path $output 'installer-test.log')+'"')) -WindowStyle Hidden -Wait -PassThru
-  if($p.ExitCode -ne 0){throw ('Fresh installer exited '+$p.ExitCode)}
+  $state=Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
+  if($p.ExitCode -ne 0){Get-ChildItem $state -Filter '*.log' -ErrorAction SilentlyContinue|Copy-Item -Destination $output;throw ('Fresh installer exited '+$p.ExitCode)}
   $evidence.checks+='fresh installer including isolated Hermes desktop'
   $state=Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
   $settings=Get-Content (Join-Path $state 'installation.json') -Raw|ConvertFrom-Json

@@ -15,7 +15,9 @@ if(-not $ForceIsolatedInstall){
 if(-not $sourceRoot -and $Provision){
   $installer=Join-Path $PSScriptRoot 'vendor\hermes-install.ps1'
   $source=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'vendor\hermes-source.json') -Raw|ConvertFrom-Json
-  if((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $source.sha256){throw 'Hermes installer integrity check failed.'}
+  $canonical=[Text.Encoding]::UTF8.GetBytes((Get-Content -LiteralPath $installer -Raw -Encoding UTF8).Replace("`r`n","`n"))
+  $canonicalHash=[BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($canonical)).Replace('-','').ToLowerInvariant()
+  if($canonicalHash -ne $source.sha256){throw 'Hermes installer integrity check failed.'}
   $sourceRoot=Join-Path $runtimeHome 'hermes-agent'
   $log=Join-Path $State 'hermes-install.log'
   $process=Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File','"'+$installer+'"','-HermesHome','"'+$runtimeHome+'"','-InstallDir','"'+$sourceRoot+'"','-Commit',$source.commit,'-NonInteractive','-SkipSetup','-SkipComputerUse','-IncludeDesktop') -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput $log -RedirectStandardError (Join-Path $State 'hermes-install-error.log')

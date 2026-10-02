@@ -3,5 +3,5 @@
   "commit": "5c4c31cf4d88b084061a5a25ade1b47ab5b751e1",
   "license": "MIT",
   "changes": "Windows User environment reads and writes scoped to the installer process. Dedicated HermesHome and InstallDir. No existing config, shortcuts, PATH or credentials adopted.",
-  "sha256": "508e56086273d621e0fc44835062dafd605eafe16a64d098b165380103afcfb1"
+  "sha256": "ebfef02eb12891b00b49499bc61807f81353f7a8303334b8ffc7274da677991e"
 }
