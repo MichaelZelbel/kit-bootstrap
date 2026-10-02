@@ -35,6 +35,19 @@ if($FreshInstaller){
   $health=Invoke-RestMethod ('http://127.0.0.1:'+$settings.port+'/health')
   if(-not $health.ok){throw 'Restart health failed'}
   $evidence.checks+='restart and offline file retention'
+  $assistant=Get-Content (Join-Path $state 'assistant.json') -Raw|ConvertFrom-Json
+  & (Join-Path $app 'open-hermes-full-alpha.ps1')
+  $desktopDeadline=[DateTime]::UtcNow.AddSeconds(120)
+  $nativeFiles=$null
+  while([DateTime]::UtcNow -lt $desktopDeadline){
+    $nativeFiles=Get-ChildItem (Join-Path $settings.workspace 'assistant-state') -Filter '*.json' -Recurse -ErrorAction SilentlyContinue|Where-Object {$_.FullName -notmatch '[\\/]history[\\/]'}
+    if($nativeFiles){break};Start-Sleep -Seconds 2
+  }
+  $desktop=Get-CimInstance Win32_Process|Where-Object {$_.ExecutablePath -eq $assistant.desktop}
+  if(-not $desktop -or -not $nativeFiles){throw 'The actual candidate desktop did not start its file-backed native assistant.'}
+  $desktopIds=@($desktop|ForEach-Object {$_.ProcessId})
+  foreach($process in ($desktop|Where-Object {$_.ParentProcessId -notin $desktopIds})){& taskkill /T /F /PID $process.ProcessId 2>$null|Out-Null}
+  $evidence.checks+='actual Hermes desktop startup with file-backed conversation and work databases'
   $p=Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="'+$app+'"')) -WindowStyle Hidden -Wait -PassThru
   if($p.ExitCode -ne 0){throw 'Upgrade failed'}
   $saved=& $node $cli record get notes offline-test|ConvertFrom-Json

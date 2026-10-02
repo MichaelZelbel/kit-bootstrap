@@ -2,6 +2,6 @@
   "repository": "https://github.com/NousResearch/hermes-agent",
   "commit": "5c4c31cf4d88b084061a5a25ade1b47ab5b751e1",
   "license": "MIT",
-  "changes": "Windows environment reads and writes scoped to the installer process. Dedicated HermesHome and InstallDir. Shared Git configuration and upstream shortcut creation disabled. System package managers disabled; optional ripgrep/ffmpeg use existing binaries without modification. uv provisioning uses an unmanaged candidate directory with shell/PATH modification disabled; child PowerShell does not load personal profiles. Portable Node failure cannot invoke a system installer.",
-  "sha256": "c60c8d92c2846e2a9b9d1c3b567f75db25b542f53c04a8f3c91d825ccc80ab34"
+  "changes": "Windows environment reads and writes scoped to the installer process. Dedicated HermesHome and InstallDir. Shared Git configuration and upstream shortcut creation disabled. System package managers disabled; optional ripgrep/ffmpeg use existing binaries without modification. uv provisioning uses an unmanaged candidate directory with shell/PATH modification disabled; child PowerShell does not load personal profiles. Portable Node failure cannot invoke a system installer. Pinned uv 0.12.12 archive with SHA256 verification. Frozen Python and voice dependency locks. Shallow pinned Git fetch. Deduplicated process PATH. No shared task or image-name process termination.",
+  "sha256": "a9661d515c7366982062058502526380002cdd230ca0f5f34d021ab77fd7e9a4"
 }

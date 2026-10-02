@@ -743,125 +743,34 @@ function Get-PowerShellHostExe {
 }
 
 function Install-Uv {
-    # Hermes owns its own uv at $HermesHome\bin\uv.exe.  Always install there --
-    # no PATH probing, no conda guards, no multi-location resolution chains.
-    # The runtime update path (hermes_cli/managed_uv.py) looks in the same
-    # place, so install.ps1 and `hermes update` stay in sync.
-    $managedUv = Join-Path $HermesHome "bin\uv.exe"
-
-    if (Test-Path $managedUv) {
-        $script:UvCmd = $managedUv
-        $version = & $managedUv --version
-        Write-Success "Managed uv found ($version)"
-        return $true
+    $managedUv=Join-Path $HermesHome 'bin\uv.exe'
+    if(Test-Path -LiteralPath $managedUv){
+        if((& $managedUv --version) -notmatch '^uv 0\.12\.12\b'){throw 'This candidate requires the pinned uv 0.12.12 build tool.'}
+        $script:UvCmd=$managedUv;Write-Success 'Pinned managed uv 0.12.12 found';return $true
     }
-
-    Write-Info "Installing managed uv into $HermesHome\bin ..."
-    New-Item -ItemType Directory -Path (Join-Path $HermesHome "bin") -Force | Out-Null
-
-    # UV_INSTALL_DIR tells the astral installer to place the binary
-    # directly into $HermesHome\bin instead of ~/.local/bin.
-    $prevEAP = $ErrorActionPreference
-    try {
-        $ErrorActionPreference = "Continue"
-        $env:UV_INSTALL_DIR = Join-Path $HermesHome "bin"
-        # Spawn via the resolved host exe (see Get-PowerShellHostExe) rather
-        # than a bare `powershell`, which isn't guaranteed to be on PATH under
-        # PowerShell 7 / pwsh-only setups.
-        $psHostExe = Get-PowerShellHostExe
-
-        # Rungs 1 + 2: run the uv installer -- astral.sh first, then the
-        # byte-identical copy published on GitHub releases.  Corporate
-        # proxies and AV products frequently block astral.sh while
-        # github.com is reachable (issue #69216), so a second source turns
-        # a hard failure into a working install.  Capture the installer
-        # output (Tee-Object) instead of discarding it: when every source
-        # fails, the real error (download blocked, AV quarantine,
-        # permissions) must reach the user instead of only the generic
-        # "installed but not found" message.
-        $installerOutput = @()
-        $astralOut = @()
-        & $psHostExe -NoProfile -NonInteractive -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex" 2>&1 | Tee-Object -Variable astralOut | Out-Null
-        $installerOutput += "--- uv installer source: astral.sh ---"
-        $installerOutput += @($astralOut | ForEach-Object { "$_" })
-        if (Test-Path $managedUv) {
-            Write-Info "uv installer succeeded via astral.sh"
-        } else {
-            Write-Info "astral.sh uv installer did not produce $managedUv; trying GitHub releases mirror ..."
-            $ghOut = @()
-            & $psHostExe -NoProfile -NonInteractive -ExecutionPolicy ByPass -c "irm https://github.com/astral-sh/uv/releases/latest/download/uv-installer.ps1 | iex" 2>&1 | Tee-Object -Variable ghOut | Out-Null
-            $installerOutput += "--- uv installer source: GitHub releases ---"
-            $installerOutput += @($ghOut | ForEach-Object { "$_" })
-            if (Test-Path $managedUv) {
-                Write-Info "uv installer succeeded via GitHub releases"
-            }
-        }
-
-        # Rung 3: salvage an existing uv.exe.  When the installer cannot run
-        # at all (network fully blocked) but a working uv already exists --
-        # on PATH, or at ~/.local/bin (the astral default location when
-        # UV_INSTALL_DIR was ignored by an older installer) -- copy it into
-        # the managed location so the managed-first invariant holds
-        # (hermes_cli/managed_uv.py looks only at $HermesHome\bin\uv.exe).
-        if (-not (Test-Path $managedUv)) {
-            $existingUv = $null
-            $uvOnPath = Get-Command uv -CommandType Application -ErrorAction SilentlyContinue |
-                Select-Object -First 1
-            if ($uvOnPath -and $uvOnPath.Source -and (Test-Path $uvOnPath.Source)) {
-                $existingUv = $uvOnPath.Source
-            }
-            if (-not $existingUv) {
-                $defaultUv = Join-Path $env:USERPROFILE ".local\bin\uv.exe"
-                if (Test-Path $defaultUv) { $existingUv = $defaultUv }
-            }
-            if ($existingUv) {
-                Write-Info "Salvaging existing uv from $existingUv"
-                try {
-                    Copy-Item $existingUv $managedUv -Force
-                    # Verify the salvaged binary actually runs before
-                    # trusting it as the managed uv.
-                    $null = & $managedUv --version
-                } catch {
-                    Write-Info "Existing uv at $existingUv could not be salvaged: $_"
-                    Remove-Item $managedUv -Force -ErrorAction SilentlyContinue
-                }
-            }
-        }
-
-        $ErrorActionPreference = $prevEAP
-
-        if (Test-Path $managedUv) {
-            $script:UvCmd = $managedUv
-            $version = & $managedUv --version
-            Write-Success "Managed uv installed ($version)"
-            return $true
-        }
-
-        Write-Err "uv installed but not found at $managedUv"
-        if ($installerOutput.Count -gt 0) {
-            Write-Info "uv installer output (last 15 lines):"
-            $installerOutput | Select-Object -Last 15 | ForEach-Object { Write-Info "  $_" }
-        }
-        Write-Info "Install manually: https://docs.astral.sh/uv/getting-started/installation/"
-        return $false
-    } catch {
-        if ($prevEAP) { $ErrorActionPreference = $prevEAP }
-        Write-Err "Failed to install uv: $_"
-        Write-Info "Install manually: https://docs.astral.sh/uv/getting-started/installation/"
-        return $false
-    }
+    $stage=Join-Path $HermesHome ('uv-download-'+[guid]::NewGuid())
+    New-Item -ItemType Directory -Force -Path $stage|Out-Null
+    $archive=Join-Path $stage 'uv.zip'
+    Write-Info 'Downloading the pinned candidate Python installer...'
+    Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/astral-sh/uv/releases/download/0.12.12/uv-x86_64-pc-windows-msvc.zip' -OutFile $archive
+    if((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne '3d54912924c36e862c14f427d04f2ed70a99e8001d1c30caa101f6d5711626d5'){throw 'Pinned uv download integrity check failed.'}
+    Expand-Archive -LiteralPath $archive -DestinationPath (Join-Path $stage 'extracted')
+    $binary=Get-ChildItem (Join-Path $stage 'extracted') -Filter uv.exe -Recurse|Select-Object -First 1
+    if(-not $binary){throw 'The pinned uv archive did not contain its executable.'}
+    New-Item -ItemType Directory -Force -Path (Join-Path $HermesHome 'bin')|Out-Null
+    Copy-Item -LiteralPath $binary.FullName -Destination $managedUv
+    if((& $managedUv --version) -notmatch '^uv 0\.12\.12\b'){throw 'Pinned uv could not start.'}
+    $script:UvCmd=$managedUv;Write-Success 'Pinned managed uv 0.12.12 installed';return $true
 }
-
-# Refresh $env:Path from the User + Machine registry hives.  Stage drivers
-# invoke each stage in a fresh powershell process, but those processes
-# inherit env from the parent driver shell, NOT from the registry.  When
-# an earlier stage (Stage-Git, Stage-Node, ...) installs a binary and
-# pushes its directory into User PATH, the next child process's $env:Path
-# is stale and the binary appears missing.  This helper re-reads PATH
-# from the registry so every Invoke-Stage starts from a fresh, up-to-date
-# PATH view.  Cheap (registry reads, no I/O elsewhere) and idempotent.
 function Sync-EnvPath {
-    $env:Path = [Environment]::GetEnvironmentVariable("Path", "Process") + ";" + [Environment]::GetEnvironmentVariable("Path", "Machine")
+    # Preserve candidate-only paths without growing PATH at every stage. cmd.exe
+    # discards an oversized PATH, making npm hooks unable to find node.exe.
+    $seen=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $items=New-Object 'System.Collections.Generic.List[string]'
+    foreach($item in (($env:Path+';'+[Environment]::GetEnvironmentVariable('Path','Machine')) -split ';')){
+        $entry=$item.Trim();if($entry -and $seen.Add($entry)){$items.Add($entry)}
+    }
+    $env:Path=[string]::Join(';',$items)
 }
 
 # npm lifecycle scripts on Windows spawn ``cmd.exe /d /s /c node <script>``.
@@ -2240,7 +2149,7 @@ function Install-Repository {
                 if ($Commit) {
                     # Make sure we have the commit locally (a tag-less commit
                     # SHA isn't always reachable from any one branch fetch).
-                    git -c windows.appendAtomically=false fetch origin $Commit
+                    git -c windows.appendAtomically=false fetch --depth 1 origin $Commit
                     # A commit pin must never move an existing install
                     # BACKWARDS. hermes-setup.exe bakes its build-time commit
                     # into the binary (BUILD_PIN_COMMIT) and passes it as
@@ -2537,7 +2446,7 @@ function Install-Repository {
         try {
             if ($Commit) {
                 Write-Info "Pinning to commit $Commit..."
-                git -c windows.appendAtomically=false fetch origin $Commit
+                git -c windows.appendAtomically=false fetch --depth 1 origin $Commit
                 git -c windows.appendAtomically=false checkout --detach $Commit
                 if ($LASTEXITCODE -ne 0) {
                     throw "git checkout $Commit failed (exit $LASTEXITCODE)"
@@ -2598,7 +2507,7 @@ function Install-Venv {
         # gateway into the replacement venv.
         if ($env:OS -eq "Windows_NT") {
             $myPid = $PID
-            Write-Info "Stopping any running hermes processes before recreating venv..."
+            Write-Info "Stopping processes from this candidate venv before recreating it..."
             # Disarm the respawner FIRST: the gateway autostart Scheduled Task
             # relaunches a killed gateway within seconds, and losing that race
             # re-locks the venv's .pyd files between our kill sweep and
@@ -2609,23 +2518,11 @@ function Install-Venv {
             # gateway mid-install.) Re-enabled in the finally below -- including
             # on failure -- but only for tasks that were enabled to begin with.
             # Best-effort: a missing task just errors quietly.
-            try {
-                schtasks /Query /FO CSV 2>$null | ConvertFrom-Csv | Where-Object { $_.TaskName -like '*Hermes_Gateway*' } | ForEach-Object {
-                    $tn = $_.TaskName
-                    if ($_.Status -eq 'Disabled') {
-                        Write-Info "  gateway autostart task $tn is already disabled; leaving it that way"
-                        return
-                    }
-                    schtasks /End /TN $tn 2>$null | Out-Null
-                    schtasks /Change /TN $tn /DISABLE 2>$null | Out-Null
-                    $gatewayTasksDisabled += $tn
-                    Write-Info "  disabled gateway autostart task $tn for the duration of the install"
-                }
-            } catch {
-                Write-Warn "Could not enumerate gateway scheduled tasks: $($_.Exception.Message)"
-            }
+            # Candidate provisioners never inspect or disable another profile's
+            # autostart tasks. The candidate notebook owns its own schedules.
             # The launcher CLI (hermes.exe) plus its child tree.
-            & taskkill /F /T /IM hermes.exe /FI "PID ne $myPid" 2>$null | Out-Null
+            # Do not kill launchers by image name. Only the scoped venv sweep
+            # below may stop a process, using its verified executable path.
             # taskkill /IM hermes.exe is NOT enough: the gateway/agent that a
             # scheduled task or watchdog autostarts runs as
             # `pythonw.exe -m hermes_cli.main gateway run` straight out of
@@ -2926,7 +2823,7 @@ function Install-Dependencies {
         # in the wrong directory and imports fail with ModuleNotFoundError.
         # (Mirrors the same flag in scripts/install.sh::install_deps.)
         $env:UV_PROJECT_ENVIRONMENT = "$InstallDir\venv"
-        Invoke-NativeWithRelaxedErrorAction { & $UvCmd sync --extra all --locked }
+        Invoke-NativeWithRelaxedErrorAction { & $UvCmd sync --extra all --frozen }
         if ($LASTEXITCODE -eq 0) {
             Write-Success "Main package installed (hash-verified via uv.lock)"
             $script:InstalledTier = "hash-verified (uv.lock)"
@@ -2934,12 +2831,10 @@ function Install-Dependencies {
             # complete, hash-verified install.
             $skipPipFallback = $true
         } else {
-            Write-Warn "uv.lock sync failed (lockfile may be stale), falling back to PyPI resolve..."
-            $skipPipFallback = $false
+            throw 'The pinned Python dependency installation failed. See the candidate log; dependency versions will not be changed automatically.'
         }
     } else {
-        Write-Info "uv.lock not found -- falling back to PyPI resolve (no hash verification)"
-        $skipPipFallback = $false
+        throw 'The pinned Hermes source must contain its dependency lockfile.'
     }
 
     # Install main package.  Tiered fallback so a single flaky transitive
@@ -4019,11 +3914,12 @@ function Install-DesktopVoiceDeps {
     Write-Info "Installing voice + wake-word dependencies (onnxruntime, faster-whisper -- 1-3min)..."
     Push-Location $InstallDir
     try {
-        Invoke-NativeWithRelaxedErrorAction { & $UvCmd pip install -e ".[wake,voice]" }
+        $env:UV_PROJECT_ENVIRONMENT = "$InstallDir\venv"
+        Invoke-NativeWithRelaxedErrorAction { & $UvCmd sync --extra all --extra wake --extra voice --frozen }
         if ($LASTEXITCODE -eq 0) {
             Write-Success "Voice + wake-word dependencies installed"
         } else {
-            Write-Warn "Voice/wake dependency install failed (exit $LASTEXITCODE) -- they will lazy-install at first use"
+            throw 'The pinned voice dependencies could not be installed. See the candidate provisioning log.'
         }
     } finally {
         Pop-Location
@@ -4080,6 +3976,10 @@ function Install-Desktop {
         if (Test-Path $sibling) { $npmExe = $sibling }
     }
 
+    # cmd.exe lifecycle scripts require the actual portable runtime directory.
+    $env:Path = (Split-Path -Parent $npmExe) + ';' + $env:Path
+    if(Test-Path "$HermesHome\node\node.exe"){$env:Path="$HermesHome\node;$env:Path"}
+
     # 1. Workspace-level install so apps/desktop's deps (Electron, Vite,
     # node-pty prebuilds, etc.) actually land in node_modules. This is
     # the SAME `npm install` Install-NodeDeps does for browser tools,
@@ -4118,11 +4018,6 @@ function Install-Desktop {
         # instead of an opaque "exit 1" (issue #38016).
         & $npmExe ci 2>&1 | ForEach-Object { "$_" } | Tee-Object -Variable npmOut
         $code = $LASTEXITCODE
-        if ($code -ne 0) {
-            Write-Info "  npm ci failed (exit $code) -- retrying with npm install..."
-            & $npmExe install 2>&1 | ForEach-Object { "$_" } | Tee-Object -Variable npmOut
-            $code = $LASTEXITCODE
-        }
         $ErrorActionPreference = $prevEAP
         if ($code -ne 0) {
             if (Test-ElectronPkgStagedMissingDist -InstallDir $InstallDir) {

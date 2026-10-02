@@ -26,6 +26,8 @@ if(-not $sourceRoot -and $Provision){
   $env:UV_UNMANAGED_INSTALL=Join-Path $runtimeHome 'bin'
   $env:UV_CACHE_DIR=Join-Path $runtimeHome 'uv-cache'
   $env:UV_TOOL_DIR=Join-Path $runtimeHome 'uv-tools'
+  $env:NPM_CONFIG_CACHE=Join-Path $runtimeHome 'npm-cache'
+  $env:PLAYWRIGHT_BROWSERS_PATH=Join-Path $runtimeHome 'browser-cache'
   $env:GIT_CONFIG_COUNT='2'
   $env:GIT_CONFIG_KEY_0='windows.appendAtomically';$env:GIT_CONFIG_VALUE_0='false'
   $env:GIT_CONFIG_KEY_1='core.longpaths';$env:GIT_CONFIG_VALUE_1='true'
