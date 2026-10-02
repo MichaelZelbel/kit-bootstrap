@@ -3421,8 +3421,12 @@ function Install-NodeDeps {
         [string]$logPath, [int]$timeoutSec
     ) {
         $cmdLine = "/d /s /c "" ""$exePath"" $argLine > ""$logPath"" 2>&1 """
-        $proc = Start-Process -FilePath $env:ComSpec -ArgumentList $cmdLine `
-            -WorkingDirectory $workDir -NoNewWindow -PassThru
+        $startInfo=New-Object Diagnostics.ProcessStartInfo
+        $startInfo.FileName=$env:ComSpec;$startInfo.Arguments=$cmdLine
+        $startInfo.WorkingDirectory=$workDir;$startInfo.UseShellExecute=$false;$startInfo.CreateNoWindow=$true
+        $proc=New-Object Diagnostics.Process
+        $proc.StartInfo=$startInfo
+        [void]$proc.Start()
         $deadline = [DateTime]::UtcNow.AddSeconds($timeoutSec)
         $shown = 0
         function _Drain-NewLines([string]$path, [ref]$count) {
@@ -3443,6 +3447,7 @@ function Install-NodeDeps {
             _Drain-NewLines $logPath ([ref]$shown)
         }
         _Drain-NewLines $logPath ([ref]$shown)
+        $proc.WaitForExit()
         return $proc.ExitCode
     }
 
