@@ -3,3 +3,4 @@
 # stops being small.
 windows/dist/
 windows/full-alpha-payload/
+*.log
