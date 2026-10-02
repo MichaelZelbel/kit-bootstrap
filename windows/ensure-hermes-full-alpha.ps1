@@ -26,6 +26,9 @@ if(-not $sourceRoot -and $Provision){
   $env:UV_UNMANAGED_INSTALL=Join-Path $runtimeHome 'bin'
   $env:UV_CACHE_DIR=Join-Path $runtimeHome 'uv-cache'
   $env:UV_TOOL_DIR=Join-Path $runtimeHome 'uv-tools'
+  $env:GIT_CONFIG_COUNT='2'
+  $env:GIT_CONFIG_KEY_0='windows.appendAtomically';$env:GIT_CONFIG_VALUE_0='false'
+  $env:GIT_CONFIG_KEY_1='core.longpaths';$env:GIT_CONFIG_VALUE_1='true'
   $process=Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"'+$installer+'"'),'-HermesHome',('"'+$runtimeHome+'"'),'-InstallDir',('"'+$sourceRoot+'"'),'-Commit',$source.commit,'-NonInteractive','-SkipSetup','-SkipComputerUse','-IncludeDesktop') -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput $log -RedirectStandardError (Join-Path $State 'hermes-install-error.log')
   if($process.ExitCode -ne 0){throw 'The isolated Hermes desktop installation failed. The notebook files remain available; the installer log is in candidate state.'}
   $executable=Join-Path $runtimeHome 'bin\hermes.exe'
