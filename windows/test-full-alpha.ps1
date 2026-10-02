@@ -10,8 +10,14 @@ if($FreshInstaller){
   if($env:CI -ne 'true'){throw 'Fresh executable installation is restricted to an ephemeral CI account.'}
   $app=Join-Path $testRoot 'application'
   $installer=Join-Path $output 'GodspeedSetup-Full-Alpha.exe'
-  $p=Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="'+$app+'"'),('/LOG="'+(Join-Path $output 'installer-test.log')+'"')) -WindowStyle Hidden -Wait -PassThru
   $state=Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
+  $p=Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="'+$app+'"'),('/LOG="'+(Join-Path $output 'installer-test.log')+'"')) -WindowStyle Hidden -PassThru
+  $deadline=[DateTime]::UtcNow.AddMinutes(30)
+  while(-not $p.WaitForExit(10000)){
+    Get-ChildItem -LiteralPath $state -Filter '*.log' -ErrorAction SilentlyContinue|Copy-Item -Destination $output -ErrorAction SilentlyContinue
+    foreach($logName in @('hermes-install.log','hermes-install-error.log')){if(Test-Path -LiteralPath (Join-Path $state $logName)){Get-Content -LiteralPath (Join-Path $state $logName) -Tail 2}}
+    if([DateTime]::UtcNow -gt $deadline){Stop-Process -Id $p.Id -Force;throw 'Fresh installer exceeded the diagnostic timeout. Provisioning logs were preserved.'}
+  }
   if($p.ExitCode -ne 0){Get-ChildItem $state -Filter '*.log' -ErrorAction SilentlyContinue|Copy-Item -Destination $output;throw ('Fresh installer exited '+$p.ExitCode)}
   $evidence.checks+='fresh installer including isolated Hermes desktop'
   $state=Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
