@@ -10,6 +10,8 @@
 # installers are built with.
 # =============================================================================
 param(
+    [switch]$FullAlpha,
+    [string]$KitCheckout,
     [switch]$SkipCompilerInstall,
     # Build anyway with a pin that is not a tag at this commit. For trying something
     # locally. Never for anything a reader will download: the whole point of the pin is
@@ -18,6 +20,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if($FullAlpha){& (Join-Path $PSScriptRoot 'build-full-alpha.ps1') -KitCheckout $KitCheckout -SkipCompilerInstall:$SkipCompilerInstall;return}
 Set-Location $PSScriptRoot
 
 function Find-Iscc {
