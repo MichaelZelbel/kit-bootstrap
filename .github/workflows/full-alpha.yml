@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: MichaelZelbel/godspeed-mission-control
-          ref: d67854bb59911df2cafa5ad68de8998eed0431d7
+          ref: 313d11039e85e461d3b449501cfd7a588af31b3a
           path: product
       - uses: actions/setup-node@v4
         with:
