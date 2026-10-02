@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 jobs:
   windows:
     runs-on: windows-2025
@@ -34,7 +35,15 @@ jobs:
           if (-not (Test-Path 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe')) { choco install innosetup --no-progress -y }
           ./windows/build-full-alpha.ps1 -KitCheckout "$pwd/product"
       - shell: pwsh
-        run: ./windows/test-full-alpha.ps1 -FreshInstaller
+        run: Write-Output 'The previous candidate is downloaded for a real version upgrade check.'
+      - uses: actions/download-artifact@v4
+        with:
+          name: GodspeedSetup-Full-Alpha
+          run-id: 37072006832
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: windows/dist/previous
+      - shell: pwsh
+        run: ./windows/test-full-alpha.ps1 -FreshInstaller -PreviousInstaller "$pwd/windows/dist/previous/GodspeedSetup-Full-Alpha.exe"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

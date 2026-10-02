@@ -1,4 +1,4 @@
-param([switch]$FreshInstaller)
+param([switch]$FreshInstaller,[string]$PreviousInstaller)
 $ErrorActionPreference='Stop'
 $env:NODE_NO_WARNINGS='1'
 $testRoot=Join-Path $env:TEMP ('Godspeed-full-alpha-test-'+[guid]::NewGuid())
@@ -48,10 +48,29 @@ if($FreshInstaller){
   $desktopIds=@($desktop|ForEach-Object {$_.ProcessId})
   foreach($process in ($desktop|Where-Object {$_.ParentProcessId -notin $desktopIds})){& taskkill /T /F /PID $process.ProcessId 2>$null|Out-Null}
   $evidence.checks+='actual Hermes desktop startup with file-backed conversation and work databases'
+  $python=Join-Path $assistant.sourceRoot 'venv\Scripts\python.exe'
+  & $python -c 'from hermes_state import SessionDB; db=SessionDB(); db.create_session("candidate-upgrade-history","cli"); mid=db.append_message("candidate-upgrade-history","user","Synthetic assistant history retained through version upgrade"); assert mid==1; db.close()'
+  if($LASTEXITCODE -ne 0){throw 'Native assistant upgrade fixture could not be saved'}
+  $currentManifest=Get-Content (Join-Path $app 'payload/candidate-manifest.json') -Raw|ConvertFrom-Json
+  if($PreviousInstaller){
+    $previousManifest=Get-Content (Join-Path (Split-Path $PreviousInstaller -Parent) 'candidate-manifest.json') -Raw|ConvertFrom-Json
+    if($previousManifest.kitCommit -eq $currentManifest.kitCommit){throw 'Upgrade verification requires different product versions'}
+    $old=Start-Process -FilePath $PreviousInstaller -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="'+$app+'"')) -WindowStyle Hidden -Wait -PassThru
+    if($old.ExitCode -ne 0){throw 'Installing the prior candidate failed'}
+    $installed=Get-Content (Join-Path $app 'payload/candidate-manifest.json') -Raw|ConvertFrom-Json
+    if($installed.kitCommit -ne $previousManifest.kitCommit){throw 'The prior software was not installed'}
+    $evidence.previousKitCommit=$previousManifest.kitCommit
+  }
   $p=Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="'+$app+'"')) -WindowStyle Hidden -Wait -PassThru
   if($p.ExitCode -ne 0){throw 'Upgrade failed'}
   $saved=& $node $cli record get notes offline-test|ConvertFrom-Json
   if($saved.content -ne 'Created without a VPS connection.'){throw 'Upgrade changed user data'}
+  $installed=Get-Content (Join-Path $app 'payload/candidate-manifest.json') -Raw|ConvertFrom-Json
+  if($installed.kitCommit -ne $currentManifest.kitCommit){throw 'Upgrade did not replace the previous software'}
+  Remove-Item -LiteralPath (Join-Path $assistant.home 'state.db')
+  & $python -c 'from hermes_state import SessionDB; db=SessionDB(); messages=db.get_messages("candidate-upgrade-history"); assert len(messages)==1 and messages[0]["id"]==1 and messages[0]["content"]=="Synthetic assistant history retained through version upgrade"; db.close()'
+  if($LASTEXITCODE -ne 0){throw 'Native assistant history did not recover from files after version upgrade'}
+  $evidence.checks+='different-version software upgrade preserves notebook and native assistant identity, including database deletion'
   if(-not (Get-ChildItem (Join-Path $state 'backups') -Directory)){throw 'Upgrade did not create a backup'}
   $assistant=Get-Content (Join-Path $state 'assistant.json') -Raw|ConvertFrom-Json
   if(-not $assistant.verified -or -not(Test-Path $assistant.desktop)){throw 'Hermes desktop missing'}
