@@ -3825,3 +3825,224 @@ kb_install_count_send() {
   fi
   return 0
 }
+
+# =============================================================================
+# YOUR COMPUTER LENDS ITS BROWSER (computer use layer 2, D-285 in Michael's mission control).
+#
+# One question, default no: "Let your assistant use a browser on this computer?" A yes puts the
+# helper (computer/ in the kit) into the computer's own app-data folder, pairs it with the
+# connection code the assistant sends ("connect my computer"), starts it at login, and gives it
+# switches: the godspeed-browser command everywhere, and on a Mac small apps in Applications >
+# Godspeed Mission Control (Connect, Pause, Resume, Pages, Stop lending). The helper opens
+# Godspeed Chrome (or Edge) with a profile of its own and connects OUT to the server: no port
+# opens on this computer. Asked only on a computer with a screen, never on a server.
+#
+# Twins of Connect-KitComputer and friends in join.ps1. Change one, change the other, and add the
+# case to BOTH test.sh and windows/test-windows.ps1.
+# =============================================================================
+
+kb_computer_os() { printf '%s' "${KB_COMPUTER_OS:-$(uname -s 2>/dev/null | tr 'A-Z' 'a-z')}"; }
+
+kb_computer_home() {
+  if [ -n "${KB_COMPUTER_HOME:-}" ]; then printf '%s' "$KB_COMPUTER_HOME"; return 0; fi
+  case "$(kb_computer_os)" in
+    darwin) printf '%s' "$HOME/Library/Application Support/Godspeed/computer" ;;
+    *)      printf '%s' "${XDG_DATA_HOME:-$HOME/.local/share}/godspeed/computer" ;;
+  esac
+}
+
+kb_computer_node() {
+  if [ -n "${KB_COMPUTER_NODE:-}" ]; then printf '%s' "$KB_COMPUTER_NODE"; return 0; fi
+  command -v node 2>/dev/null
+}
+
+# A connection code from the assistant: one line starting godspeed1. Spaces, line breaks and
+# quotes copied around it do not matter; the helper reads it the same way.
+kb_computer_code_ok() { printf '%s' "${1:-}" | tr -d ' \t\r\n"'"'"'`' | grep -qE 'godspeed1\.[A-Za-z0-9_-]{20,}'; }
+
+kb_computer_paired() { [ -f "$(kb_computer_home)/server.json" ]; }
+
+# A computer with a screen of its own: a Mac, or Linux with a desktop session. Never a server and
+# never a container, where there is nobody to log in to a browser window.
+kb_computer_desktop() {
+  [ -n "${KB_CONTAINER:-}" ] && return 1
+  case "$(kb_computer_os)" in
+    darwin) return 0 ;;
+    linux)  [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] ;;
+    *)      return 1 ;;
+  esac
+}
+
+# The helper's files, from the kit's computer/ folder (its tests left out), into <home>/app, and
+# the godspeed-browser command. Prints the app folder.
+kb_install_computer_helper() {
+  local repo="${1:-}" node tmp app f bindir
+  node="$(kb_computer_node)"
+  if [ -z "$node" ]; then
+    warn "your assistant's browser: Node.js is missing on this computer, so the helper cannot run. Run this installer again once Node.js is here."
+    return 1
+  fi
+  [ -n "$repo" ] || repo="$(kb_device_env_get GODSPEED_TOOLS_REPO 2>/dev/null)"
+  [ -n "$repo" ] || return 1
+  tmp="$(mktemp -d 2>/dev/null)" || return 1
+  if ! git clone --depth 1 --quiet "$repo" "$tmp/kit" >/dev/null 2>&1 || [ ! -f "$tmp/kit/computer/helper.js" ]; then
+    warn "your assistant's browser: I could not fetch the helper from $repo. Check this computer can reach the internet and run this again."
+    rm -rf "$tmp"; return 1
+  fi
+  app="$(kb_computer_home)/app"
+  # A helper that is running holds the old files: stop it, so the new one starts in its place.
+  if [ -f "$(kb_computer_home)/run.lock" ]; then
+    f="$(sed -n 's/.*"pid": *\([0-9][0-9]*\).*/\1/p' "$(kb_computer_home)/run.lock" | head -1)"
+    [ -n "$f" ] && kill "$f" 2>/dev/null
+  fi
+  rm -rf "$app"; mkdir -p "$app"
+  for f in "$tmp/kit/computer"/* "$tmp/kit/computer"/.[!.]*; do
+    [ -e "$f" ] || continue
+    [ "$(basename "$f")" = test ] && continue
+    cp -R "$f" "$app/"
+  done
+  rm -rf "$tmp"
+  bindir="$HOME/.local/bin"
+  mkdir -p "$bindir"
+  printf '#!/bin/sh\n# Your assistant'"'"'s browser on this computer: godspeed-browser connect|pause|resume|pages|status|off\nexec "%s" "%s/helper.js" "$@"\n' "$node" "$app" > "$bindir/godspeed-browser"
+  chmod 755 "$bindir/godspeed-browser"
+  printf '%s' "$app"
+}
+
+kb_computer_label() { printf '%s' "com.godspeedmissioncontrol.computer"; }
+
+# Starts the helper at every login: a LaunchAgent on a Mac (restarted if it ever stops), an
+# autostart entry on a Linux desktop.
+kb_computer_register_login() {
+  local app="$1" node agents plist autostart
+  node="$(kb_computer_node)"
+  case "$(kb_computer_os)" in
+    darwin)
+      agents="${KB_COMPUTER_LAUNCHAGENTS:-$HOME/Library/LaunchAgents}"
+      mkdir -p "$agents"
+      plist="$agents/$(kb_computer_label).plist"
+      cat > "$plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$(kb_computer_label)</string>
+  <key>ProgramArguments</key>
+  <array><string>$node</string><string>$app/helper.js</string><string>run</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ThrottleInterval</key><integer>30</integer>
+</dict>
+</plist>
+PLIST
+      "${KB_LAUNCHCTL:-launchctl}" bootout "gui/$(id -u)/$(kb_computer_label)" >/dev/null 2>&1 || true
+      "${KB_LAUNCHCTL:-launchctl}" bootstrap "gui/$(id -u)" "$plist" >/dev/null 2>&1 \
+        || "${KB_LAUNCHCTL:-launchctl}" load -w "$plist" >/dev/null 2>&1 || true
+      ;;
+    *)
+      autostart="${KB_COMPUTER_AUTOSTART:-${XDG_CONFIG_HOME:-$HOME/.config}/autostart}"
+      mkdir -p "$autostart"
+      printf '[Desktop Entry]\nType=Application\nName=Godspeed: your assistant'"'"'s browser\nExec="%s" "%s/helper.js" run\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n' \
+        "$node" "$app" > "$autostart/godspeed-computer.desktop"
+      ;;
+  esac
+}
+
+# On a Mac, the switches as small apps in Applications > Godspeed Mission Control. Each shows the
+# helper's own sentence; Connect asks for the code.
+kb_computer_menu() {
+  local app="$1" node apps name act script
+  [ "$(kb_computer_os)" = darwin ] || return 0
+  node="$(kb_computer_node)"
+  apps="${KB_COMPUTER_APPS:-$HOME/Applications/Godspeed Mission Control}"
+  mkdir -p "$apps"
+  for pair in "Connect my assistant's browser|connect" "Pause my assistant's browser|pause" \
+              "Resume my assistant's browser|resume" "Pages my assistant opened|pages" \
+              "Stop lending this computer's browser|off"; do
+    name="${pair%|*}"; act="${pair#*|}"
+    if [ "$act" = connect ]; then
+      script="set c to text returned of (display dialog \"Paste the connection code from your assistant. No code yet? Write to your assistant in Telegram: connect my computer\" default answer \"\" with title \"Godspeed Mission Control\")
+set r to do shell script quoted form of \"$node\" & \" \" & quoted form of \"$app/helper.js\" & \" pair \" & quoted form of c & \" 2>&1; launchctl kickstart -k gui/\$(id -u)/$(kb_computer_label) >/dev/null 2>&1; true\"
+display dialog r buttons {\"OK\"} default button 1 with title \"Godspeed Mission Control\""
+    else
+      script="set r to do shell script quoted form of \"$node\" & \" \" & quoted form of \"$app/helper.js\" & \" $act 2>&1; true\"
+display dialog r buttons {\"OK\"} default button 1 with title \"Godspeed Mission Control\""
+    fi
+    rm -rf "$apps/$name.app"
+    printf '%s\n' "$script" | "${KB_OSACOMPILE:-osacompile}" -o "$apps/$name.app" >/dev/null 2>&1 || true
+  done
+}
+
+kb_computer_start() {
+  local app="$1" node
+  [ -n "${KB_COMPUTER_NO_START:-}" ] && return 0
+  node="$(kb_computer_node)"
+  case "$(kb_computer_os)" in
+    darwin) "${KB_LAUNCHCTL:-launchctl}" kickstart -k "gui/$(id -u)/$(kb_computer_label)" >/dev/null 2>&1 || true ;;
+    *)      nohup "$node" "$app/helper.js" run >/dev/null 2>&1 & ;;
+  esac
+}
+
+# The answer: yes with a code, no, or empty (not asked: an update, or a computer with no screen).
+# Sets KB_COMPUTER_RESULT to connected, installed (yes, but no pairing yet), refreshed (already
+# paired: brought up to date) or skipped.
+kb_wire_computer() {
+  local answer code repo app node out rc
+  answer="$(printf '%s' "${1:-}" | tr 'A-Z' 'a-z' | tr -d ' ')"
+  code="$(printf '%s' "${2:-}" | tr -d ' \t\r\n"'"'"'`')"
+  repo="${3:-}"
+  KB_COMPUTER_RESULT=skipped
+  if [ "$answer" != yes ]; then
+    if [ -z "$answer" ] && kb_computer_paired; then
+      app="$(kb_install_computer_helper "$repo")" || return 0
+      kb_computer_register_login "$app"; kb_computer_menu "$app"; kb_computer_start "$app"
+      ok "your assistant's browser: the helper on this computer is up to date"
+      KB_COMPUTER_RESULT=refreshed
+    fi
+    return 0
+  fi
+  say "Your assistant's browser on this computer"
+  app="$(kb_install_computer_helper "$repo")" || return 0
+  kb_computer_menu "$app"
+  KB_COMPUTER_RESULT=installed
+  if ! kb_computer_code_ok "$code"; then
+    warn "your assistant's browser: no connection code was given. Ask your assistant in Telegram: connect my computer, then run: godspeed-browser connect"
+    return 0
+  fi
+  node="$(kb_computer_node)"
+  out="$("$node" "$app/helper.js" pair "$code" --name "$(hostname 2>/dev/null || echo computer)" 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    warn "your assistant's browser: $out Then ask your assistant for a new code and run: godspeed-browser connect"
+    return 0
+  fi
+  kb_computer_register_login "$app"
+  kb_computer_start "$app"
+  ok "your assistant's browser: paired. Your assistant can now use Godspeed Chrome on this computer for the sites you log into there. Pause it with: godspeed-browser pause"
+  KB_COMPUTER_RESULT=connected
+}
+
+# Stop lending this computer's browser and remove the helper. Godspeed Chrome's profile, with the
+# logins in it, goes too unless the first argument is keep-profile.
+kb_computer_remove() {
+  local keep="${1:-}" home node
+  home="$(kb_computer_home)"
+  node="$(kb_computer_node)"
+  if [ -n "$node" ] && [ -f "$home/app/helper.js" ]; then
+    if [ "$keep" = keep-profile ]; then "$node" "$home/app/helper.js" uninstall --keep-profile >/dev/null 2>&1
+    else "$node" "$home/app/helper.js" uninstall >/dev/null 2>&1; fi
+  fi
+  case "$(kb_computer_os)" in
+    darwin)
+      "${KB_LAUNCHCTL:-launchctl}" bootout "gui/$(id -u)/$(kb_computer_label)" >/dev/null 2>&1 || true
+      rm -f "${KB_COMPUTER_LAUNCHAGENTS:-$HOME/Library/LaunchAgents}/$(kb_computer_label).plist"
+      rm -rf "${KB_COMPUTER_APPS:-$HOME/Applications/Godspeed Mission Control}"/*"assistant's browser.app" \
+             "${KB_COMPUTER_APPS:-$HOME/Applications/Godspeed Mission Control}/Pages my assistant opened.app" \
+             "${KB_COMPUTER_APPS:-$HOME/Applications/Godspeed Mission Control}/Stop lending this computer's browser.app"
+      ;;
+    *) rm -f "${KB_COMPUTER_AUTOSTART:-${XDG_CONFIG_HOME:-$HOME/.config}/autostart}/godspeed-computer.desktop" ;;
+  esac
+  rm -f "$HOME/.local/bin/godspeed-browser"
+  rm -rf "$home/app"
+  [ "$keep" = keep-profile ] || rm -rf "$home"
+  return 0
+}

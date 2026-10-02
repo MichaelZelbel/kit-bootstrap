@@ -58,7 +58,10 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_gateway_state kb_install_gateway kb_cron_has_job kb_cron_job \
          kb_hermes_signin kb_hermes_has_provider kb_room_twin \
          kb_device_env_get kb_install_count kb_dnt kb_new_install_id \
-         kb_choose_install_count kb_install_count_send; do
+         kb_choose_install_count kb_install_count_send \
+         kb_computer_os kb_computer_home kb_computer_node kb_computer_code_ok kb_computer_paired \
+         kb_computer_desktop kb_install_computer_helper kb_computer_register_login kb_computer_menu \
+         kb_computer_start kb_wire_computer kb_computer_remove; do
   declare -F "$f" >/dev/null || printf "%s " "$f"
 done')"
 [ -z "$missing" ] || { echo "  MISSING: $missing"; exit 1; }
@@ -2677,6 +2680,94 @@ t "both platforms send to the same address" \
   "$(grep -c 'https://srv1328602.hstgr.cloud/signal/v1' lib.sh):$(grep -c 'https://srv1328602.hstgr.cloud/signal/v1' join.ps1)" "1:1"
 rm -rf "$_ic"
 
+
+# YOUR ASSISTANT'S BROWSER ON THIS COMPUTER (computer use layer 2). Twins of the Connect-KitComputer
+# cases in windows/test-windows.ps1. A fake helper.js stands in for the kit's, so no browser, server
+# or network is needed: it writes down how it was called and answers like the real one.
+if command -v node >/dev/null 2>&1; then
+_cc="$(mktemp -d)"
+mkdir -p "$_cc/kit/computer/test" "$_cc/kit/computer/lib"
+cat > "$_cc/kit/computer/helper.js" <<'JS'
+const fs = require('fs'); const a = process.argv.slice(2);
+fs.appendFileSync(process.env.KB_TEST_HELPER_LOG, a.join(' ') + '\n');
+if (a[0] === 'pair') {
+  if (a[1].includes('refused')) { console.log('This connection code is not valid any more. Ask your assistant for a new one.'); process.exit(2); }
+  console.log('Paired.');
+}
+JS
+echo 'module.exports = {};' > "$_cc/kit/computer/lib/common.js"
+echo '// the kit tests' > "$_cc/kit/computer/test/test-computer.js"
+git -C "$_cc/kit" init -q && git -C "$_cc/kit" add -A && git -C "$_cc/kit" -c user.email=t@t -c user.name=t commit -q -m kit
+printf '#!/bin/sh\necho "$*" >> "%s/launchctl.log"\n' "$_cc" > "$_cc/fakelaunchctl"
+printf '#!/bin/sh\ncat > /dev/null\nwhile [ $# -gt 0 ]; do [ "$1" = -o ] && mkdir -p "$2"; shift; done\n' > "$_cc/fakeosacompile"
+chmod +x "$_cc/fakelaunchctl" "$_cc/fakeosacompile"
+_good="godspeed1.$(printf 'A%.0s' $(seq 1 40))"
+_refused="godspeed1.refused$(printf 'B%.0s' $(seq 1 30))"
+_ccrun() {
+  local n="$1" os="$2"; shift 2
+  rm -f "$_cc/helper.log" "$_cc/launchctl.log"
+  (
+    HOME="$_cc/$n-home"; mkdir -p "$HOME"
+    KB_COMPUTER_OS="$os"; KB_COMPUTER_HOME="$_cc/$n"; KB_COMPUTER_NODE="$(command -v node)"
+    KB_TEST_HELPER_LOG="$_cc/helper.log"; KB_LAUNCHCTL="$_cc/fakelaunchctl"; KB_OSACOMPILE="$_cc/fakeosacompile"
+    KB_COMPUTER_LAUNCHAGENTS="$_cc/$n-agents"; KB_COMPUTER_AUTOSTART="$_cc/$n-autostart"; KB_COMPUTER_APPS="$_cc/$n-apps"
+    KB_COMPUTER_NO_START=1
+    export HOME KB_COMPUTER_OS KB_COMPUTER_HOME KB_COMPUTER_NODE KB_TEST_HELPER_LOG KB_LAUNCHCTL KB_OSACOMPILE \
+           KB_COMPUTER_LAUNCHAGENTS KB_COMPUTER_AUTOSTART KB_COMPUTER_APPS KB_COMPUTER_NO_START
+    "$@"
+    printf '%s' "${KB_COMPUTER_RESULT:-}" > "$_cc/$n.result"
+  ) > "$_cc/$n.out" 2>&1
+}
+_yn() { if "$@"; then echo yes; else echo no; fi; }
+
+t "a connection code reads with spaces and quotes around it, and nothing else does" \
+  "$(_yn kb_computer_code_ok "  \"$_good\" "):$(_yn kb_computer_code_ok hello):$(_yn kb_computer_code_ok godspeed1.short)" "yes:no:no"
+t "the browser is asked about on a Mac and a Linux desktop, never on a server or in a container" \
+  "$(KB_COMPUTER_OS=darwin _yn kb_computer_desktop):$(KB_COMPUTER_OS=linux DISPLAY=:0 _yn kb_computer_desktop):$(KB_COMPUTER_OS=linux DISPLAY= WAYLAND_DISPLAY= _yn kb_computer_desktop):$(KB_CONTAINER=1 KB_COMPUTER_OS=darwin _yn kb_computer_desktop)" \
+  "yes:yes:no:no"
+_ccrun no darwin kb_wire_computer no "$_good" "$_cc/kit"
+t "no means nothing is installed and nothing starts at login" \
+  "$(cat "$_cc/no.result"):$([ -e "$_cc/no/app" ] && echo app):$([ -e "$_cc/no-agents" ] && echo agent)" "skipped::"
+_ccrun mac darwin kb_wire_computer yes "  $_good " "$_cc/kit"
+t "yes with a code on a Mac: installed without its tests, paired, a login agent, five apps, the command" \
+  "$(cat "$_cc/mac.result"):$([ -f "$_cc/mac/app/helper.js" ] && echo helper):$([ -e "$_cc/mac/app/test" ] && echo TESTS):$(grep -c "^pair $_good --name" "$_cc/helper.log"):$(grep -c 'helper.js</string><string>run' "$_cc/mac-agents/com.godspeedmissioncontrol.computer.plist"):$(grep -c bootstrap "$_cc/launchctl.log"):$(ls "$_cc/mac-apps" | grep -c '\.app$'):$([ -x "$_cc/mac-home/.local/bin/godspeed-browser" ] && echo cmd)" \
+  "connected:helper::1:1:1:5:cmd"
+mkdir -p "$_cc/mac/profile/Default"
+_ccrun mac darwin kb_computer_remove keep-profile
+t "removing it with keep-profile takes away the agent, the apps, the command and the helper, and keeps the logins" \
+  "$([ -e "$_cc/mac-agents/com.godspeedmissioncontrol.computer.plist" ] && echo agent):$(ls "$_cc/mac-apps" 2>/dev/null | grep -c '\.app$'):$([ -e "$_cc/mac-home/.local/bin/godspeed-browser" ] && echo cmd):$([ -e "$_cc/mac/app" ] && echo app):$([ -d "$_cc/mac/profile/Default" ] && echo kept)" \
+  ":0:::kept"
+_ccrun mac darwin kb_computer_remove
+t "removing it without keep-profile takes the logins too" "$([ -e "$_cc/mac" ] && echo left)" ""
+_ccrun lin linux kb_wire_computer yes "$_good" "$_cc/kit"
+t "yes with a code on a Linux desktop: an autostart entry, no Mac login agent" \
+  "$(cat "$_cc/lin.result"):$(grep -c 'helper.js" run' "$_cc/lin-autostart/godspeed-computer.desktop"):$([ -e "$_cc/launchctl.log" ] && echo launchctl)" "connected:1:"
+_ccrun ref darwin kb_wire_computer yes "$_refused" "$_cc/kit"
+t "a code the server refuses: installed, no login agent, and the next step said" \
+  "$(cat "$_cc/ref.result"):$([ -e "$_cc/ref-agents" ] && echo agent):$(grep -c 'not valid any more' "$_cc/ref.out"):$(grep -c 'godspeed-browser connect' "$_cc/ref.out")" "installed::1:1"
+_ccrun noc darwin kb_wire_computer yes "" "$_cc/kit"
+t "yes with no code: installed, and told how to connect later" \
+  "$(cat "$_cc/noc.result"):$(grep -c 'connect my computer' "$_cc/noc.out"):$([ -e "$_cc/helper.log" ] && echo paired)" "installed:1:"
+mkdir -p "$_cc/upd"; echo '{"host":"example"}' > "$_cc/upd/server.json"
+_ccrun upd darwin kb_wire_computer "" "" "$_cc/kit"
+t "an update brings a paired helper up to date, asking nothing" \
+  "$(cat "$_cc/upd.result"):$([ -f "$_cc/upd/app/helper.js" ] && echo helper):$([ -e "$_cc/helper.log" ] && echo paired)" "refreshed:helper:"
+mkdir -p "$_cc/rst"; echo '{"host":"example"}' > "$_cc/rst/server.json"
+sleep 120 & _old=$!
+printf '{\n "pid": %s\n}\n' "$_old" > "$_cc/rst/run.lock"
+_ccrun rst darwin kb_wire_computer "" "" "$_cc/kit"
+sleep 1
+t "an update stops the helper that is running, so the new one takes its place" \
+  "$(cat "$_cc/rst.result"):$(kill -0 "$_old" 2>/dev/null && echo still-running)" "refreshed:"
+_ccrun none darwin kb_wire_computer "" "" "$_cc/kit"
+t "an update on a computer that never said yes installs nothing" "$(cat "$_cc/none.result"):$([ -e "$_cc/none/app" ] && echo app)" "skipped:"
+t "both platforms ask it with no as the default and send the code to the same helper" \
+  "$(grep -c 'ask_yes "Let your assistant use a browser on this computer' setup-godspeed.sh):$(grep -c 'ComputerPage.Values\[0\] := False' windows/godspeed-setup.iss):$(grep -c '"$node" "$app/helper.js" pair "$code"' lib.sh):$(grep -c 'helper pair $clean' join.ps1)" \
+  "1:1:1:1"
+rm -rf "$_cc"
+else
+  t "node is here for the computer cases" no yes
+fi
 echo
 echo "  $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

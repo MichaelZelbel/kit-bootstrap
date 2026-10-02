@@ -3488,6 +3488,11 @@ function Install-KitComputerHelper {
             return $null
         }
         $app = Join-Path (Get-KitComputerHome) 'app'
+        # A helper that is running holds the old files: stop it, so the new one starts in its place.
+        $lock = Join-Path (Get-KitComputerHome) 'run.lock'
+        if (Test-Path $lock) {
+            try { $held = Get-Content $lock -Raw | ConvertFrom-Json; if ($held.pid) { Stop-Process -Id $held.pid -Force -ErrorAction SilentlyContinue } } catch { }
+        }
         if (Test-Path $app) { Remove-Item -Recurse -Force $app }
         New-Item -ItemType Directory -Force $app | Out-Null
         Get-ChildItem -Force (Join-Path $tmp 'computer') | Where-Object { $_.Name -ne 'test' } |

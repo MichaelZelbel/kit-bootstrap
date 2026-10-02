@@ -76,6 +76,12 @@ SOURCES=""
 SOURCES_SET=0
 BESIDE=0
 ONLY=""
+# Your assistant's browser on this computer (kb_wire_computer in lib.sh): yes with a connection
+# code, no, or empty (asked on a computer with a screen, else nothing). KB_COMPUTER and
+# KB_COMPUTER_CODE give the same answers without flags.
+COMPUTER="${KB_COMPUTER:-}"
+COMPUTER_CODE="${KB_COMPUTER_CODE:-}"
+KEEP_PROFILE=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -89,6 +95,9 @@ while [ $# -gt 0 ]; do
     --only=*)       ONLY="${1#--only=}";   shift ;;
     --sources)      SOURCES="${2:-}"; SOURCES_SET=1; shift 2 ;;
     --sources=*)    SOURCES="${1#--sources=}"; SOURCES_SET=1; shift ;;
+    --computer)     COMPUTER="${2:-}";     shift 2 ;;
+    --computer-code) COMPUTER_CODE="${2:-}"; shift 2 ;;
+    --keep-profile) KEEP_PROFILE=keep-profile; shift ;;
     -h|--help)      sed -n '2,51p' "$0" 2>/dev/null; exit 0 ;;
     # A bare path, so `... | bash -s -- ~/godspeed` keeps working the way join.sh did.
     *)              [ -z "$GODSPEED" ] && GODSPEED="$1"; shift ;;
@@ -152,8 +161,14 @@ done
 # re-running every wiring step is not what they came for. kb_only_menerio in lib.sh
 # says what the one step runs. It needs a mission control to connect, so it never makes one.
 # -----------------------------------------------------------------------------
+if [ "$ONLY" = "computer-remove" ]; then
+  # Stop lending this computer's browser and remove the helper. Needs no mission control.
+  command -v kb_computer_remove >/dev/null 2>&1 && kb_computer_remove "$KEEP_PROFILE"
+  ok "your assistant's browser: removed from this computer"
+  exit 0
+fi
 if [ -n "$ONLY" ]; then
-  case "$ONLY" in menerio|gmail) ;; *) die "--only knows two steps: menerio and gmail. You typed: $ONLY" ;; esac
+  case "$ONLY" in menerio|gmail) ;; *) die "--only knows three steps: menerio, gmail and computer-remove. You typed: $ONLY" ;; esac
   if [ "$BESIDE" -eq 1 ]; then KB_BESIDE=1; export KB_BESIDE; fi
   FOUND="$(kb_find_godspeed "$GODSPEED" 2>/dev/null || true)"
   [ -n "$FOUND" ] || die "there is no mission control on this computer yet, so there is nothing to connect. Run this without --only first, and it will make one."
@@ -296,6 +311,21 @@ kb_hermes_approvals
 # One memory. Hermes keeps its own beside the mission control's unless told not to, and a second
 # memory nothing can see is how an assistant starts telling you what used to be true.
 kb_hermes_one_memory
+
+# Your assistant's browser on this computer (computer use layer 2): asked once, default no, and
+# only on a computer with a screen; a yes needs the connection code the assistant sends. An update
+# brings a helper that is already paired up to date. An older lib.sh has no such function.
+if command -v kb_wire_computer >/dev/null 2>&1; then
+  if [ -z "$COMPUTER" ] && ! kb_computer_paired && kb_computer_desktop && have_tty; then
+    if ask_yes "Let your assistant use a browser on this computer, for sites where you are logged in, like your orders or your bank? It gets its own Chrome window and never sees your everyday Chrome" "n"; then
+      COMPUTER=yes
+      [ -n "$COMPUTER_CODE" ] || COMPUTER_CODE="$(ask "Connection code (write to your assistant in Telegram: connect my computer)" "")"
+    else
+      COMPUTER=no
+    fi
+  fi
+  kb_wire_computer "$COMPUTER" "$COMPUTER_CODE" "$STARTER_REPO"
+fi
 
 # The install count, asked once per computer, default no (THE INSTALL COUNT in lib.sh). The
 # server installer runs this file for its folder and asks the question itself, with its own

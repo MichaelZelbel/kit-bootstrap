@@ -3661,6 +3661,15 @@ Check "an update brings a paired helper up to date and keeps it starting at logi
     $r = Connect-KitComputer -Answer '' -Code '' -ToolsRepo $CompKit 6>&1 | Select-Object -Last 1
     ($r -eq 'refreshed') -and (Test-Path (Join-Path $env:KB_COMPUTER_HOME 'app\helper.js')) -and [bool](Get-TestRunValue) -and -not (Test-Path $CompLog)
 }
+Check "an update stops the helper that is running, so the new one takes its place" {
+    Use-TestComputer 'restart'
+    Set-KbTextFile (Join-Path $env:KB_COMPUTER_HOME 'server.json') '{"host":"example"}'
+    $old = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile -Command Start-Sleep 120' -WindowStyle Hidden -PassThru
+    Set-KbTextFile (Join-Path $env:KB_COMPUTER_HOME 'run.lock') ('{ "pid": ' + $old.Id + ' }')
+    $r = Connect-KitComputer -Answer '' -Code '' -ToolsRepo $CompKit 6>&1 | Select-Object -Last 1
+    Start-Sleep -Milliseconds 500
+    ($r -eq 'refreshed') -and -not (Get-Process -Id $old.Id -ErrorAction SilentlyContinue)
+}
 Check "an update on a PC that never said yes installs nothing" {
     Use-TestComputer 'update-none'
     $r = Connect-KitComputer -Answer '' -Code '' -ToolsRepo $CompKit 6>&1 | Select-Object -Last 1
