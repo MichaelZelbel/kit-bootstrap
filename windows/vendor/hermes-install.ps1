@@ -1964,6 +1964,11 @@ function Update-ProcessPathForPackages {
 }
 
 function Install-SystemPackages {
+    # The full alpha never runs system package managers against an existing account.
+    Write-Info "Candidate uses available ripgrep and ffmpeg without installing or upgrading shared packages. Missing optional media tools require separate configuration."
+    $script:HasRipgrep = [bool](Get-Command rg -ErrorAction SilentlyContinue)
+    $script:HasFfmpeg = [bool](Get-Command ffmpeg -ErrorAction SilentlyContinue)
+    return
     $script:HasRipgrep = $false
     $script:HasFfmpeg = $false
     $needRipgrep = $false
@@ -2388,7 +2393,7 @@ function Install-Repository {
         $env:GIT_CONFIG_COUNT = "1"
         $env:GIT_CONFIG_KEY_0 = "windows.appendAtomically"
         $env:GIT_CONFIG_VALUE_0 = "false"
-        git config --global windows.appendAtomically false 2>$null
+        # Compatibility flags above are scoped to this process, never the user's global Git config.
 
         # Try SSH first, then HTTPS, with -c flag for atomic write fix
         Write-Info "Trying SSH clone..."
@@ -4320,7 +4325,7 @@ function Install-Desktop {
     #    which would cost minutes each time. The packed exe is the consumer --
     #    launching it directly is instant, and updates flow through the
     #    installer's --update path (which rebuilds once, then relaunches).
-    New-DesktopShortcuts -TargetExe $desktopExe
+    # Godspeed's separate installer supplies its own profile-aware assistant shortcut.
 }
 
 function New-DesktopShortcuts {

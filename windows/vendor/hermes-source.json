@@ -2,6 +2,6 @@
   "repository": "https://github.com/NousResearch/hermes-agent",
   "commit": "5c4c31cf4d88b084061a5a25ade1b47ab5b751e1",
   "license": "MIT",
-  "changes": "Windows User environment reads and writes scoped to the installer process. Dedicated HermesHome and InstallDir. No existing config, shortcuts, PATH or credentials adopted.",
-  "sha256": "ebfef02eb12891b00b49499bc61807f81353f7a8303334b8ffc7274da677991e"
+  "changes": "Windows environment reads and writes scoped to the installer process. Dedicated HermesHome and InstallDir. Shared Git configuration and upstream shortcut creation disabled. System package managers disabled; optional ripgrep/ffmpeg use existing binaries without modification.",
+  "sha256": "de1f4ffffb5e727a6dd9eb6f764b2af5bf297f63121b82cb7e5844b99c737332"
 }
