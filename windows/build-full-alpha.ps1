@@ -12,7 +12,8 @@ New-Item -ItemType Directory -Force -Path $payload|Out-Null
 # Version-specific output directory prevents an older build from contaminating a new one.
 $payload=Join-Path $payload ($kitCommit.Substring(0,12)+'-'+$bootstrapCommit.Substring(0,12))
 New-Item -ItemType Directory -Force -Path (Join-Path $payload 'kit')|Out-Null
-& git -C $KitCheckout archive --format=zip --output=(Join-Path $payload 'kit-source.zip') $kitCommit
+$archivePath=Join-Path $payload 'kit-source.zip'
+& git -C $KitCheckout archive --format=zip ("--output="+$archivePath) $kitCommit
 if($LASTEXITCODE -ne 0){throw 'Kit archive failed.'}
 Expand-Archive -LiteralPath (Join-Path $payload 'kit-source.zip') -DestinationPath (Join-Path $payload 'kit') -Force
 Remove-Item -LiteralPath (Join-Path $payload 'kit-source.zip')
