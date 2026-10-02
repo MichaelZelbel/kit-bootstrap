@@ -31,6 +31,7 @@ Source: "start-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "stop-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "ensure-hermes-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "open-hermes-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "computer-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "vendor\*"; DestDir: "{app}\vendor"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Icons]
 Name: "{group}\Godspeed Mission Control Full Alpha"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\start-full-alpha.ps1"""

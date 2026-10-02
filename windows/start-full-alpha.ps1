@@ -10,6 +10,7 @@ try{$health=Invoke-RestMethod -Uri ('http://127.0.0.1:'+$config.port+'/health') 
 if(-not $running){
   $env:GODSPEED_WORKSPACE=$config.workspace;$env:GODSPEED_MEDIA_ROOT=$config.media;$env:GODSPEED_PORT=[string]$config.port;$env:GODSPEED_BIND='127.0.0.1'
   $env:GODSPEED_ASSISTANT_CONFIG=Join-Path $state 'assistant.json'
+  $managedGit=Join-Path $state 'hermes-runtime\git\cmd';if(Test-Path -LiteralPath (Join-Path $managedGit 'git.exe')){$env:PATH=$managedGit+';'+$env:PATH}
   $providerFile=Join-Path $state 'provider.json'
   if(Test-Path -LiteralPath $providerFile){$provider=Get-Content -LiteralPath $providerFile -Raw|ConvertFrom-Json;$env:GODSPEED_MODEL_URL=$provider.url;$env:GODSPEED_MODEL_KEY=$provider.key;$env:GODSPEED_MODEL=$provider.model}
   $process=Start-Process -FilePath $node -ArgumentList @('"'+$server+'"') -WorkingDirectory (Split-Path -Parent $server) -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $state 'service.log') -RedirectStandardError (Join-Path $state 'service-error.log')

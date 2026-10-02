@@ -39,7 +39,7 @@ $config.appRoot=$AppRoot
 $env:GODSPEED_WORKSPACE=$config.workspace;$env:GODSPEED_MEDIA_ROOT=$config.media
 & (Join-Path $payload 'runtime\node.exe') (Join-Path $payload 'kit\notebook\bin\godspeed.mjs') init|Out-Null
 if($LASTEXITCODE -ne 0){throw 'Candidate workspace initialization failed.'}
-if(-not $SkipHermes){& (Join-Path $AppRoot 'ensure-hermes-full-alpha.ps1') -State $state -Workspace $config.workspace -Provision|Out-Null}
+if(-not $SkipHermes){& (Join-Path $AppRoot 'ensure-hermes-full-alpha.ps1') -State $state -Workspace $config.workspace -Port $config.port -Provision|Out-Null}
 $temporary=$configFile+'.tmp';$config|ConvertTo-Json -Depth 20|Set-Content -LiteralPath $temporary -Encoding UTF8
 Move-Item -LiteralPath $temporary -Destination $configFile -Force
 if(-not $NoStartup){

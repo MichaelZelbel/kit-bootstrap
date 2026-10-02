@@ -1,10 +1,12 @@
-param([Parameter(Mandatory)][string]$State,[Parameter(Mandatory)][string]$Workspace,[switch]$Provision,[switch]$ForceIsolatedInstall)
+param([Parameter(Mandatory)][string]$State,[Parameter(Mandatory)][string]$Workspace,[int]$Port=47831,[switch]$Provision,[switch]$ForceIsolatedInstall)
 $ErrorActionPreference='Stop'
 $runtimeHome=Join-Path $State 'hermes-runtime'
 $profileHome=Join-Path $State 'hermes-profile'
 New-Item -ItemType Directory -Force -Path $profileHome|Out-Null
 $executable=$null;$sourceRoot=$null
-if(-not $ForceIsolatedInstall){
+$managedSource=Join-Path $runtimeHome 'hermes-agent'
+if(-not $ForceIsolatedInstall -and (Test-Path -LiteralPath (Join-Path $runtimeHome 'bin\hermes.exe')) -and (Test-Path -LiteralPath (Join-Path $managedSource 'apps\desktop\release\win-unpacked\Hermes.exe'))){$executable=Join-Path $runtimeHome 'bin\hermes.exe';$sourceRoot=$managedSource}
+if(-not $ForceIsolatedInstall -and -not $sourceRoot){
   $installed=Get-Command hermes.exe -ErrorAction SilentlyContinue
   if($installed){
     $executable=$installed.Source
@@ -38,4 +40,9 @@ if(-not(Test-Path -LiteralPath $config)){
 }
 $descriptor=[pscustomobject]@{verified=$true;kind='hermes';executable=$executable;desktop=$desktop;sourceRoot=$sourceRoot;home=$profileHome;workspace=$Workspace}
 $descriptor|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $State 'assistant.json') -Encoding UTF8
+$env:GODSPEED_WORKSPACE=$Workspace;$env:GODSPEED_PORT=[string]$Port;$env:GODSPEED_DEVICE='local';$env:NODE_NO_WARNINGS='1'
+$config=Get-Content -LiteralPath (Join-Path $State 'installation.json') -Raw -ErrorAction SilentlyContinue|ConvertFrom-Json
+$appRoot=if($config){$config.appRoot}else{$PSScriptRoot}
+& (Join-Path $appRoot 'payload\runtime\node.exe') (Join-Path $appRoot 'payload\kit\notebook\scripts\wire-assistant.mjs') $profileHome|Out-Null
+if($LASTEXITCODE -ne 0){throw 'Candidate assistant connection settings could not be saved.'}
 $descriptor
