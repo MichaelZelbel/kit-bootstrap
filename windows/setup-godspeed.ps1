@@ -56,8 +56,16 @@ param(
     # /VERYSILENT, so no question waits in a console that nobody reads (found 2026-09-30: the
     # first silent install of a v2.16 .exe waited for ever at the install-count question).
     [switch]$Unattended,
-    # One step instead of the whole install: 'menerio' or 'gmail'.
+    # One step instead of the whole install: 'menerio' or 'gmail', or 'computer-remove' (the
+    # uninstaller: stop lending this PC's browser and remove the helper).
     [string]$Only,
+    # Your assistant's browser on this PC (Connect-KitComputer in join.ps1): 'yes' with a
+    # connection code, 'no', or 'keep' (nothing asked: a paired helper is brought up to date).
+    # The code is 'none' when there is none. With -Only computer-remove, -KeepProfile keeps
+    # Godspeed Chrome's profile and the logins in it.
+    [string]$Computer = 'keep',
+    [string]$ComputerCode = 'none',
+    [switch]$KeepProfile,
     # Which kit-bootstrap tag or branch the shared install code comes from. The wizard
     # passes the tag this .exe was built from, so a reader runs exactly the code that
     # passed its runs, the same promise install-godspeed.sh has always made on macOS and Linux.
@@ -216,8 +224,14 @@ foreach ($fn in 'Install-KitPrereqs', 'New-KitGodspeed', 'Copy-KitStarterGodspee
 # re-running every wiring step is not what they came for. Connect-KitMenerioOnly in
 # join.ps1 says what the one step runs. It needs a mission control to connect, so it never makes one.
 # -----------------------------------------------------------------------------
+if ($Only -eq 'computer-remove') {
+    # The uninstaller's step. Needs no mission control and no prerequisites.
+    if (Get-Command Remove-KitComputer -ErrorAction SilentlyContinue) { Remove-KitComputer -KeepProfile:$KeepProfile }
+    try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }
+    exit 0
+}
 if ($Only) {
-    if ($Only -notin 'menerio', 'gmail') { Stop-Setup "-Only knows two steps: menerio and gmail. You typed: $Only" }
+    if ($Only -notin 'menerio', 'gmail') { Stop-Setup "-Only knows three steps: menerio, gmail and computer-remove. You typed: $Only" }
     Update-KitPath
     if ($Beside) { $env:KB_BESIDE = '1' }
     $found = Find-KitGodspeed -Hint $Godspeed
@@ -382,6 +396,15 @@ Set-KitHermesOneMemory | Out-Null
 if (-not (Test-KitBeside)) {
     [Environment]::SetEnvironmentVariable('GODSPEED_DIR', $Godspeed, 'User')
     $env:GODSPEED_DIR = $Godspeed
+}
+
+# Your assistant's browser on this PC (computer use layer 2): only on a yes in the wizard, with the
+# connection code the assistant sent; an update brings a helper that is already paired up to date.
+# An older join.ps1 from the cache has no such function, and then nothing happens.
+if (Get-Command Connect-KitComputer -ErrorAction SilentlyContinue) {
+    $computerAnswer = if ($Computer -eq 'keep') { '' } else { $Computer }
+    $computerCode = if ($ComputerCode -eq 'none') { '' } else { $ComputerCode }
+    Connect-KitComputer -Answer $computerAnswer -Code $computerCode -ToolsRepo $StarterRepo | Out-Null
 }
 
 # The install count, asked once per PC, default no (THE INSTALL COUNT in lib.sh; the twins

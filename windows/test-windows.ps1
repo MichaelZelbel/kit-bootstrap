@@ -3542,6 +3542,139 @@ Check "this file carries none of the Google console sentences, and tells no read
     -not ($JoinSrc -match 'Client ID|Client secret|Is this the one|Connect Gmail now') -and -not $code.Contains('mc-mail connect gmail')
 }
 
+
+Write-Host ""
+Write-Host "-- your assistant's browser on this PC (computer use layer 2)"
+# The helper is the kit's computer\ folder. Here a fake helper.js stands in for it, so no browser,
+# server or network is needed: it writes down how it was called and answers like the real one.
+function New-TestComputerKit {
+    param([Parameter(Mandatory)][string]$Path)
+    New-Item -ItemType Directory -Force (Join-Path $Path 'computer\test') | Out-Null
+    New-Item -ItemType Directory -Force (Join-Path $Path 'computer\lib') | Out-Null
+    Set-KbTextFile (Join-Path $Path 'computer\helper.js') (
+        "const fs = require('fs'); const a = process.argv.slice(2);`n" +
+        "fs.appendFileSync(process.env.KB_TEST_HELPER_LOG, a.join(' ') + '\n');`n" +
+        "if (a[0] === 'pair') {`n" +
+        "  if (a[1].includes('refused')) { console.log('This connection code is not valid any more. Ask your assistant for a new one.'); process.exit(2); }`n" +
+        "  console.log('Paired.');`n" +
+        "}`n")
+    Set-KbTextFile (Join-Path $Path 'computer\lib\common.js') "module.exports = {};`n"
+    Set-KbTextFile (Join-Path $Path 'computer\test\test-computer.js') "// the kit's own tests`n"
+    git -C $Path init -q
+    git -C $Path add -A 2>&1 | Out-Null
+    git -C $Path -c user.email='t@t' -c user.name='t' commit -q -m 'kit' 2>&1 | Out-Null
+}
+$CompKit = New-TestDir 'computer-kit'
+New-TestComputerKit -Path $CompKit
+$CompLog = Join-Path $Root 'computer-helper-calls.txt'
+$GoodCode = 'godspeed1.' + ('A' * 40)
+$RefusedCode = 'godspeed1.refused' + ('B' * 30)
+function Use-TestComputer {
+    param([string]$Name)
+    $env:KB_COMPUTER_HOME = New-TestDir ("computer-home-" + $Name)
+    $env:GODSPEED_COMPUTER_HOME = $env:KB_COMPUTER_HOME
+    $env:KB_COMPUTER_MENU = New-TestDir ("computer-menu-" + $Name)
+    $env:KB_COMPUTER_RUNKEY = 'HKCU:\Software\GodspeedKbTest\Run-' + $Name
+    $env:KB_COMPUTER_NO_START = '1'
+    $env:KB_COMPUTER_NODE = (Get-Command node).Source
+    $env:KB_TEST_HELPER_LOG = $CompLog
+    Remove-Item -Force $CompLog -ErrorAction SilentlyContinue
+}
+function Get-TestRunValue {
+    $k = Get-KitComputerRunKey
+    if (-not (Test-Path $k)) { return $null }
+    return (Get-ItemProperty -Path $k -Name 'Godspeed computer' -ErrorAction SilentlyContinue).'Godspeed computer'
+}
+$IssSrcC = Get-Content (Join-Path $PSScriptRoot 'godspeed-setup.iss') -Raw
+$SetupSrcC = Get-Content (Join-Path $PSScriptRoot 'setup-godspeed.ps1') -Raw
+
+Check "the wizard asks about the browser with the box unticked, and passes the answer and the code" {
+    $IssSrcC.Contains('Let your assistant use a browser on this computer?') -and $IssSrcC.Contains('ComputerPage.Values[0] := False') -and
+        $IssSrcC.Contains('-Computer ""{code:GetComputerAnswer}"" -ComputerCode ""{code:GetComputerCode}""')
+}
+Check "a silent install, or a PC that is paired already, is not asked and keeps what it has" {
+    $IssSrcC.Contains("if WizardSilent or ComputerPaired then Result := 'keep'") -and $IssSrcC.Contains('Result := ComputerPaired or (not ComputerPage.Values[0])')
+}
+Check "the wizard never passes an empty code (it would shift every parameter after it)" {
+    $IssSrcC.Contains("if Result = '' then Result := 'none';") -and $SetupSrcC.Contains("[string]`$ComputerCode = 'none'")
+}
+Check "the uninstaller removes the helper and asks before removing the logins" {
+    $IssSrcC.Contains('-Only computer-remove') -and $IssSrcC.Contains('SuppressibleMsgBox(''Also remove Godspeed Chrome''''s own profile')
+}
+Check "setup-godspeed.ps1 runs -Only computer-remove before it looks for a mission control" {
+    $a = $SetupSrcC.IndexOf("if (`$Only -eq 'computer-remove')")
+    $b = $SetupSrcC.IndexOf('$found = Find-KitGodspeed -Hint $Godspeed')
+    ($a -gt 0) -and ($b -gt 0) -and ($a -lt $b)
+}
+Check "a connection code reads with spaces, line breaks and quotes around it, and nothing else does" {
+    (Test-KitComputerCode ("  `"" + $GoodCode.Substring(0, 20) + "`r`n" + $GoodCode.Substring(20) + "`"  ")) -and
+        -not (Test-KitComputerCode 'hello') -and -not (Test-KitComputerCode '') -and -not (Test-KitComputerCode 'godspeed1.short')
+}
+Check "no means nothing is installed, nothing starts at login and nothing is added to the menu" {
+    Use-TestComputer 'no'
+    $r = Connect-KitComputer -Answer 'no' -Code $GoodCode -ToolsRepo $CompKit 6>&1 | Select-Object -Last 1
+    ($r -eq 'skipped') -and -not (Test-Path (Join-Path $env:KB_COMPUTER_HOME 'app')) -and (-not (Get-TestRunValue)) -and
+        (@(Get-ChildItem $env:KB_COMPUTER_MENU).Count -eq 0)
+}
+Check "yes with a code: the helper is installed without its tests, paired, started at login, and in the Start menu" {
+    Use-TestComputer 'yes'
+    $r = Connect-KitComputer -Answer 'yes' -Code ("  " + $GoodCode + " ") -ToolsRepo $CompKit 6>&1 | Select-Object -Last 1
+    $app = Join-Path $env:KB_COMPUTER_HOME 'app'
+    $calls = Get-Content $CompLog -ErrorAction SilentlyContinue
+    $run = Get-TestRunValue
+    $menu = @(Get-ChildItem $env:KB_COMPUTER_MENU -Filter '*.lnk' | ForEach-Object { $_.BaseName })
+    ($r -eq 'connected') -and (Test-Path (Join-Path $app 'helper.js')) -and (Test-Path (Join-Path $app 'lib\common.js')) -and
+        -not (Test-Path (Join-Path $app 'test')) -and ($calls -contains ("pair $GoodCode --name $env:COMPUTERNAME")) -and
+        ($run -match 'wscript\.exe ".*godspeed-computer\.vbs" run') -and ($menu.Count -eq 5) -and
+        ($menu -contains "Pause my assistant's browser") -and ($menu -contains "Stop lending this computer's browser")
+}
+Check "the launcher it writes is valid VBScript and names this PC's Node" {
+    $vbs = Join-Path $env:KB_COMPUTER_HOME 'app\godspeed-computer.vbs'
+    $src = Get-Content $vbs -Raw
+    & cscript.exe //nologo $vbs 'nothing-to-do' 2>&1 | Out-Null
+    ($LASTEXITCODE -eq 0) -and $src.Contains('node = "' + $env:KB_COMPUTER_NODE + '"')
+}
+Check "uninstalling with -KeepProfile removes the login start, the menu entries and the helper, and keeps the logins" {
+    New-Item -ItemType Directory -Force (Join-Path $env:KB_COMPUTER_HOME 'profile\Default') | Out-Null
+    Remove-KitComputer -KeepProfile
+    (-not (Get-TestRunValue)) -and (@(Get-ChildItem $env:KB_COMPUTER_MENU -Filter '*.lnk').Count -eq 0) -and
+        -not (Test-Path (Join-Path $env:KB_COMPUTER_HOME 'app')) -and (Test-Path (Join-Path $env:KB_COMPUTER_HOME 'profile\Default'))
+}
+Check "uninstalling without it removes the logins too" {
+    Remove-KitComputer
+    -not (Test-Path $env:KB_COMPUTER_HOME)
+}
+Check "a code the server refuses: installed, not started at login, and told exactly what to do next" {
+    Use-TestComputer 'refused'
+    $out = Connect-KitComputer -Answer 'yes' -Code $RefusedCode -ToolsRepo $CompKit 3>&1 6>&1 | Out-String
+    $out.Contains('installed') -and $out.Contains('not valid any more') -and $out.Contains("Connect my assistant's browser") -and
+        (-not (Get-TestRunValue)) -and (Test-Path (Join-Path $env:KB_COMPUTER_HOME 'app\helper.js'))
+}
+Check "yes with no code: installed, and told how to connect later" {
+    Use-TestComputer 'nocode'
+    $out = Connect-KitComputer -Answer 'yes' -Code '' -ToolsRepo $CompKit 3>&1 6>&1 | Out-String
+    $out.Contains('installed') -and $out.Contains('connect my computer') -and -not (Test-Path $CompLog)
+}
+Check "an update brings a paired helper up to date and keeps it starting at login, asking nothing" {
+    Use-TestComputer 'update'
+    Set-KbTextFile (Join-Path $env:KB_COMPUTER_HOME 'server.json') '{"host":"example"}'
+    $r = Connect-KitComputer -Answer '' -Code '' -ToolsRepo $CompKit 6>&1 | Select-Object -Last 1
+    ($r -eq 'refreshed') -and (Test-Path (Join-Path $env:KB_COMPUTER_HOME 'app\helper.js')) -and [bool](Get-TestRunValue) -and -not (Test-Path $CompLog)
+}
+Check "an update on a PC that never said yes installs nothing" {
+    Use-TestComputer 'update-none'
+    $r = Connect-KitComputer -Answer '' -Code '' -ToolsRepo $CompKit 6>&1 | Select-Object -Last 1
+    ($r -eq 'skipped') -and -not (Test-Path (Join-Path $env:KB_COMPUTER_HOME 'app'))
+}
+Remove-Item -Recurse -Force 'HKCU:\Software\GodspeedKbTest' -ErrorAction SilentlyContinue
+foreach ($v in 'KB_COMPUTER_HOME', 'GODSPEED_COMPUTER_HOME', 'KB_COMPUTER_MENU', 'KB_COMPUTER_RUNKEY', 'KB_COMPUTER_NO_START', 'KB_COMPUTER_NODE', 'KB_TEST_HELPER_LOG') {
+    Remove-Item "env:$v" -ErrorAction SilentlyContinue
+}
+Check "the suite left no test entry in the real login start" {
+    -not (Test-Path 'HKCU:\Software\GodspeedKbTest') -and
+        -not ((Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).PSObject.Properties.Value -match 'kb-test-')
+}
+
 # THE REAL PATH, PUT BACK ONCE MORE, AND THIS TIME LAST. The restore further up was written
 # when it was the end of the file. Cases were added below it afterwards, and one of them
 # (the shim case, with its own shim-home) installs the mission control commands, which prepends its bin

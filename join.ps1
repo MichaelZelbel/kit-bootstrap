@@ -3428,6 +3428,236 @@ function Test-KitHermesApprovals {
     return $true
 }
 
+# =============================================================================
+# YOUR COMPUTER LENDS ITS BROWSER (computer use layer 2, D-285 in Michael's mission control).
+#
+# One question in the wizard, unticked: "Let your assistant use a browser on this computer?"
+# A yes puts the helper (computer\ in the kit) into %LOCALAPPDATA%\Godspeed\computer\app,
+# pairs it with the connection code the assistant sends ("connect my computer"), starts it at
+# login with no window, and adds Start-menu entries: Connect, Pause, Resume, Pages, Stop lending.
+# The helper opens Godspeed Chrome (or Edge) with a profile of its own, so the everyday Chrome
+# stays open and untouched, and connects OUT to the server: no port opens on this PC.
+#
+# Twins of kb_wire_computer and friends in lib.sh. Change one, change the other, and add the
+# case to BOTH test.sh and windows/test-windows.ps1.
+# =============================================================================
+
+function Get-KitComputerHome {
+    if ($env:KB_COMPUTER_HOME) { return $env:KB_COMPUTER_HOME }
+    $lad = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { Join-Path $HOME 'AppData\Local' }
+    return (Join-Path $lad 'Godspeed\computer')
+}
+function Get-KitComputerRunKey { if ($env:KB_COMPUTER_RUNKEY) { return $env:KB_COMPUTER_RUNKEY } return 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' }
+function Get-KitComputerMenu {
+    if ($env:KB_COMPUTER_MENU) { return $env:KB_COMPUTER_MENU }
+    return (Join-Path ([Environment]::GetFolderPath('Programs')) 'Godspeed Mission Control')
+}
+function Get-KitComputerNode {
+    if ($env:KB_COMPUTER_NODE) { return $env:KB_COMPUTER_NODE }
+    $n = Get-Command node -ErrorAction SilentlyContinue
+    if ($n) { return $n.Source }
+    return $null
+}
+
+function Test-KitComputerCode {
+    <#  A connection code from the assistant: one line starting godspeed1. Spaces, line breaks
+        and quotes copied around it do not matter; the helper reads it the same way. #>
+    param([string]$Code)
+    if (-not $Code) { return $false }
+    return [bool](($Code -replace '\s', '') -match 'godspeed1\.[A-Za-z0-9_-]{20,}')
+}
+
+function Test-KitComputerPaired { return (Test-Path (Join-Path (Get-KitComputerHome) 'server.json')) }
+
+function Install-KitComputerHelper {
+    <#  The helper's files, from the kit's computer\ folder (its tests left out), into
+        <home>\app, plus the launcher that runs it with no window. Returns the app folder, or
+        $null when the kit could not be fetched or this PC has no Node. #>
+    param([string]$ToolsRepo)
+    $node = Get-KitComputerNode
+    if (-not $node) { Write-KbWarn "your assistant's browser: Node.js is missing on this PC, so the helper cannot run. Run this installer again once Node.js is here."; return $null }
+    if (-not $ToolsRepo) { $ToolsRepo = Get-KitDeviceEnvValue 'GODSPEED_TOOLS_REPO' }
+    if (-not $ToolsRepo) { return $null }
+    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("kb-computer-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    $prevEap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    try {
+        git clone --depth 1 --quiet $ToolsRepo $tmp 2>&1 | Out-Null
+        $ErrorActionPreference = $prevEap
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $tmp 'computer\helper.js'))) {
+            Write-KbWarn "your assistant's browser: I could not fetch the helper from $ToolsRepo. Check this PC can reach the internet and run this again."
+            return $null
+        }
+        $app = Join-Path (Get-KitComputerHome) 'app'
+        if (Test-Path $app) { Remove-Item -Recurse -Force $app }
+        New-Item -ItemType Directory -Force $app | Out-Null
+        Get-ChildItem -Force (Join-Path $tmp 'computer') | Where-Object { $_.Name -ne 'test' } |
+            ForEach-Object { Copy-Item -Recurse -Force $_.FullName $app }
+        Write-KitComputerLauncher -AppDir $app -Node $node | Out-Null
+        return $app
+    } finally {
+        $ErrorActionPreference = $prevEap
+        if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue }
+    }
+}
+
+function Write-KitComputerLauncher {
+    <#  godspeed-computer.vbs beside the helper: "run" starts it with no window; connect, pause,
+        resume, off show the helper's own sentence in a small box; pages opens the list in Notepad.
+        A console program started from the Start menu or at login would otherwise open a
+        terminal window in the owner's face (see Write-KitHiddenLauncher). #>
+    param([Parameter(Mandatory)][string]$AppDir, [Parameter(Mandatory)][string]$Node)
+    $vbs = Join-Path $AppDir 'godspeed-computer.vbs'
+    $runKey = (Get-KitComputerRunKey) -replace '^HKCU:\\', 'HKCU\'
+    @(
+        "' Your assistant's browser on this computer (written by the Godspeed installer).",
+        "' Usage: wscript godspeed-computer.vbs run|connect|pause|resume|pages|off",
+        'Option Explicit',
+        'Dim sh, fso, node, helper, act, tmp, f, text, code, rc',
+        'Set sh = CreateObject("WScript.Shell")',
+        'Set fso = CreateObject("Scripting.FileSystemObject")',
+        ('node = "' + $Node + '"'),
+        ('helper = "' + (Join-Path $AppDir 'helper.js') + '"'),
+        'Function Q(s)',
+        '  Q = Chr(34) & s & Chr(34)',
+        'End Function',
+        'Function RunHelper(args)',
+        '  tmp = fso.GetSpecialFolder(2) & "\godspeed-computer-out.txt"',
+        '  rc = sh.Run("cmd /c " & Chr(34) & Q(node) & " " & Q(helper) & " " & args & " > " & Q(tmp) & " 2>&1" & Chr(34), 0, True)',
+        '  text = ""',
+        '  If fso.FileExists(tmp) Then',
+        '    Set f = fso.OpenTextFile(tmp, 1)',
+        '    If Not f.AtEndOfStream Then text = f.ReadAll',
+        '    f.Close',
+        '  End If',
+        '  RunHelper = rc',
+        'End Function',
+        'If WScript.Arguments.Count < 1 Then act = "run" Else act = LCase(WScript.Arguments(0))',
+        'Select Case act',
+        '  Case "run"',
+        '    sh.Run Q(node) & " " & Q(helper) & " run", 0, False',
+        '  Case "connect"',
+        '    code = InputBox("Paste the connection code from your assistant." & vbCrLf & vbCrLf & "No code yet? Write to your assistant in Telegram: connect my computer", "Godspeed Mission Control")',
+        '    If Trim(code) <> "" Then',
+        '      code = Replace(Replace(Replace(code, Chr(34), ""), vbCr, ""), vbLf, "")',
+        '      If RunHelper("pair " & Q(code)) = 0 Then',
+        ('        sh.RegWrite "' + $runKey + '\Godspeed computer", "wscript.exe " & Q(WScript.ScriptFullName) & " run", "REG_SZ"'),
+        '        sh.Run Q(node) & " " & Q(helper) & " run", 0, False',
+        '      End If',
+        '      MsgBox text, 64, "Godspeed Mission Control"',
+        '    End If',
+        '  Case "pages"',
+        '    RunHelper "pages 100"',
+        '    sh.Run "notepad.exe " & Q(tmp), 1, False',
+        '  Case "pause", "resume", "off", "status"',
+        '    RunHelper act',
+        '    MsgBox text, 64, "Godspeed Mission Control"',
+        'End Select'
+    ) | Set-Content -Path $vbs -Encoding ascii
+    return $vbs
+}
+
+function Register-KitComputerLogin {
+    <#  Starts the helper at every login, with no window, and gives it its Start-menu entries.
+        The Run key, not a scheduled task: it needs no rights the user does not have, and a
+        logon trigger task would need them. #>
+    param([Parameter(Mandatory)][string]$AppDir)
+    $vbs = Join-Path $AppDir 'godspeed-computer.vbs'
+    $key = Get-KitComputerRunKey
+    if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
+    Set-ItemProperty -Path $key -Name 'Godspeed computer' -Value ('wscript.exe "' + $vbs + '" run')
+    Set-KitComputerMenu -AppDir $AppDir
+}
+
+function Set-KitComputerMenu {
+    param([Parameter(Mandatory)][string]$AppDir)
+    $vbs = Join-Path $AppDir 'godspeed-computer.vbs'
+    $menu = Get-KitComputerMenu
+    New-Item -ItemType Directory -Force $menu | Out-Null
+    $shell = New-Object -ComObject WScript.Shell
+    $entries = [ordered]@{
+        "Connect my assistant's browser"       = 'connect'
+        "Pause my assistant's browser"         = 'pause'
+        "Resume my assistant's browser"        = 'resume'
+        'Pages my assistant opened'            = 'pages'
+        "Stop lending this computer's browser" = 'off'
+    }
+    foreach ($name in $entries.Keys) {
+        $lnk = $shell.CreateShortcut((Join-Path $menu ($name + '.lnk')))
+        $lnk.TargetPath = Join-Path $env:WINDIR 'System32\wscript.exe'
+        $lnk.Arguments = '"' + $vbs + '" ' + $entries[$name]
+        $lnk.WorkingDirectory = $AppDir
+        $lnk.Save()
+    }
+}
+
+function Start-KitComputerHelper {
+    param([Parameter(Mandatory)][string]$AppDir)
+    if ($env:KB_COMPUTER_NO_START) { return }
+    Start-Process -FilePath (Join-Path $env:WINDIR 'System32\wscript.exe') -ArgumentList ('"' + (Join-Path $AppDir 'godspeed-computer.vbs') + '" run') -WindowStyle Hidden
+}
+
+function Connect-KitComputer {
+    <#  The wizard's answer: 'yes' with a code, 'no', or '' (not asked: an update, or a silent run).
+        Returns what happened in one word: connected, installed (yes, but no pairing yet),
+        refreshed (already paired: the helper's files brought up to date), skipped. #>
+    param([string]$Answer, [string]$Code, [string]$ToolsRepo)
+    $answer = "$Answer".Trim().ToLower()
+    if ($answer -ne 'yes') {
+        if ((Test-KitComputerPaired) -and ($answer -eq '')) {
+            $app = Install-KitComputerHelper -ToolsRepo $ToolsRepo
+            if ($app) { Register-KitComputerLogin -AppDir $app; Start-KitComputerHelper -AppDir $app; Write-KbOk "your assistant's browser: the helper on this PC is up to date"; return 'refreshed' }
+        }
+        return 'skipped'
+    }
+    Write-KbSay "Your assistant's browser on this PC"
+    $app = Install-KitComputerHelper -ToolsRepo $ToolsRepo
+    if (-not $app) { return 'skipped' }
+    Set-KitComputerMenu -AppDir $app
+    if (-not (Test-KitComputerCode $Code)) {
+        Write-KbWarn "your assistant's browser: no connection code was given. Ask your assistant in Telegram: connect my computer, then open Start, Godspeed Mission Control, Connect my assistant's browser, and paste the code."
+        return 'installed'
+    }
+    $node = Get-KitComputerNode
+    $helper = Join-Path $app 'helper.js'
+    $clean = ($Code -replace '\s', '') -replace '["''`]', ''
+    # A line a program writes to its error stream is a terminating error under Windows PowerShell
+    # 5.1 with ErrorActionPreference Stop, which this installer sets; the helper's exit code decides.
+    $prevEap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    try { $out = & $node $helper pair $clean --name $env:COMPUTERNAME 2>&1 | Out-String; $rc = $LASTEXITCODE } finally { $ErrorActionPreference = $prevEap }
+    if ($rc -ne 0) {
+        Write-KbWarn ("your assistant's browser: " + $out.Trim() + " Then open Start, Godspeed Mission Control, Connect my assistant's browser, and paste the new code.")
+        return 'installed'
+    }
+    Register-KitComputerLogin -AppDir $app
+    Start-KitComputerHelper -AppDir $app
+    Write-KbOk "your assistant's browser: paired. Your assistant can now use Godspeed Chrome on this PC for the sites you log into there. Pause and Stop are in the Start menu under Godspeed Mission Control."
+    return 'connected'
+}
+
+function Remove-KitComputer {
+    <#  For the uninstaller: stop the helper, unpair it, remove the login start, the Start-menu
+        entries and its files. Godspeed Chrome's profile, with the logins in it, goes too unless
+        -KeepProfile. #>
+    param([switch]$KeepProfile)
+    $home_ = Get-KitComputerHome
+    $node = Get-KitComputerNode
+    $helper = Join-Path $home_ 'app\helper.js'
+    if ($node -and (Test-Path $helper)) {
+        $prevEap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+        try {
+            if ($KeepProfile) { & $node $helper uninstall --keep-profile 2>&1 | Out-Null } else { & $node $helper uninstall 2>&1 | Out-Null }
+        } finally { $ErrorActionPreference = $prevEap }
+    }
+    $key = Get-KitComputerRunKey
+    if (Test-Path $key) { Remove-ItemProperty -Path $key -Name 'Godspeed computer' -ErrorAction SilentlyContinue }
+    $menu = Get-KitComputerMenu
+    foreach ($n in "Connect my assistant's browser", "Pause my assistant's browser", "Resume my assistant's browser", 'Pages my assistant opened', "Stop lending this computer's browser") {
+        Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $menu ($n + '.lnk'))
+    }
+    if (Test-Path (Join-Path $home_ 'app')) { Remove-Item -Recurse -Force (Join-Path $home_ 'app') -ErrorAction SilentlyContinue }
+    if (-not $KeepProfile -and (Test-Path $home_)) { Remove-Item -Recurse -Force $home_ -ErrorAction SilentlyContinue }
+}
+
 if ($AsLibrary) { return }
 
 # ---------------------------------------------------------------- run standalone

@@ -79,7 +79,7 @@ Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 
 [Run]
 Filename: "powershell.exe"; \
-    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-godspeed.ps1"" -NoPause -Godspeed ""{code:GetGodspeedDir}"" -RepoUrl ""{code:GetRepoUrl}"" -PromptSources ""{code:GetPromptSources}"" -KbBranch ""{#KbPin}""{code:GetBesideFlag}{code:GetUnattendedFlag}"; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-godspeed.ps1"" -NoPause -Godspeed ""{code:GetGodspeedDir}"" -RepoUrl ""{code:GetRepoUrl}"" -PromptSources ""{code:GetPromptSources}"" -Computer ""{code:GetComputerAnswer}"" -ComputerCode ""{code:GetComputerCode}"" -KbBranch ""{#KbPin}""{code:GetBesideFlag}{code:GetUnattendedFlag}"; \
     StatusMsg: "Setting up Godspeed Mission Control. This can take a few minutes, and a window will show what it is doing..."; \
     Flags: waituntilterminated
 Filename: "{code:GetGodspeedDir}"; Description: "Open my mission control folder"; \
@@ -91,7 +91,7 @@ Type: filesandordirs; Name: "{app}"
 [Messages]
 ; Said on the last page of the uninstaller, because the one thing people fear
 ; here is losing the memory, and they should be told plainly that they have not.
-ConfirmUninstall=This removes the setup program only.%n%nYour mission control folder, and everything your assistants have learned, stays exactly where it is. Nothing you have written is deleted.%n%nRemove the setup program?
+ConfirmUninstall=This removes the setup program only.%n%nYour mission control folder, and everything your assistants have learned, stays exactly where it is. Nothing you have written is deleted. If your assistant may use a browser on this computer, that stops too.%n%nRemove the setup program?
 
 [Code]
 var
@@ -107,6 +107,11 @@ var
   ToolRows: array of Integer;
   ToolCount: Integer;
   RecordedSources: String;
+  { Your assistant's browser on this computer (computer use layer 2): one question, unticked,
+    and the connection code the assistant sends. Not asked again once this PC is paired. }
+  ComputerPage: TInputOptionWizardPage;
+  CodePage: TInputQueryWizardPage;
+  ComputerPaired: Boolean;
 
 { Field N of 'a|b|c|d'. Inno's Pascal has no split, so this walks the string. }
 function PipeField(const S: String; Index: Integer): String;
@@ -315,6 +320,26 @@ begin
     else if sync <> 'none' then
       AddSyncRow(id, name + ' - what you type to it, and its answers');
   end;
+
+  ComputerPaired := FileExists(ExpandConstant('{localappdata}\Godspeed\computer\server.json'));
+  ComputerPage := CreateInputOptionPage(SyncPage.ID,
+    'Your browser',
+    'Let your assistant use a browser on this computer?',
+    'Some jobs need your logins: your orders, your bank, your bookings. With a yes, your assistant gets '
+    + 'its own Chrome window on this computer, called Godspeed Chrome. You log in there once for each site it '
+    + 'may use. It never sees your everyday Chrome, which stays open and untouched.' + #13#10 + #13#10
+    + 'It asks you before it buys, sends, posts or deletes anything. You can pause or stop it at any time '
+    + 'from the Start menu, or by telling it "stop using my computer". While this computer is off or asleep, '
+    + 'your assistant says so and waits.',
+    False, False);
+  ComputerPage.Add('Yes, let my assistant use a browser on this computer');
+  ComputerPage.Values[0] := False;
+  CodePage := CreateInputQueryPage(ComputerPage.ID,
+    'Your browser',
+    'Paste the connection code from your assistant',
+    'In Telegram, write to your assistant: connect my computer' + #13#10 + #13#10
+    + 'It sends you a code. Copy it and paste it below. It works once, for half an hour.');
+  CodePage.Add('Connection code:', False);
 end;
 
 { Is this run making a SECOND mission control and leaving this PC working from the one it has? }
@@ -337,6 +362,11 @@ begin
     it wants a second one somewhere else. }
   if PageID = GodspeedPage.ID then
     Result := (FoundGodspeed <> '') and (not Beside);
+  { A PC whose browser is lent already keeps it; Start, Godspeed Mission Control has the switches. }
+  if PageID = ComputerPage.ID then
+    Result := ComputerPaired;
+  if PageID = CodePage.ID then
+    Result := ComputerPaired or (not ComputerPage.Values[0]);
 end;
 
 { The folder page introduces itself differently for a second mission control, because "this PC has
@@ -384,6 +414,14 @@ var
   Why: String;
 begin
   Result := True;
+  if (CurPageID = CodePage.ID) and (Pos('godspeed1.', CodePage.Values[0]) = 0) then
+  begin
+    MsgBox('That is not a connection code yet.' + #13#10 + #13#10
+      + 'In Telegram, write to your assistant: connect my computer' + #13#10
+      + 'Then copy the whole code it sends and paste it here. Or go back and untick the box.', mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
   if (CurPageID = GodspeedPage.ID) and ((FoundGodspeed = '') or Beside) then
   begin
     if Trim(GodspeedPage.Values[0]) = '' then
@@ -461,6 +499,48 @@ begin
   if Result = '' then Result := 'none';
 end;
 
+{ Your assistant's browser: yes, no, or keep (asked nothing: paired already, or a silent run,
+  which then only brings a paired helper up to date). Never empty, so -File reads it. }
+function GetComputerAnswer(Param: String): String;
+begin
+  if WizardSilent or ComputerPaired then Result := 'keep'
+  else if ComputerPage.Values[0] then Result := 'yes'
+  else Result := 'no';
+end;
+
+{ The code as pasted, without the quotes or spaces that copying may bring along; 'none' when
+  there is none, since an empty value would shift every parameter after it. }
+function GetComputerCode(Param: String): String;
+begin
+  Result := '';
+  if GetComputerAnswer('') = 'yes' then
+  begin
+    Result := Trim(CodePage.Values[0]);
+    StringChangeEx(Result, '"', '', True);
+    StringChangeEx(Result, ' ', '', True);
+  end;
+  if Result = '' then Result := 'none';
+end;
+
+{ The uninstaller stops the helper and removes it. The logins made in Godspeed Chrome are the
+  person's to keep or not, so they are asked. }
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Code: Integer;
+  Keep: String;
+begin
+  if (CurUninstallStep = usUninstall) and DirExists(ExpandConstant('{localappdata}\Godspeed\computer')) then
+  begin
+    Keep := '';
+    if SuppressibleMsgBox('Also remove Godspeed Chrome''s own profile, with the logins you made in it?' + #13#10 + #13#10
+      + 'Yes removes them. No keeps them, so a later install finds you still logged in.',
+      mbConfirmation, MB_YESNO, IDYES) = IDNO then
+      Keep := ' -KeepProfile';
+    Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\setup-godspeed.ps1')
+      + '" -NoPause -Only computer-remove' + Keep, '', SW_HIDE, ewWaitUntilTerminated, Code);
+  end;
+end;
+
 { The same ticks as human names, for the Ready page. }
 function GetSyncSummary(): String;
 var
@@ -495,4 +575,8 @@ begin
   end;
   Result := Result + NewLine + NewLine
           + 'Conversations copied into your mission control from this PC: ' + GetSyncSummary();
+  if GetComputerAnswer('') = 'yes' then
+    Result := Result + NewLine + NewLine + 'Your assistant may use a browser on this computer: yes, paired with your code.'
+  else if ComputerPaired then
+    Result := Result + NewLine + NewLine + 'Your assistant may use a browser on this computer: yes, as before.';
 end;
