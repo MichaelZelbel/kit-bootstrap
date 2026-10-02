@@ -3469,7 +3469,7 @@ function Install-NodeDeps {
             # via the returned exit code, which is reliable regardless of
             # stderr noise.
             $ErrorActionPreference = "Continue"
-            $code = _Invoke-NativeWithTimeout $npmPath "install --silent" `
+            $code = _Invoke-NativeWithTimeout $npmPath "ci --silent --no-audit --no-fund" `
                 $installDir $logPath $nodeDepsTimeoutSec
             $ErrorActionPreference = $prevEAP
             if ($code -eq 0) {
