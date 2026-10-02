@@ -1,6 +1,16 @@
 param([switch]$FreshInstaller,[string]$PreviousInstaller)
 $ErrorActionPreference='Stop'
 $env:NODE_NO_WARNINGS='1'
+function Invoke-InstallerParent([string]$Executable,[string[]]$Arguments){
+  # Start-Process -Wait follows descendants, including the intentionally persistent notebook.
+  $start=[Diagnostics.ProcessStartInfo]::new()
+  $start.FileName=$Executable;$start.Arguments=$Arguments -join ' ';$start.UseShellExecute=$false;$start.CreateNoWindow=$true
+  $process=[Diagnostics.Process]::new();$process.StartInfo=$start
+  if(-not $process.Start()){throw 'The installer parent could not start.'}
+  if(-not $process.WaitForExit(300000)){Stop-Process -Id $process.Id -Force;throw 'The installer parent exceeded five minutes.'}
+  $process.Refresh()
+  if($process.ExitCode -ne 0){throw ('Installer parent exited '+$process.ExitCode)}
+}
 $testRoot=Join-Path $env:TEMP ('Godspeed-full-alpha-test-'+[guid]::NewGuid())
 New-Item -ItemType Directory -Force -Path $testRoot|Out-Null
 $evidence=[ordered]@{at=[DateTime]::UtcNow.ToString('o');freshAccount=$env:CI -eq 'true';checks=@();testRoot=$testRoot}
@@ -20,6 +30,7 @@ if($FreshInstaller){
   }
   if($p.ExitCode -ne 0){Get-ChildItem $state -Filter '*.log' -ErrorAction SilentlyContinue|Copy-Item -Destination $output;throw ('Fresh installer exited '+$p.ExitCode)}
   $evidence.checks+='fresh installer including isolated Hermes desktop'
+  Write-Output 'Fresh executable installation completed.'
   $state=Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
   $settings=Get-Content (Join-Path $state 'installation.json') -Raw|ConvertFrom-Json
   $node=Join-Path $app 'payload/runtime/node.exe'
@@ -35,6 +46,7 @@ if($FreshInstaller){
   $health=Invoke-RestMethod ('http://127.0.0.1:'+$settings.port+'/health')
   if(-not $health.ok){throw 'Restart health failed'}
   $evidence.checks+='restart and offline file retention'
+  Write-Output 'Restart and offline retention completed.'
   $assistant=Get-Content (Join-Path $state 'assistant.json') -Raw|ConvertFrom-Json
   & (Join-Path $app 'open-hermes-full-alpha.ps1')
   $desktopDeadline=[DateTime]::UtcNow.AddSeconds(120)
@@ -48,6 +60,7 @@ if($FreshInstaller){
   $desktopIds=@($desktop|ForEach-Object {$_.ProcessId})
   foreach($process in ($desktop|Where-Object {$_.ParentProcessId -notin $desktopIds})){& taskkill /T /F /PID $process.ProcessId 2>$null|Out-Null}
   $evidence.checks+='actual Hermes desktop startup with file-backed conversation and work databases'
+  Write-Output 'Actual native desktop startup completed.'
   $python=Join-Path $assistant.sourceRoot 'venv\Scripts\python.exe'
   $nativeId=& $python -c 'from hermes_state import SessionDB; db=SessionDB(); db.create_session("candidate-upgrade-history","cli"); mid=db.append_message("candidate-upgrade-history","user","Synthetic assistant history retained through version upgrade"); print(mid); db.close()'
   if($LASTEXITCODE -ne 0){throw 'Native assistant upgrade fixture could not be saved'}
@@ -57,14 +70,13 @@ if($FreshInstaller){
   if($PreviousInstaller){
     $previousManifest=Get-Content (Join-Path (Split-Path $PreviousInstaller -Parent) 'candidate-manifest.json') -Raw|ConvertFrom-Json
     if($previousManifest.kitCommit -eq $currentManifest.kitCommit){throw 'Upgrade verification requires different product versions'}
-    $old=Start-Process -FilePath $PreviousInstaller -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="'+$app+'"')) -WindowStyle Hidden -Wait -PassThru
-    if($old.ExitCode -ne 0){throw 'Installing the prior candidate failed'}
+    Invoke-InstallerParent $PreviousInstaller @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="'+$app+'"'))
     $installed=Get-Content (Join-Path $app 'payload/candidate-manifest.json') -Raw|ConvertFrom-Json
     if($installed.kitCommit -ne $previousManifest.kitCommit){throw 'The prior software was not installed'}
     $evidence.previousKitCommit=$previousManifest.kitCommit
+    Write-Output 'Previous software version installed with retained data.'
   }
-  $p=Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="'+$app+'"')) -WindowStyle Hidden -Wait -PassThru
-  if($p.ExitCode -ne 0){throw 'Upgrade failed'}
+  Invoke-InstallerParent $installer @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="'+$app+'"'))
   $saved=& $node $cli record get notes offline-test|ConvertFrom-Json
   if($saved.content -ne 'Created without a VPS connection.'){throw 'Upgrade changed user data'}
   $installed=Get-Content (Join-Path $app 'payload/candidate-manifest.json') -Raw|ConvertFrom-Json
@@ -73,13 +85,14 @@ if($FreshInstaller){
   & $python -c 'import sys; from hermes_state import SessionDB; db=SessionDB(); messages=db.get_messages("candidate-upgrade-history"); assert len(messages)==1 and messages[0]["id"]==int(sys.argv[1]) and messages[0]["content"]=="Synthetic assistant history retained through version upgrade"; db.close()' ([string]$nativeId)
   if($LASTEXITCODE -ne 0){throw 'Native assistant history did not recover from files after version upgrade'}
   $evidence.checks+='different-version software upgrade preserves notebook and native assistant identity, including database deletion'
+  Write-Output 'Different-version upgrade and native database recovery completed.'
   if(-not (Get-ChildItem (Join-Path $state 'backups') -Directory)){throw 'Upgrade did not create a backup'}
   $assistant=Get-Content (Join-Path $state 'assistant.json') -Raw|ConvertFrom-Json
   if(-not $assistant.verified -or -not(Test-Path $assistant.desktop)){throw 'Hermes desktop missing'}
   $evidence.checks+='upgrade, integrity backup and Hermes desktop'
   & (Join-Path $app 'stop-full-alpha.ps1')
-  $uninstall=Start-Process -FilePath (Join-Path $app 'unins000.exe') -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -WindowStyle Hidden -Wait -PassThru
-  if($uninstall.ExitCode -ne 0 -or -not(Test-Path (Join-Path $settings.workspace 'records/notes/offline-test.md'))){throw 'Uninstall did not preserve user records'}
+  Invoke-InstallerParent (Join-Path $app 'unins000.exe') @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART')
+  if(-not(Test-Path (Join-Path $settings.workspace 'records/notes/offline-test.md'))){throw 'Uninstall did not preserve user records'}
   $evidence.checks+='uninstall preserves knowledge'
 }
 $evidence|ConvertTo-Json -Depth 8|Set-Content (Join-Path $output 'clean-install-evidence.json')
