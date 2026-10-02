@@ -1,5 +1,6 @@
 param([switch]$FreshInstaller)
 $ErrorActionPreference='Stop'
+$env:NODE_NO_WARNINGS='1'
 $testRoot=Join-Path $env:TEMP ('Godspeed-full-alpha-test-'+[guid]::NewGuid())
 New-Item -ItemType Directory -Force -Path $testRoot|Out-Null
 $evidence=[ordered]@{at=[DateTime]::UtcNow.ToString('o');freshAccount=$env:CI -eq 'true';checks=@();testRoot=$testRoot}

@@ -1,5 +1,6 @@
 param([string]$AppRoot=$PSScriptRoot,[string]$Workspace,[int]$Port=47831,[switch]$NoStart,[switch]$NoStartup,[switch]$SkipHermes)
 $ErrorActionPreference='Stop'
+$env:NODE_NO_WARNINGS='1'
 $AppRoot=[IO.Path]::GetFullPath($AppRoot)
 $payload=Join-Path $AppRoot 'payload'
 $manifestPath=Join-Path $payload 'candidate-manifest.json'
