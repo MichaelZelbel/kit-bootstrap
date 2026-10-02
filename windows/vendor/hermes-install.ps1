@@ -781,7 +781,7 @@ function Install-Uv {
         # "installed but not found" message.
         $installerOutput = @()
         $astralOut = @()
-        & $psHostExe -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex" 2>&1 | Tee-Object -Variable astralOut | Out-Null
+        & $psHostExe -NoProfile -NonInteractive -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex" 2>&1 | Tee-Object -Variable astralOut | Out-Null
         $installerOutput += "--- uv installer source: astral.sh ---"
         $installerOutput += @($astralOut | ForEach-Object { "$_" })
         if (Test-Path $managedUv) {
@@ -789,7 +789,7 @@ function Install-Uv {
         } else {
             Write-Info "astral.sh uv installer did not produce $managedUv; trying GitHub releases mirror ..."
             $ghOut = @()
-            & $psHostExe -ExecutionPolicy ByPass -c "irm https://github.com/astral-sh/uv/releases/latest/download/uv-installer.ps1 | iex" 2>&1 | Tee-Object -Variable ghOut | Out-Null
+            & $psHostExe -NoProfile -NonInteractive -ExecutionPolicy ByPass -c "irm https://github.com/astral-sh/uv/releases/latest/download/uv-installer.ps1 | iex" 2>&1 | Tee-Object -Variable ghOut | Out-Null
             $installerOutput += "--- uv installer source: GitHub releases ---"
             $installerOutput += @($ghOut | ForEach-Object { "$_" })
             if (Test-Path $managedUv) {
@@ -1885,6 +1885,7 @@ function Test-Node {
     # the taskbar -- looks like a hang to users on stock Windows).
     # Kept for environments where the portable download fails (proxy,
     # locked firewall, etc.) but the user is willing to consent to UAC.
+    throw 'The isolated portable Node runtime could not be provisioned. Shared system Node installations are never changed by this candidate.'
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         Write-Info "Falling back to winget (may prompt UAC -- check your taskbar for a flashing icon)..."
         # Capture EAP outside the try block so the catch's restore call always
@@ -4846,6 +4847,7 @@ function Invoke-Stage {
     # prior stages, even when each stage runs in its own powershell process.
     # No-op in cost-relevant cases (default invocation path syncs once per
     # foreach pass; cross-process drivers get the necessary freshening).
+    Write-Info ("Candidate provisioning stage: " + $StageDef.Name)
     Sync-EnvPath
 
     # Per-stage soft-skip channel.  A worker can populate
