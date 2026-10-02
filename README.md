@@ -1,3 +1,10 @@
+## File-based full alpha candidate
+
+The `codex/godspeed-full-file-based` branch builds a separate Windows installer, `GodspeedSetup-Full-Alpha.exe`. It has its own application ID, workspace, state, startup and assistant profile. It does not replace the existing installer or adopt live data. Model accounts and optional connectors belong to the person trying the candidate.
+
+Build with `windows/build-full-alpha.ps1 -KitCheckout <clean product checkout>` after building the product notebook UI. Each payload carries the exact product and bootstrap revisions, all file hashes, source and licenses. The executable test runs only in an ephemeral Windows CI account and checks fresh installation, isolated Hermes desktop provisioning, offline records, restart, upgrade backup and uninstall retention. Its saved evidence and logs accompany the candidate artifact. First assistant provisioning requires internet access; shared Git settings, shortcuts, environment variables and system packages are not changed.
+
+The older bootstrap documentation below describes the existing installation channel. Full alpha settings and paths are separate.
 # kit-bootstrap
 
 The parts every one of our installers was copying by hand, kept in one place.
