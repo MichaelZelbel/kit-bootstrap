@@ -1,0 +1,45 @@
+name: Full alpha candidate
+on:
+  push:
+    branches: [codex/godspeed-full-file-based]
+    paths: ['windows/**', '.github/workflows/full-alpha.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: MichaelZelbel/godspeed-mission-control
+          ref: 4639ca1
+          path: product
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - run: npm test
+        working-directory: product/notebook
+      - run: npm ci
+        working-directory: product/notebook/ui
+      - run: npm run build
+        working-directory: product/notebook/ui
+      - shell: pwsh
+        run: |
+          if (-not (Test-Path 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe')) { choco install innosetup --no-progress -y }
+          ./windows/build-full-alpha.ps1 -KitCheckout "$pwd/product"
+      - shell: pwsh
+        run: ./windows/test-full-alpha.ps1 -FreshInstaller
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: GodspeedSetup-Full-Alpha
+          path: |
+            windows/dist/GodspeedSetup-Full-Alpha.exe
+            windows/dist/candidate-manifest.json
+            windows/dist/clean-install-evidence.json
+            windows/dist/installer-test.log
+            windows/dist/SHA256SUMS
+          retention-days: 30
