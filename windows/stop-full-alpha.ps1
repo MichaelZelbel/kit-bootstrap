@@ -5,7 +5,7 @@ $pidFile=Join-Path $state 'process.json'
 if(Test-Path -LiteralPath $pidFile){
   $saved=Get-Content -LiteralPath $pidFile -Raw|ConvertFrom-Json
   $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$saved.pid) -ErrorAction SilentlyContinue
-  if($process -and $process.ExecutablePath -eq $saved.node -and $process.CommandLine.Contains($saved.server)){Stop-Process -Id $saved.pid -Force}
+  if($process -and $process.ExecutablePath -eq $saved.node -and $process.CommandLine.Contains($saved.server)){& taskkill.exe /PID ([string]$saved.pid) /T /F|Out-Null;if($LASTEXITCODE -ne 0){throw 'The isolated notebook process tree did not stop.'}}
   Remove-Item -LiteralPath $pidFile
 }
 if($Uninstall){

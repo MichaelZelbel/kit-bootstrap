@@ -36,14 +36,14 @@ if(-not $unpacked.StartsWith($payload+[IO.Path]::DirectorySeparatorChar,[StringC
 Remove-Item -LiteralPath $unpacked -Recurse -Force
 Remove-Item -LiteralPath $download
 $files=@(Get-ChildItem -LiteralPath (Join-Path $payload 'kit'),(Join-Path $payload 'runtime') -Recurse -File|ForEach-Object {[pscustomobject]@{path=$_.FullName.Substring($payload.Length+1).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}})
-$manifest=[pscustomobject]@{channel='full-alpha';version='0.1.0-alpha.1';kitCommit=$kitCommit;bootstrapCommit=$bootstrapCommit;nodeVersion=$nodeVersion;nodeArchiveSha256=$checksum;dataFormat=1;files=$files}
+$manifest=[pscustomobject]@{channel='full-alpha';version='2.0.0-alpha.1';kitCommit=$kitCommit;bootstrapCommit=$bootstrapCommit;nodeVersion=$nodeVersion;nodeArchiveSha256=$checksum;dataFormat=1;files=$files}
 $manifest|ConvertTo-Json -Depth 10|Set-Content -LiteralPath (Join-Path $payload 'candidate-manifest.json') -Encoding UTF8
 $compiler=Get-Command iscc -ErrorAction SilentlyContinue
 if($compiler){$iscc=$compiler.Source}else{$iscc=Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'}
 if(-not(Test-Path -LiteralPath $iscc)){$iscc=Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'}
 if(-not(Test-Path -LiteralPath $iscc)){throw 'Inno Setup compiler is required.'}
 Push-Location $PSScriptRoot
-try{& $iscc /Qp ("/DPayloadRoot="+$payload) 'full-alpha.iss';if($LASTEXITCODE -ne 0){throw 'Full alpha compilation failed.'}}finally{Pop-Location}
+try{& $iscc /Qp ("/DPayloadRoot="+$payload) '/DCandidateVersion=2.0.0-alpha.1' 'full-alpha.iss';if($LASTEXITCODE -ne 0){throw 'Full alpha compilation failed.'}}finally{Pop-Location}
 $exe=Join-Path $PSScriptRoot 'dist\GodspeedSetup-Full-Alpha.exe'
 Get-FileHash -LiteralPath $exe -Algorithm SHA256|Format-List
 Copy-Item -LiteralPath (Join-Path $payload 'candidate-manifest.json') -Destination (Join-Path $PSScriptRoot 'dist\candidate-manifest.json') -Force
