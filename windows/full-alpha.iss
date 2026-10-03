@@ -26,6 +26,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 [Files]
 Source: "{#PayloadRoot}\*"; DestDir: "{app}\payload"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "setup-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "invoke-full-alpha-node.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "install-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "start-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "stop-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion

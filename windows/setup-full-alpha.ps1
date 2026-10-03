@@ -1,5 +1,6 @@
 param([string]$AppRoot=$PSScriptRoot,[string]$Workspace,[int]$Port=47831,[switch]$NoStart,[switch]$NoStartup,[switch]$SkipHermes)
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'invoke-full-alpha-node.ps1')
 $env:NODE_NO_WARNINGS='1'
 $AppRoot=[IO.Path]::GetFullPath($AppRoot)
 $payload=Join-Path $AppRoot 'payload'
@@ -32,13 +33,11 @@ if(Test-Path -LiteralPath (Join-Path $AppRoot 'stop-full-alpha.ps1')){& (Join-Pa
 if(Test-Path -LiteralPath (Join-Path $config.workspace 'records')){
   $backup=Join-Path $state ('backups\'+(Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
   $env:GODSPEED_WORKSPACE=$config.workspace;$env:GODSPEED_MEDIA_ROOT=$config.media
-  & (Join-Path $payload 'runtime\node.exe') (Join-Path $payload 'kit\notebook\bin\godspeed.mjs') backup $backup|Out-Null
-  if($LASTEXITCODE -ne 0){throw 'Candidate backup failed. Upgrade stopped.'}
+  Invoke-FullAlphaNode -Node (Join-Path $payload 'runtime\node.exe') -Arguments @((Join-Path $payload 'kit\notebook\bin\godspeed.mjs'),'backup',$backup) -Step 'Candidate backup'
 }
 $config.appRoot=$AppRoot
 $env:GODSPEED_WORKSPACE=$config.workspace;$env:GODSPEED_MEDIA_ROOT=$config.media
-& (Join-Path $payload 'runtime\node.exe') (Join-Path $payload 'kit\notebook\bin\godspeed.mjs') init|Out-Null
-if($LASTEXITCODE -ne 0){throw 'Candidate workspace initialization failed.'}
+Invoke-FullAlphaNode -Node (Join-Path $payload 'runtime\node.exe') -Arguments @((Join-Path $payload 'kit\notebook\bin\godspeed.mjs'),'init') -Step 'Candidate workspace initialization'
 if(-not $SkipHermes){& (Join-Path $AppRoot 'ensure-hermes-full-alpha.ps1') -State $state -Workspace $config.workspace -Port $config.port -Provision|Out-Null}
 $temporary=$configFile+'.tmp';$config|ConvertTo-Json -Depth 20|Set-Content -LiteralPath $temporary -Encoding UTF8
 Move-Item -LiteralPath $temporary -Destination $configFile -Force
