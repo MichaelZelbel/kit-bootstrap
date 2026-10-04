@@ -59,6 +59,12 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 DisableDirPage=yes
 PrivilegesRequired=lowest
+; Inno Setup 6.5 turns on Windows' RedirectionGuard by default, and every program Setup starts
+; inherits it: no junction or symbolic link made by an ordinary user can be followed. That guard
+; protects installers that run elevated; this one never is. What it blocked here was the user's
+; own winget programs (age), uv's Python links and npm's workspace links, so the version 2 notebook
+; and its Hermes desktop could not be built at all.
+RedirectionGuard=no
 OutputDir=dist
 Compression=lzma2
 SolidCompression=yes
