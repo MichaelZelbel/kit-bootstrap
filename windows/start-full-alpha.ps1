@@ -1,5 +1,6 @@
 param([switch]$NoBrowser)
 $ErrorActionPreference='Stop'
+$env:GODSPEED_ORIGINAL_RUNTIME='on'
 $state=Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
 $config=Get-Content -LiteralPath (Join-Path $state 'installation.json') -Raw|ConvertFrom-Json
 if($config.channel -ne 'full-alpha'){throw 'Refusing to start a stable workspace.'}

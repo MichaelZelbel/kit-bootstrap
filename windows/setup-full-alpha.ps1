@@ -1,5 +1,6 @@
-param([string]$AppRoot=$PSScriptRoot,[string]$Workspace,[int]$Port=47831,[switch]$NoStart,[switch]$NoStartup,[switch]$SkipHermes)
+param([string]$AppRoot=$PSScriptRoot,[string]$Workspace,[int]$Port=47831,[switch]$NoStart,[switch]$NoStartup,[switch]$SkipHermes,[switch]$OriginalStarter)
 $ErrorActionPreference='Stop'
+$env:GODSPEED_ORIGINAL_RUNTIME='on'
 . (Join-Path $PSScriptRoot 'invoke-full-alpha-node.ps1')
 $env:NODE_NO_WARNINGS='1'
 $AppRoot=[IO.Path]::GetFullPath($AppRoot)
@@ -22,7 +23,7 @@ if(Test-Path -LiteralPath $configFile){
 }else{
   if(-not $Workspace){$Workspace=Join-Path $env:USERPROFILE 'GodspeedMissionControl-Full-Alpha'}
   $Workspace=[IO.Path]::GetFullPath($Workspace)
-  if((Test-Path -LiteralPath $Workspace) -and (Get-ChildItem -LiteralPath $Workspace -Force|Select-Object -First 1)){throw 'Choose an empty alpha workspace. Existing records are never adopted automatically.'}
+  if((Test-Path -LiteralPath $Workspace) -and (Get-ChildItem -LiteralPath $Workspace -Force|Select-Object -First 1) -and -not($OriginalStarter -and (Test-Path -LiteralPath (Join-Path $Workspace 'rules')) -and (Test-Path -LiteralPath (Join-Path $Workspace 'AGENTS.md')))){throw 'Choose an empty alpha workspace or the Godspeed folder made by the original installer.'}
   New-Item -ItemType Directory -Force -Path $Workspace|Out-Null
   if($Port -lt 1024 -or $Port -gt 65535){throw 'Choose an unused candidate port above 1023.'}
   $config=[pscustomobject]@{channel='full-alpha';workspace=$Workspace;media=(Join-Path $state 'media');port=$Port;owner='local';appRoot=$AppRoot;dataFormat=1}

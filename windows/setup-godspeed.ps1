@@ -36,6 +36,7 @@
 # =============================================================================
 param(
     [string]$Godspeed,
+    [switch]$IntegratedNotebook,
     [string]$RepoUrl,
     # Which product this installer is for. A brand-new mission control is copied from that
     # repository's starter folder rather than written from imagination, so what a
@@ -456,6 +457,9 @@ if ($missing.Count -gt 0) {
 
 Write-Host ""
 Write-Host "  A record of this run is at $LogFile"
+if($IntegratedNotebook){
+    & (Join-Path $PSScriptRoot 'setup-full-alpha.ps1') -AppRoot $PSScriptRoot -Workspace $Godspeed -OriginalStarter
+}
 try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }
 if (-not $NoPause) { Write-Host ""; Read-Host "  Press Enter to close" | Out-Null }
 exit 0

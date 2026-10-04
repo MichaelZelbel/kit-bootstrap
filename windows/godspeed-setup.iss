@@ -28,12 +28,18 @@
 ; (godspeed-mission-control), which sets both defines from install-godspeed.sh's pin
 ; (v2.18 is Installer 2.18.0) and publishes only after a fresh Windows machine installed it.
 ; The values here matter only for a local build.
+#ifndef KbPin
 #define KbPin         "v2.18"
+#endif
 #define AppPublisher   "Michael Zelbel"
 #define AppURL         "https://github.com/MichaelZelbel/kit-bootstrap"
 
 [Setup]
+#ifdef IntegratedNotebook
+AppId={{9929B7B4-B588-46D2-AC79-01F7EBD7FA92}
+#else
 AppId={{7B3C1E64-9A55-4E1D-9D6C-2F0B8A4C51D7}
+#endif
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
@@ -42,12 +48,17 @@ AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}
 VersionInfoVersion={#AppVersion}
 VersionInfoDescription=Sets up Godspeed Mission Control on this PC
+#ifdef IntegratedNotebook
+DefaultDirName={localappdata}\Godspeed Mission Control Full Alpha
+OutputBaseFilename=GodspeedSetup-Full-Alpha
+#else
 DefaultDirName={localappdata}\Godspeed\installer
+OutputBaseFilename=GodspeedSetup
+#endif
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 DisableDirPage=yes
 PrivilegesRequired=lowest
-OutputBaseFilename=GodspeedSetup
 OutputDir=dist
 Compression=lzma2
 SolidCompression=yes
@@ -68,6 +79,17 @@ Source: "setup-godspeed.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\join.ps1";   DestDir: "{app}"; Flags: ignoreversion
 ; Needed before the wizard starts, to see whether this PC already has a mission control.
 Source: "..\join.ps1";   DestDir: "{tmp}";  Flags: dontcopy
+#ifdef IntegratedNotebook
+Source: "{#PayloadRoot}\*"; DestDir: "{app}\payload"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "setup-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "invoke-full-alpha-node.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "start-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "stop-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "ensure-hermes-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "open-hermes-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "computer-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "vendor\*"; DestDir: "{app}\vendor"; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
 
 [Icons]
 ; So the next update is a Start Menu click and never a typed command again.
@@ -79,7 +101,7 @@ Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 
 [Run]
 Filename: "powershell.exe"; \
-    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-godspeed.ps1"" -NoPause -Godspeed ""{code:GetGodspeedDir}"" -RepoUrl ""{code:GetRepoUrl}"" -PromptSources ""{code:GetPromptSources}"" -Computer ""{code:GetComputerAnswer}"" -ComputerCode ""{code:GetComputerCode}"" -KbBranch ""{#KbPin}""{code:GetBesideFlag}{code:GetUnattendedFlag}"; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-godspeed.ps1"" -NoPause -Godspeed ""{code:GetGodspeedDir}"" -RepoUrl ""{code:GetRepoUrl}"" -PromptSources ""{code:GetPromptSources}"" -Computer ""{code:GetComputerAnswer}"" -ComputerCode ""{code:GetComputerCode}"" -KbBranch ""{#KbPin}""{code:GetBesideFlag}{code:GetUnattendedFlag}{code:GetIntegratedFlag}"; \
     StatusMsg: "Setting up Godspeed Mission Control. This can take a few minutes, and a window will show what it is doing..."; \
     Flags: waituntilterminated
 Filename: "{code:GetGodspeedDir}"; Description: "Open my mission control folder"; \
@@ -252,6 +274,9 @@ begin
     False, False);
   BesidePage.Add('Make a second mission control somewhere else, and leave this PC working from the one it has');
   BesidePage.Values[0] := False;
+#ifdef IntegratedNotebook
+  BesidePage.Values[0] := True;
+#endif
 
   GodspeedPage := CreateInputQueryPage(BesidePage.ID,
     'Where your mission control goes',
@@ -264,6 +289,9 @@ begin
   GodspeedPage.Add('Folder on this PC:', False);
   GodspeedPage.Add('Address of a mission control you already have (optional):', False);
   GodspeedPage.Values[0] := ExpandConstant('{%USERPROFILE}\godspeed');
+#ifdef IntegratedNotebook
+  GodspeedPage.Values[0] := ExpandConstant('{%USERPROFILE}\godspeed-v2');
+#endif
   GodspeedPage.Values[1] := '';
 
   { The choice page. Everything a ticked row means is said HERE, before it
@@ -470,6 +498,15 @@ end;
 function GetBesideFlag(Param: String): String;
 begin
   if Beside then Result := ' -Beside' else Result := '';
+end;
+
+function GetIntegratedFlag(Param: String): String;
+begin
+#ifdef IntegratedNotebook
+  Result := ' -IntegratedNotebook';
+#else
+  Result := '';
+#endif
 end;
 
 { A silent install (/SILENT, /VERYSILENT) has nobody at the keyboard, and the console the

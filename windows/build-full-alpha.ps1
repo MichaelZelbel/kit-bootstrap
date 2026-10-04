@@ -43,7 +43,7 @@ if($compiler){$iscc=$compiler.Source}else{$iscc=Join-Path ${env:ProgramFiles(x86
 if(-not(Test-Path -LiteralPath $iscc)){$iscc=Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'}
 if(-not(Test-Path -LiteralPath $iscc)){throw 'Inno Setup compiler is required.'}
 Push-Location $PSScriptRoot
-try{& $iscc /Qp ("/DPayloadRoot="+$payload) '/DCandidateVersion=2.0.0-alpha.1' 'full-alpha.iss';if($LASTEXITCODE -ne 0){throw 'Full alpha compilation failed.'}}finally{Pop-Location}
+try{& $iscc /Qp ("/DPayloadRoot="+$payload) ("/DKbPin="+$bootstrapCommit) '/DIntegratedNotebook' 'godspeed-setup.iss';if($LASTEXITCODE -ne 0){throw 'Integrated compilation failed.'}}finally{Pop-Location}
 $exe=Join-Path $PSScriptRoot 'dist\GodspeedSetup-Full-Alpha.exe'
 Get-FileHash -LiteralPath $exe -Algorithm SHA256|Format-List
 Copy-Item -LiteralPath (Join-Path $payload 'candidate-manifest.json') -Destination (Join-Path $PSScriptRoot 'dist\candidate-manifest.json') -Force
