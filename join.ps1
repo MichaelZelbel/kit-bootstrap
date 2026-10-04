@@ -1470,8 +1470,23 @@ Download ZIP, and copy the starter-godspeed folder from inside it into $Path
 # KB_AGE / KB_AGE_KEYGEN are the test overrides, the same as KB_HOME further up.
 # =============================================================================
 
-function Get-KitAge       { if ($env:KB_AGE) { return $env:KB_AGE } return 'age' }
-function Get-KitAgeKeygen { if ($env:KB_AGE_KEYGEN) { return $env:KB_AGE_KEYGEN } return 'age-keygen' }
+# winget installs age as a symbolic link in WinGet\Links. The setup wizard is a 32-bit program, so
+# its PowerShell is the 32-bit one, and that one cannot start a program through such a link ("No
+# application is associated with the specified file"): the whole setup stopped there on a PC
+# where age worked in every ordinary terminal. Run the file the link points at instead.
+function Resolve-KitProgram([string]$Name) {
+    $found = Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $found) { return $Name }
+    $item = Get-Item -LiteralPath $found.Source -ErrorAction SilentlyContinue
+    if ($item -and $item.LinkType -eq 'SymbolicLink' -and $item.Target) {
+        $target = @($item.Target)[0]
+        if (-not [IO.Path]::IsPathRooted($target)) { $target = Join-Path (Split-Path -Parent $found.Source) $target }
+        if (Test-Path -LiteralPath $target) { return $target }
+    }
+    return $found.Source
+}
+function Get-KitAge       { if ($env:KB_AGE) { return $env:KB_AGE } return (Resolve-KitProgram 'age') }
+function Get-KitAgeKeygen { if ($env:KB_AGE_KEYGEN) { return $env:KB_AGE_KEYGEN } return (Resolve-KitProgram 'age-keygen') }
 function Test-KitAge {
     [bool](Get-Command (Get-KitAge) -ErrorAction SilentlyContinue) -and
     [bool](Get-Command (Get-KitAgeKeygen) -ErrorAction SilentlyContinue)
