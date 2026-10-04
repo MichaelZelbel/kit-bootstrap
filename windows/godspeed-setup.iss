@@ -275,7 +275,9 @@ begin
   BesidePage.Add('Make a second mission control somewhere else, and leave this PC working from the one it has');
   BesidePage.Values[0] := False;
 #ifdef IntegratedNotebook
-  BesidePage.Values[0] := True;
+  { A preview starts ticked, so trying it never changes the mission control this PC works from.
+    /BESIDE=no brings that mission control itself up to version 2, also in a silent run. }
+  BesidePage.Values[0] := CompareText(ExpandConstant('{param:BESIDE|yes}'), 'no') <> 0;
 #endif
 
   GodspeedPage := CreateInputQueryPage(BesidePage.ID,
