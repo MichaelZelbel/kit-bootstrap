@@ -571,6 +571,22 @@ begin
   if Result = '' then Result := 'none';
 end;
 
+#ifdef IntegratedNotebook
+{ An upgrade replaces the node.exe the running notebook uses. Restart Manager cannot close it for
+  good, because the supervisor starts it again, and in a silent run Setup then aborts and rolls
+  back, leaving the notebook stopped (x30, 2026-10-06). So the installed version is stopped with
+  its own script first; setup-godspeed.ps1 starts the new one after the files are in place. }
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Code: Integer;
+begin
+  Result := '';
+  if FileExists(ExpandConstant('{app}\stop-full-alpha.ps1')) then
+    Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\stop-full-alpha.ps1') + '"',
+      '', SW_HIDE, ewWaitUntilTerminated, Code);
+end;
+#endif
+
 { The uninstaller stops the helper and removes it. The logins made in Godspeed Chrome are the
   person's to keep or not, so they are asked. }
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
