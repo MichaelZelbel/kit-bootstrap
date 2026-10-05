@@ -103,6 +103,10 @@ Name: "{group}\Update my mission control"; Filename: "powershell.exe"; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-godspeed.ps1"" -KbBranch ""{#KbPin}"""; \
     Comment: "Bring this PC's mission control up to date"
 Name: "{group}\Open my mission control folder"; Filename: "{code:GetGodspeedDir}"
+#ifdef IntegratedNotebook
+; The notebook is a page the PC serves itself; without this the only way in was knowing its address.
+Name: "{group}\Open my notebook"; Filename: "http://127.0.0.1:47831/"
+#endif
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 
 [Run]
