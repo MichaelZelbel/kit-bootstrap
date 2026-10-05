@@ -31,7 +31,8 @@ if(Test-Path -LiteralPath $configFile){
 if($config.channel -ne 'full-alpha'){throw 'Refusing to modify a stable installation.'}
 if(Test-Path -LiteralPath (Join-Path $AppRoot 'stop-full-alpha.ps1')){& (Join-Path $AppRoot 'stop-full-alpha.ps1')}
 # Record and media backup precede replacement of runtime settings. Software changes never alter data format here.
-if(Test-Path -LiteralPath (Join-Path $config.workspace 'records')){
+# The notebook folder was records/ until 2026-10-05; an upgrade backs up either.
+if((Test-Path -LiteralPath (Join-Path $config.workspace 'notebook')) -or (Test-Path -LiteralPath (Join-Path $config.workspace 'records'))){
   $backup=Join-Path (Get-FullAlphaBackupRoot -State $state) (Get-Date -Format 'yyyyMMdd-HHmmss-fff')
   $env:GODSPEED_WORKSPACE=$config.workspace;$env:GODSPEED_MEDIA_ROOT=$config.media
   Invoke-FullAlphaNode -Node (Join-Path $payload 'runtime\node.exe') -Arguments @((Join-Path $payload 'kit\notebook\bin\godspeed.mjs'),'backup',$backup) -Step 'Candidate backup'
