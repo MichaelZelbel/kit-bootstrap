@@ -45,20 +45,27 @@ if((Test-Path -LiteralPath (Join-Path $config.workspace 'notebook')) -or (Test-P
 $config.appRoot=$AppRoot
 $env:GODSPEED_WORKSPACE=$config.workspace;$env:GODSPEED_MEDIA_ROOT=$config.media
 Invoke-FullAlphaNode -Node (Join-Path $payload 'runtime\node.exe') -Arguments @((Join-Path $payload 'kit\notebook\bin\godspeed.mjs'),'init') -Step 'Candidate workspace initialization'
+# The record of which workspace is this installation's, kept as soon as that workspace exists. Until
+# 6 October 2026 it was written last, so a setup that stopped at a later step left a workspace that
+# no start, stop or upgrade could find.
+function Save-FullAlphaInstallation {
+  $temporary=$configFile+'.tmp';$config|ConvertTo-Json -Depth 20|Set-Content -LiteralPath $temporary -Encoding UTF8
+  Move-Item -LiteralPath $temporary -Destination $configFile -Force
+}
+Save-FullAlphaInstallation
 # Joining: a mission control that is its own Git repository carries the notebook in that same
 # repository. envy and x30 were switched by hand on 5 October 2026; now the installer does it,
 # once, and a refusal (an ignore list to complete, a public repository) leaves the notebook
 # working on this PC alone, with the reason in this log.
 if(-not(Test-Path -LiteralPath (Join-Path $config.workspace '.godspeed\sync-config.json')) -and (Test-Path -LiteralPath (Join-Path $config.workspace '.git'))){
-  $origin=& git -C $config.workspace remote get-url origin 2>$null
-  if($LASTEXITCODE -eq 0 -and $origin){
+  $origin=Invoke-FullAlphaNative -Command git -Arguments @('-C',$config.workspace,'remote','get-url','origin')
+  if($origin.Code -eq 0 -and $origin.Output){
     try{Invoke-FullAlphaNode -Node (Join-Path $payload 'runtime\node.exe') -Arguments @((Join-Path $payload 'kit\notebook\bin\godspeed.mjs'),'sync','folder') -Step 'Joining the mission control repository'}
     catch{Write-Output ('The notebook was not joined to the repository: '+$_.Exception.Message)}
   }
 }
 if(-not $SkipHermes){& (Join-Path $AppRoot 'ensure-hermes-full-alpha.ps1') -State $state -Workspace $config.workspace -Port $config.port -Provision|Out-Null}
-$temporary=$configFile+'.tmp';$config|ConvertTo-Json -Depth 20|Set-Content -LiteralPath $temporary -Encoding UTF8
-Move-Item -LiteralPath $temporary -Destination $configFile -Force
+Save-FullAlphaInstallation
 if(-not $NoStartup){
   $shortcutPath=Join-Path ([Environment]::GetFolderPath('Startup')) 'Godspeed Mission Control Full Alpha.lnk'
   $shellObject=New-Object -ComObject WScript.Shell

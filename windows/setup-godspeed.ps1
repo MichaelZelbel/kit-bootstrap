@@ -94,8 +94,16 @@ New-Item -ItemType Directory -Force $LogDir | Out-Null
 $LogFile = Join-Path $LogDir 'setup-log.txt'
 try { Start-Transcript -Path $LogFile -Append -ErrorAction Stop | Out-Null } catch { }
 
+# What the wizard reads once this window has closed (CheckSetupResult in godspeed-setup.iss): "ok"
+# only when the whole run finished. The wizard never sees this script's exit code, so until
+# 6 October 2026 a setup that stopped halfway still ended on its "Finished" page.
+$ResultFile = Join-Path $LogDir 'setup-result.txt'
+function Set-SetupResult([string]$Text) { try { Set-Content -LiteralPath $ResultFile -Value $Text -Encoding ascii } catch { } }
+Remove-Item -LiteralPath $ResultFile -Force -ErrorAction SilentlyContinue
+
 function Stop-Setup {
     param([string]$Message, [int]$Code = 1)
+    Set-SetupResult 'failed'
     Write-Host ""
     Write-Host "  STOPPED: $Message" -ForegroundColor Red
     Write-Host ""
@@ -458,8 +466,10 @@ if ($missing.Count -gt 0) {
 Write-Host ""
 Write-Host "  A record of this run is at $LogFile"
 if($IntegratedNotebook){
-    & (Join-Path $PSScriptRoot 'setup-full-alpha.ps1') -AppRoot $PSScriptRoot -Workspace $Godspeed -OriginalStarter
+    try { & (Join-Path $PSScriptRoot 'setup-full-alpha.ps1') -AppRoot $PSScriptRoot -Workspace $Godspeed -OriginalStarter }
+    catch { Stop-Setup ("the notebook could not be set up: " + $_.Exception.Message) }
 }
+Set-SetupResult 'ok'
 try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }
 if (-not $NoPause) { Write-Host ""; Read-Host "  Press Enter to close" | Out-Null }
 exit 0

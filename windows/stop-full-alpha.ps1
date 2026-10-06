@@ -3,7 +3,11 @@ $ErrorActionPreference='Stop'
 $state=Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
 $pidFile=Join-Path $state 'process.json'
 if(Test-Path -LiteralPath $pidFile){
-  $saved=Get-Content -LiteralPath $pidFile -Raw|ConvertFrom-Json
+  # A damaged record names no process; the installer must not be refused over it.
+  try{$saved=Get-Content -LiteralPath $pidFile -Raw|ConvertFrom-Json;$savedPid=[int]$saved.pid}catch{$saved=$null}
+  if(-not $saved -or $savedPid -le 0){Remove-Item -LiteralPath $pidFile;$saved=$null}
+}
+if($saved){
   $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$saved.pid) -ErrorAction SilentlyContinue
   # A notebook started with administrator rights hides its path and command line from this
   # window. Until 6 October 2026 that read as "not ours": nothing was stopped, the record was

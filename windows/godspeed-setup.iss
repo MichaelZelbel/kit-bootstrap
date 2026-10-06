@@ -117,6 +117,12 @@ Filename: "powershell.exe"; \
 Filename: "{code:GetGodspeedDir}"; Description: "Open my mission control folder"; \
     Flags: postinstall shellexec nowait unchecked
 
+#ifdef IntegratedNotebook
+; The notebook kept running from a half-deleted folder, and its login entry failed at every start.
+[UninstallRun]
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\stop-full-alpha.ps1"" -Uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "StopNotebook"
+#endif
+
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
 
@@ -144,6 +150,38 @@ var
   ComputerPage: TInputOptionWizardPage;
   CodePage: TInputQueryWizardPage;
   ComputerPaired: Boolean;
+  { Set when setup-godspeed.ps1 did not report a finished run (CheckSetupResult). }
+  SetupFailed: Boolean;
+
+{ setup-godspeed.ps1 writes "ok" here only when its whole run finished. A [Run] entry's exit code
+  is never looked at, so until 6 October 2026 a setup that stopped halfway (a version 2 notebook
+  that was never set up) still ended on "Finished". }
+function SetupResultFile(): String;
+begin
+  Result := ExpandConstant('{localappdata}\Godspeed\setup-result.txt');
+end;
+
+procedure CheckSetupResult();
+var
+  Text: AnsiString;
+begin
+  if SetupFailed then Exit;
+  if not LoadStringFromFile(SetupResultFile(), Text) then Text := '';
+  SetupFailed := Trim(String(Text)) <> 'ok';
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  { Before anything runs, so an "ok" left by an earlier run never stands for this one. }
+  if CurStep = ssInstall then DeleteFile(SetupResultFile());
+  if CurStep = ssDone then CheckSetupResult();
+end;
+
+{ A silent run (the scheduled updates) learns of the failure from the exit code. }
+function GetCustomSetupExitCode: Integer;
+begin
+  if SetupFailed then Result := 1 else Result := 0;
+end;
 
 { Field N of 'a|b|c|d'. Inno's Pascal has no split, so this walks the string. }
 function PipeField(const S: String; Index: Integer): String;
@@ -422,6 +460,17 @@ begin
       WizardForm.PageDescriptionLabel.Caption :=
         'This PC has not got a mission control yet, so I am about to make one.';
   end;
+  if CurPageID = wpFinished then
+  begin
+    CheckSetupResult();
+    if SetupFailed then
+    begin
+      WizardForm.FinishedHeadingLabel.Caption := 'Setup did not finish';
+      WizardForm.FinishedLabel.Caption :=
+        'Something stopped the setup before it was done, so your mission control may not work yet. Nothing you had is lost.' + #13#10 + #13#10 +
+        'What happened is written in ' + ExpandConstant('{localappdata}\Godspeed\setup-log.txt') + '. Running this installer again tries once more.';
+    end;
+  end;
 end;
 
 { Ask the shared install code whether the typed folder is a place a mission control may go, the
@@ -581,9 +630,12 @@ var
   Code: Integer;
 begin
   Result := '';
+  { A notebook that could not be stopped keeps its files locked; replacing them anyway ended in
+    "file in use" or a silent roll-back that never said why. stop-full-alpha.ps1 says why. }
   if FileExists(ExpandConstant('{app}\stop-full-alpha.ps1')) then
-    Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\stop-full-alpha.ps1') + '"',
-      '', SW_HIDE, ewWaitUntilTerminated, Code);
+    if not Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\stop-full-alpha.ps1') + '"',
+      '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+      Result := 'The notebook that is running now could not be stopped, so nothing was changed. If it was started with administrator rights, restart the computer and run this installer again.';
 end;
 #endif
 

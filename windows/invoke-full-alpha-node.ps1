@@ -14,6 +14,21 @@ function Get-FullAlphaBackupRoot {
  }
  return $taskRoot
 }
+# A native command whose failure is an answer, not an error: git asked for a remote that a new
+# mission control does not have yet. Under Stop, Windows PowerShell 5.1 turns its stderr into a
+# terminating error, which until 6 October 2026 ended every first install at the repository step.
+function Invoke-FullAlphaNative {
+ param([Parameter(Mandatory)][string]$Command,[string[]]$Arguments=@())
+ # A missing program leaves $LASTEXITCODE at whatever ran before, which may read as success.
+ if(-not(Get-Command $Command -ErrorAction SilentlyContinue)){return [pscustomobject]@{Code=127;Output=''}}
+ $taskPreviousPreference=$ErrorActionPreference
+ try {
+  $ErrorActionPreference='Continue'
+  $taskOutput=@(& $Command @Arguments 2>$null)
+  $taskCode=$LASTEXITCODE
+ } finally {$ErrorActionPreference=$taskPreviousPreference}
+ [pscustomobject]@{Code=$taskCode;Output=(($taskOutput|ForEach-Object {[string]$_}) -join "`n").Trim()}
+}
 function Invoke-FullAlphaNode {
  param([Parameter(Mandatory)][string]$Node,[Parameter(Mandatory)][string[]]$Arguments,[Parameter(Mandatory)][string]$Step)
  # Windows PowerShell 5.1 turns native stderr into ErrorRecord objects. Stop
