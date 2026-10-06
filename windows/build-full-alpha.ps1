@@ -7,6 +7,7 @@ foreach($checkout in @($KitCheckout,$bootstrapCheckout)){
   if($LASTEXITCODE -ne 0 -or $dirty){throw 'Candidate builds require committed source in both repositories.'}
 }
 $kitCommit=(& git -C $KitCheckout rev-parse HEAD).Trim();$bootstrapCommit=(& git -C $bootstrapCheckout rev-parse HEAD).Trim()
+$kitCommittedAt=(& git -C $KitCheckout log -1 --format=%cI $kitCommit).Trim()
 $payload=Join-Path $PSScriptRoot 'full-alpha-payload'
 New-Item -ItemType Directory -Force -Path $payload|Out-Null
 # Version-specific output directory prevents an older build from contaminating a new one.
@@ -36,7 +37,7 @@ if(-not $unpacked.StartsWith($payload+[IO.Path]::DirectorySeparatorChar,[StringC
 Remove-Item -LiteralPath $unpacked -Recurse -Force
 Remove-Item -LiteralPath $download
 $files=@(Get-ChildItem -LiteralPath (Join-Path $payload 'kit'),(Join-Path $payload 'runtime') -Recurse -File|ForEach-Object {[pscustomobject]@{path=$_.FullName.Substring($payload.Length+1).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}})
-$manifest=[pscustomobject]@{channel='full-alpha';version='2.0.0-alpha.1';kitCommit=$kitCommit;bootstrapCommit=$bootstrapCommit;nodeVersion=$nodeVersion;nodeArchiveSha256=$checksum;dataFormat=1;files=$files}
+$manifest=[pscustomobject]@{channel='full-alpha';version='2.0.0-alpha.1';kitCommit=$kitCommit;kitCommittedAt=$kitCommittedAt;bootstrapCommit=$bootstrapCommit;nodeVersion=$nodeVersion;nodeArchiveSha256=$checksum;dataFormat=1;files=$files}
 $manifest|ConvertTo-Json -Depth 10|Set-Content -LiteralPath (Join-Path $payload 'candidate-manifest.json') -Encoding UTF8
 $compiler=Get-Command iscc -ErrorAction SilentlyContinue
 if($compiler){$iscc=$compiler.Source}else{$iscc=Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'}

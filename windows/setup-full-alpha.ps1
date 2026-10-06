@@ -29,6 +29,11 @@ if(Test-Path -LiteralPath $configFile){
   $config=[pscustomobject]@{channel='full-alpha';workspace=$Workspace;media=(Join-Path $state 'media');port=$Port;owner='local';appRoot=$AppRoot;dataFormat=1}
 }
 if($config.channel -ne 'full-alpha'){throw 'Refusing to modify a stable installation.'}
+# An older installer never replaces a newer notebook on this PC (6 October 2026).
+if($config.kitCommittedAt -and $manifest.kitCommittedAt -and ([datetimeoffset]$manifest.kitCommittedAt) -lt ([datetimeoffset]$config.kitCommittedAt)){
+  throw ('This installer holds an older version ('+$manifest.kitCommit.Substring(0,7)+') than the one on this PC ('+$config.kitCommit.Substring(0,7)+'). Use the newest installer.')
+}
+foreach($name in 'kitCommit','kitCommittedAt'){if($manifest.$name){$config|Add-Member -NotePropertyName $name -NotePropertyValue $manifest.$name -Force}}
 if(Test-Path -LiteralPath (Join-Path $AppRoot 'stop-full-alpha.ps1')){& (Join-Path $AppRoot 'stop-full-alpha.ps1')}
 # Record and media backup precede replacement of runtime settings. Software changes never alter data format here.
 # The notebook folder was records/ until 2026-10-05; an upgrade backs up either.
@@ -40,6 +45,17 @@ if((Test-Path -LiteralPath (Join-Path $config.workspace 'notebook')) -or (Test-P
 $config.appRoot=$AppRoot
 $env:GODSPEED_WORKSPACE=$config.workspace;$env:GODSPEED_MEDIA_ROOT=$config.media
 Invoke-FullAlphaNode -Node (Join-Path $payload 'runtime\node.exe') -Arguments @((Join-Path $payload 'kit\notebook\bin\godspeed.mjs'),'init') -Step 'Candidate workspace initialization'
+# Joining: a mission control that is its own Git repository carries the notebook in that same
+# repository. envy and x30 were switched by hand on 5 October 2026; now the installer does it,
+# once, and a refusal (an ignore list to complete, a public repository) leaves the notebook
+# working on this PC alone, with the reason in this log.
+if(-not(Test-Path -LiteralPath (Join-Path $config.workspace '.godspeed\sync-config.json')) -and (Test-Path -LiteralPath (Join-Path $config.workspace '.git'))){
+  $origin=& git -C $config.workspace remote get-url origin 2>$null
+  if($LASTEXITCODE -eq 0 -and $origin){
+    try{Invoke-FullAlphaNode -Node (Join-Path $payload 'runtime\node.exe') -Arguments @((Join-Path $payload 'kit\notebook\bin\godspeed.mjs'),'sync','folder') -Step 'Joining the mission control repository'}
+    catch{Write-Output ('The notebook was not joined to the repository: '+$_.Exception.Message)}
+  }
+}
 if(-not $SkipHermes){& (Join-Path $AppRoot 'ensure-hermes-full-alpha.ps1') -State $state -Workspace $config.workspace -Port $config.port -Provision|Out-Null}
 $temporary=$configFile+'.tmp';$config|ConvertTo-Json -Depth 20|Set-Content -LiteralPath $temporary -Encoding UTF8
 Move-Item -LiteralPath $temporary -Destination $configFile -Force
