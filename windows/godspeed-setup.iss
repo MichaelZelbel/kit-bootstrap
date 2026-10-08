@@ -688,7 +688,13 @@ begin
             + Space + GetGodspeedDir('') + NewLine + NewLine;
     if GetRepoUrl('') <> '' then
       Result := Result + 'It will be fetched from:' + NewLine + Space + GetRepoUrl('') + NewLine + NewLine;
+#ifdef IntegratedNotebook
+    { This setup brings its own Hermes (setup-full-alpha.ps1 runs ensure-hermes-full-alpha.ps1
+      -Provision). Until 8 October 2026 this page still said Hermes was a separate download. }
+    Result := Result + 'I will also install anything missing that it needs: Git and Node.js. Windows may ask your permission for those, which is normal. I also set up Hermes, the chat program you talk to your mission control in, and install it if this PC does not have it yet.';
+#else
     Result := Result + 'I will also install anything missing that it needs: Git and Node.js. Windows may ask your permission for those, which is normal. Hermes itself is a separate download; if it is not on this PC yet I will say so and tell you where to get it.';
+#endif
   end;
   Result := Result + NewLine + NewLine
           + 'Conversations copied into your mission control from this PC: ' + GetSyncSummary();
