@@ -38,7 +38,7 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_godspeed_looks_real kb_find_godspeed kb_update_godspeed kb_install_godspeed_cli kb_record_godspeed_dir          kb_beside kb_same_path \
          kb_default_godspeed_dir kb_cloud_synced_parents kb_physical_path kb_refuse_godspeed_path \
          kb_os kb_can_sudo kb_note_missing kb_install_one kb_install_claude_code \
-         kb_install_hermes \
+         kb_install_hermes kb_install_gh \
          kb_install_prereqs kb_copy_starter_godspeed kb_new_godspeed kb_install_prompt_harvest \
          kb_install_godspeed_tools kb_ai_tool_detected kb_ai_tool_info kb_detect_ai_tools \
          kb_enabled_sources kb_write_prompt_sources kb_sync_report \
@@ -830,6 +830,22 @@ out="$( ( kb_install_one() { ok "$4 is already here"; }
 case "$out" in *Hermes*) t "the prereqs fetch Hermes" yes yes ;;
                *) t "the prereqs fetch Hermes" "$out" "mentions Hermes" ;; esac
 t "and no longer fetch Claude Code" "$(printf '%s' "$out" | grep -c 'Claude Code')" "0"
+case "$out" in *"(gh)"*) t "the prereqs bring GitHub's sign-in program along (gh)" yes yes ;;
+               *) t "the prereqs bring GitHub's sign-in program along (gh)" "$out" "mentions (gh)" ;; esac
+
+# gh is optional (8 October 2026): fetched only where the system's own package manager can,
+# never listed as missing, and never a warning on a computer that cannot.
+_gh_path="$_hm/no-gh"; mkdir -p "$_gh_path"
+t "gh: a Mac without Homebrew is left alone, quietly" \
+  "$( ( PATH="$_gh_path"; kb_os() { printf macos; }; kb_install_one() { echo FETCHED; }; kb_install_gh; echo "rc=$?" ) 2>&1 )" "rc=0"
+t "gh: a system without apt is left alone, quietly" \
+  "$( ( PATH="$_gh_path"; kb_os() { printf linux-other; }; kb_install_one() { echo FETCHED; }; kb_install_gh; echo "rc=$?" ) 2>&1 )" "rc=0"
+t "gh: an account that cannot install software is left alone, quietly" \
+  "$( ( PATH="$_gh_path"; kb_os() { printf linux-apt; }; kb_can_sudo() { return 1; }; kb_install_one() { echo FETCHED; }; kb_install_gh; echo "rc=$?" ) 2>&1 )" "rc=0"
+t "gh: on Ubuntu or Debian the system's own package is asked for, and a failure is not listed as missing" \
+  "$( ( PATH="$_gh_path"; kb_os() { printf linux-apt; }; kb_can_sudo() { return 0; }
+        kb_install_one() { echo "FETCHED $1 $2"; kb_note_missing "$4"; return 1; }
+        KB_MISSING=" Git"; kb_install_gh; echo "rc=$? missing=$KB_MISSING" ) 2>&1 | tr '\n' ' ')" "FETCHED gh gh rc=0 missing= Git "
 
 # The detector, repaired. config.yaml is the marker every install has, where the
 # old profiles/ subfolder missed any install still on its default profile - which

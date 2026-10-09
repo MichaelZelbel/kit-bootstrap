@@ -2444,7 +2444,32 @@ kb_install_prereqs() {
   # Hermes, not Claude Code, since Batch AK: the book teaches Hermes from
   # Chapter 3, and a developer who wants Claude Code gets it in Chapter 5.
   kb_install_hermes || true
+  kb_install_gh || true
   KB_MISSING="${KB_MISSING# }"
+}
+
+# GitHub's own sign-in program, gh, on a Mac or Linux computer (8 October 2026). The notebook's
+# Settings > Sync and schedule ownership > Connect record sync uses it to sign the computer in to
+# GitHub once, when the reader connects their private GitHub copy (the book's Chapter 21): it shows a
+# one-time code and GitHub's sign-in page, then tells Git to use that sign-in. Before, nothing on a
+# computer signed it in, and the check could only refuse. Windows needs none of this: Git for
+# Windows brings Git Credential Manager, which signs in by itself.
+#
+# OPTIONAL, AND QUIET WHEN IT CANNOT BE DONE: everything else works without it, so a Mac without
+# Homebrew, a system without apt, or an account that cannot install software is not held up or
+# warned at, and it is never listed among the things that are missing. The package is the
+# system's own (Homebrew's gh, or the distribution's gh), never a new package source.
+kb_install_gh() {
+  command -v gh >/dev/null 2>&1 && { ok "GitHub's sign-in program (gh) is already here"; return 0; }
+  case "$(kb_os)" in
+    macos)     command -v brew >/dev/null 2>&1 || return 0 ;;
+    linux-apt) kb_can_sudo || return 0 ;;
+    *)         return 0 ;;
+  esac
+  local missing_before="$KB_MISSING"
+  kb_install_one gh gh gh "GitHub's sign-in program (gh)" || true
+  KB_MISSING="$missing_before"
+  return 0
 }
 
 # kb_copy_starter_godspeed <path> <starter-repo> [folder-inside-it]

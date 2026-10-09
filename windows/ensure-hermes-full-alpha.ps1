@@ -55,4 +55,15 @@ $config=Get-Content -LiteralPath (Join-Path $State 'installation.json') -Raw -Er
 $appRoot=if($config){$config.appRoot}else{$PSScriptRoot}
 & (Join-Path $appRoot 'payload\runtime\node.exe') (Join-Path $appRoot 'payload\kit\notebook\scripts\wire-assistant.mjs') $profileHome|Out-Null
 if($LASTEXITCODE -ne 0){throw 'Candidate assistant connection settings could not be saved.'}
+# The mail tool in this assistant's own profile, after wire-assistant gave it the notebook tool (the other
+# order would leave the notebook tool out). Connect-KitMail in join.ps1 runs before this profile exists
+# and wires only the default Hermes, so until 8 October 2026 the assistant the reader talks to had no
+# mail tool. mc-mail setup finds this profile through assistant.json. Email is optional: this never
+# stops the setup.
+$mailTool=Join-Path $appRoot 'payload\kit\tools\mc-mail.js'
+if(Test-Path -LiteralPath $mailTool){
+  $env:GODSPEED_DIR=$Workspace
+  try{& (Join-Path $appRoot 'payload\runtime\node.exe') $mailTool setup|Out-Null}catch{}
+  $global:LASTEXITCODE=0
+}
 $descriptor
