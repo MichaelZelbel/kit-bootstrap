@@ -2094,10 +2094,18 @@ kb_update_godspeed() {
 # that exists and then fails — the worst of the three possible states. Nothing to do
 # on a mission control that ships no tools, which is every reader's mission control, so this stays quiet there.
 kb_install_godspeed_cli() {
-  local godspeed="${1:-}" src bindir n
-  src="$godspeed/agents/mc-cli"
-  [ -d "$src" ] || return 0
-  [ -f "$src/godspeed" ] || return 0
+  local godspeed="${1:-}" src="" c bindir n
+  # Either place counts: agents/mc-cli, or the engine's dev/godspeed-engine/agents/mc-cli. Until
+  # 2026-10-11 only the first was looked at, so a mission control whose programs live in a separate
+  # engine got no commands at all and no word about it (twin of Install-KitGodspeedCli in join.ps1).
+  for c in "$godspeed/agents/mc-cli" "$godspeed/dev/godspeed-engine/agents/mc-cli"; do
+    [ -f "$c/godspeed" ] && { src="$c"; break; }
+  done
+  if [ -z "$src" ]; then
+    [ -d "$godspeed/dev/godspeed-engine" ] &&
+      warn "commands: $godspeed has an engine folder (dev/godspeed-engine) but no agents/mc-cli/godspeed in it, so the mission control commands were NOT installed. Pull the engine and run this again."
+    return 0
+  fi
   bindir="$HOME/.local/bin"
   mkdir -p "$bindir"
   n=0

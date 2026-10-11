@@ -700,6 +700,14 @@ function Add-KitUserPath([string]$bin) {
     return $true
 }
 
+# The mark on every Git Bash launcher Install-KitGodspeedCli writes, so a later run knows the file
+# is its own to replace and a kit program of the same name is not.
+$script:KitCliShimMark = '# godspeed-cli-shim: runs the mission control command named below'
+function Test-KitCliShim([string]$path) {
+    try { return [bool](Select-String -LiteralPath $path -SimpleMatch $script:KitCliShimMark -Quiet -ErrorAction Stop) }
+    catch { return $false }
+}
+
 function Install-KitGodspeedCli {
     <#  Put the mission control's own commands on this machine's PATH.
 
@@ -709,8 +717,22 @@ function Install-KitGodspeedCli {
         Quiet on a mission control that ships no tools, which is every reader's mission control. #>
     param([Parameter(Mandatory)][string]$Godspeed)
 
-    $src = Join-Path $Godspeed 'agents\mc-cli'
-    if (-not (Test-Path (Join-Path $src 'godspeed'))) { return }
+    # WHERE THE COMMANDS ARE. A mission control that keeps its programs in a separate engine has
+    # them at dev\godspeed-engine\agents\mc-cli, not at agents\mc-cli. Until 2026-10-11 only the
+    # second place was looked at, so after the author's engine moved out (2026-09-22) this
+    # returned without a word on every Windows machine and `godspeed` stopped being a command
+    # there, while the installer reported success. Either place counts now, and a mission
+    # control that HAS an engine but no commands in it is said out loud instead of skipped.
+    $src = $null
+    foreach ($c in @((Join-Path $Godspeed 'agents\mc-cli'), (Join-Path $Godspeed 'dev\godspeed-engine\agents\mc-cli'))) {
+        if (Test-Path (Join-Path $c 'godspeed')) { $src = $c; break }
+    }
+    if (-not $src) {
+        if (Test-Path (Join-Path $Godspeed 'dev\godspeed-engine')) {
+            Write-KbWarn "commands: $Godspeed has an engine folder (dev\godspeed-engine) but no agents\mc-cli\godspeed in it, so the mission control commands were NOT installed. Pull the engine and run this again."
+        }
+        return
+    }
 
     $bash = Get-KitGitBash
     if (-not $bash) {
@@ -727,6 +749,15 @@ function Install-KitGodspeedCli {
         Where-Object { ($_.Name -eq 'godspeed' -or $_.Name -like 'mc-*') -and $_.Extension -notin '.env', '.md' } |
         ForEach-Object {
             $target = $_.FullName -replace '\\', '/'
+            # A NAME THE KIT'S OWN PROGRAMS ALREADY HOLD IS THEIRS. Install-KitGodspeedTools puts
+            # real files in this folder (mc-due, mc-run, ...) and writes their launchers; a
+            # command here of the same name must not take the launcher back, or the two
+            # installers swap it on every run. Only a launcher this function wrote is replaced.
+            $own = Join-Path $bin $_.Name
+            if ((Test-Path $own) -and -not (Test-KitCliShim $own)) { return }
+            # A kit launcher finds its program beside itself with %~dp0; one of ours never does.
+            $ownCmd = "$own.cmd"
+            if ((Test-Path $ownCmd) -and ((Get-Content -LiteralPath $ownCmd -Raw) -match '%~dp0')) { return }
             # WHICH RUNNER, read from the file's own first line.
             #
             # Every one of these got `bash "<file>" %*` until 2026-09-03, and 18 of the mission control's
@@ -741,16 +772,24 @@ function Install-KitGodspeedCli {
             # wrapper exists here at all.
             $shebang = ''
             try { $shebang = [string](Get-Content -LiteralPath $_.FullName -TotalCount 1 -ErrorAction Stop) } catch { }
+            # $posix is the same runner for the Git Bash launcher below: bash there is its own.
             $runner = "`"$bash`" `"$target`""
+            $posix  = 'bash'
             if ($shebang -match '^#!.*\bnode\b') {
-                if ($node) { $runner = "`"$node`" `"$target`"" }
+                if ($node) { $runner = "`"$node`" `"$target`""; $posix = $node -replace '\\', '/' }
                 else { Write-KbWarn "commands: $($_.Name) needs Node.js and this PC has none, so it was left pointing at bash and will not run."; }
             } elseif ($shebang -match '^#!.*\bpy(thon3?)?\b') {
-                if ($py) { $runner = "`"$py`" `"$target`"" }
+                if ($py) { $runner = "`"$py`" `"$target`""; $posix = $py -replace '\\', '/' }
                 else { Write-KbWarn "commands: $($_.Name) needs Python and this PC has none, so it was left pointing at bash and will not run."; }
             }
             @('@echo off', "$runner %*") |
                 Set-Content -Path (Join-Path $bin "$($_.Name).cmd") -Encoding ascii
+            # AND ONE FOR GIT BASH (2026-10-11). Git Bash runs no .cmd by its bare name, so in the
+            # terminal these commands are mostly typed in, `godspeed` was "command not found" even
+            # where the .cmd existed. An extension-less shell launcher beside it, marked as ours so
+            # the check above can tell it from a kit program of the same name.
+            $sh = "#!/bin/sh`n$($script:KitCliShimMark)`nexec `"$posix`" `"$target`" `"`$@`"`n"
+            [System.IO.File]::WriteAllText($own, $sh, (New-Object System.Text.UTF8Encoding $false))
             $n++
         }
 
