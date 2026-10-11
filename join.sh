@@ -17,8 +17,8 @@
 #
 # Usage:
 #   bash join.sh [path-to-your-mc-folder]      (default: ~/godspeed, or $GODSPEED)
-#   bash join.sh --sources claude,codex         only these AI tools may be synced
-#   bash join.sh --sources ""                   sync nothing from this machine
+#   bash join.sh --sources claude,codex         these tools' older chats come in too
+#   bash join.sh --sources ""                   no older chats (new ones are always saved)
 #   bash join.sh --only menerio                 just connect Menerio, change nothing else
 #
 # Piped from curl there is no keyboard to ask questions on, so this stays
@@ -91,6 +91,7 @@ if [ "$SOURCES_SET" -eq 1 ]; then
   export KB_SYNC_SOURCES
   kb_write_prompt_sources "$SOURCES"
 fi
+kb_write_prompt_since || true   # every new chat on this machine is saved from now on
 kb_sync_report
 
 # 1. Get the latest of everything, because a join that leaves you on last month's

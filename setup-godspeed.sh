@@ -31,10 +31,11 @@
 #   --starter-repo <url>    the product whose starter folder a new mission control begins as
 #   --starter-path <name>   the folder inside that repo        (default: starter-godspeed)
 #   --skip-prereqs          do not install anything, just wire it up
-#   --sources <list>        which AI tools have their conversations copied into the
-#                           mission control from this machine, as a comma list (claude, codex,
-#                           hermes, opencode). "" means none. Without it, a machine
-#                           getting its first mission control copies nothing, and a machine that
+#   --sources <list>        which AI tools have their OLDER conversations (from before this
+#                           install) brought into the mission control too, as a comma list
+#                           (claude, codex, hermes, opencode). "" means none. Every NEW
+#                           conversation is saved either way. Without it, a machine getting its
+#                           first mission control brings no older ones in, and a machine that
 #                           already has one keeps the choice it made before.
 #   --beside                put a SECOND mission control at --godspeed and leave this computer working
 #                           from the one it already has. Needs --godspeed, and needs a mission control
@@ -142,7 +143,7 @@ fi
 # Newer than the network copy is a real state, not a theoretical one: this script
 # and the published branch are published by two separate acts, so either can be ahead.
 for fn in kb_install_prereqs kb_new_godspeed kb_copy_starter_godspeed kb_link_ai_memory kb_install_godspeed_cli \
-          kb_install_godspeed_tools kb_install_prompt_harvest kb_sync_report kb_write_prompt_sources \
+          kb_install_godspeed_tools kb_install_prompt_harvest kb_sync_report kb_write_prompt_sources kb_write_prompt_since \
           kb_update_godspeed kb_connect_notebook kb_wire_skills kb_point_hermes_at_godspeed \
           kb_hermes_approvals kb_hermes_one_memory kb_refuse_godspeed_path kb_default_godspeed_dir \
           kb_beside kb_same_path kb_only_menerio kb_only_gmail kb_gmail_retired; do
@@ -267,12 +268,12 @@ fi
 #    this device before any wiring runs, so everything below obeys it, and the
 #    person is told what will be read BEFORE it is read.
 # -----------------------------------------------------------------------------
-# A machine getting its first mission control copies no conversations until its owner names
-# the tools, the same as the Windows wizard, whose boxes start unticked there. Copying
-# is the one step that pushes words typed to other programs into a repository, so it
-# is asked for, never assumed. A machine that already works from a mission control (an update, or
-# --beside) keeps whatever it recorded or did before, so an update never switches
-# anything off behind anyone's back.
+# Every NEW conversation on this computer is saved from the moment of this install or update
+# (kb_write_prompt_since, 2026-10-12: "It is a bug, right? So fix the bug."). The choice below
+# decides only whether a tool's OLDER conversations come in too. A machine getting its first
+# mission control brings none of the older ones in until its owner names the tools, the same as
+# the Windows wizard, whose boxes start unticked there. A machine that already works from a
+# mission control (an update, or --beside) keeps whatever it recorded before.
 if [ "$SOURCES_SET" -eq 0 ] && [ "$IS_NEW" -eq 1 ] && [ "$BESIDE" -eq 0 ]    && ! grep -q '^[[:space:]]*GODSPEED_PROMPT_SOURCES=' "$HOME/.godspeed/device.env" 2>/dev/null; then
   SOURCES=""
   SOURCES_SET=1
@@ -281,6 +282,10 @@ if [ "$SOURCES_SET" -eq 1 ]; then
   KB_SYNC_SOURCES="$SOURCES"
   export KB_SYNC_SOURCES
   kb_write_prompt_sources "$SOURCES"
+fi
+if kb_write_prompt_since && [ "$IS_NEW" -eq 0 ]; then
+  # The one line an update owes the person: what changed for them, and nothing else.
+  ok "conversations: from now on, every new chat with the AI apps on this computer is saved in your mission control; older chats stay out unless you named them with --sources."
 fi
 kb_sync_report
 
@@ -374,9 +379,9 @@ Worth knowing:
   * Open a NEW terminal window before you use its commands, so it picks up
     what was just installed.
   * Your mission control travels between machines through git. Push it from here, and run
-    this same command on the next machine to pick it up there. To change which
-    AI tools have their conversations copied from this machine, run it again with
-    --sources, or edit GODSPEED_PROMPT_SOURCES in ~/.godspeed/device.env
+    this same command on the next machine to pick it up there. Every new chat
+    with the AI apps here is saved in it; to bring a tool's older chats in too,
+    run it again with --sources, or edit GODSPEED_PROMPT_SOURCES in ~/.godspeed/device.env
 EOF
 command -v kb_mail_note >/dev/null 2>&1 && kb_mail_note
 

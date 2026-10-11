@@ -212,7 +212,7 @@ $Only = $WantOnly
 foreach ($fn in 'Install-KitPrereqs', 'New-KitGodspeed', 'Copy-KitStarterGodspeed', 'Find-KitGodspeed',
                  'Join-KitMemory', 'Install-KitGodspeedCli', 'Install-KitGodspeedTools',
                  'Install-KitPromptHarvest', 'Update-KitPath',
-                 'Find-KitAiTools', 'Set-KitPromptSources', 'Write-KitSyncReport', 'Get-KitDeviceEnvValue',
+                 'Find-KitAiTools', 'Set-KitPromptSources', 'Set-KitPromptSince', 'Write-KitSyncReport', 'Get-KitDeviceEnvValue',
                  'Connect-KitNotebook', 'Write-KitMcpConfig', 'Install-KitNotebookSync',
                  'Connect-KitSkills', 'Set-KitHermesGodspeed', 'Set-KitHermesApprovals', 'Set-KitHermesOneMemory',
                  'Get-KitDefaultGodspeedDir', 'Get-KitGodspeedPathRefusal',
@@ -352,17 +352,22 @@ if ($found) {
 # 'none' is how the wizard says nothing was ticked. It cannot say '-': Windows PowerShell
 # 5.1 reads a lone '-' after -File as a parameter name and this script never starts.
 if ($PromptSources.Trim() -eq 'none') { $PromptSources = '-' }
-# A PC getting its first mission control copies no conversations until its owner names the tools:
-# the wizard's boxes start unticked there, and a run without the wizard says the same.
-# Copying is the one step that pushes words typed to other programs into a repository,
-# so it is asked for, never assumed. A PC that already works from a mission control (an update, or
-# -Beside) keeps whatever it recorded or did before.
+# Every NEW conversation on this PC is saved from the moment of this install or update
+# (Set-KitPromptSince, 2026-10-12). The wizard's checklist decides only whether a tool's OLDER
+# conversations come in too. A PC getting its first mission control brings none of the older ones
+# in until its owner ticks the tools: the boxes start unticked there, and a run without the wizard
+# says the same. A PC that already works from a mission control (an update, or -Beside) keeps
+# whatever it recorded before.
 if ($PromptSources -eq '(auto)' -and $isNew -and -not $Beside -and
     $null -eq (Get-KitDeviceEnvValue 'GODSPEED_PROMPT_SOURCES')) { $PromptSources = '-' }
 if ($PromptSources -ne '(auto)') {
     Set-KitPromptSources -Value $PromptSources
     if ($PromptSources.Trim() -eq '' -or $PromptSources.Trim() -eq '-') { $env:KB_SYNC_SOURCES = '-' }
     else { $env:KB_SYNC_SOURCES = $PromptSources }
+}
+if ((Set-KitPromptSince) -and -not $isNew) {
+    # The one line an update owes the person: what changed for them, and nothing else.
+    Write-KbOk "conversations: from now on, every new chat with the AI apps on this PC is saved in your mission control; older chats stay out unless you ticked them."
 }
 Write-KitSyncReport
 
@@ -452,9 +457,9 @@ Worth knowing:
   * Open a NEW terminal window before you use its commands. Windows only
     hands the updated list of commands to windows opened after an install.
   * Your mission control travels between machines through git. Push it from here, and run
-    this same installer on the next machine to pick it up there. To change which
-    AI tools are read on this PC, run the installer again, or edit
-    GODSPEED_PROMPT_SOURCES in $HOME\.godspeed\device.env
+    this same installer on the next machine to pick it up there. Every new chat
+    with the AI apps here is saved in it; to bring a tool's older chats in too,
+    run the installer again and tick it.
 "@
 if (Get-Command Write-KitMailNote -ErrorAction SilentlyContinue) { Write-KitMailNote }
 

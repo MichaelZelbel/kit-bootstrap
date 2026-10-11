@@ -345,9 +345,13 @@ begin
   GodspeedPage.Values[1] := '';
 
   { The choice page. Everything a ticked row means is said HERE, before it
-    happens, because this is the person's one moment to say no: what you type to
-    a ticked tool, and what it answers, is copied into the mission control folder and pushed
-    to its repository.
+    happens, because this is the person's one moment to say no.
+
+    Since 2026-10-12 every NEW conversation is saved whatever is ticked, and a tick decides
+    only whether that tool's OLDER conversations are brought in too. Until then an unticked
+    tool was never read at all, and Teach It Once tells every reader to leave every box
+    unticked, so no reader ever had a conversation saved (Michael: "It is a bug, right? So fix
+    the bug."). The page says exactly that, in that order.
 
     Until 2026-09-21 this page was titled "Your AI tools", asked which tools "may
     be synced", and listed the tools it could not copy as greyed-out boxes reading
@@ -372,12 +376,12 @@ begin
 
   SyncPage := CreateInputOptionPage(GodspeedPage.ID,
     'Your conversations',
-    'Copy your AI conversations into your mission control?',
-    'Every AI tool on this PC can work with your mission control, ticked or not. A tick decides one thing: '
-    + 'whether what you type to that tool, and what it answers, is also copied into your mission control '
-    + 'folder and pushed with it to its git repository, so your other computers can search it. '
-    + 'For Claude Code a tick also shares its memory folder. Unticked, its files are not read '
-    + 'at all. Run this installer again any time to change your mind.'
+    'Bring in your older AI conversations as well?',
+    'From now on, every new conversation with the AI apps on this PC is saved in your mission control: '
+    + 'what you type and what the AI answers, so your assistant can look it up later and your other '
+    + 'computers can search it. A tick decides one thing: whether that app''s conversations from before '
+    + 'today are brought in too. Unticked, only the new ones are saved. For Claude Code a tick also '
+    + 'shares its memory folder. Run this installer again any time to change your mind.'
     + OthersText,
     False, False);
 
@@ -697,7 +701,7 @@ begin
 #endif
   end;
   Result := Result + NewLine + NewLine
-          + 'Conversations copied into your mission control from this PC: ' + GetSyncSummary();
+          + 'New conversations on this PC are saved in your mission control from now on. Older ones brought in as well: ' + GetSyncSummary();
   if GetComputerAnswer('') = 'yes' then
     Result := Result + NewLine + NewLine + 'Your assistant may use a browser on this computer: yes, paired with your code.'
   else if ComputerPaired then

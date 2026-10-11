@@ -333,17 +333,39 @@ t "and what else the file held survives" \
 
 # The report is the disclosure. It must name each state in plain words.
 _rep="$(HOME="$_s2" KB_ASSUME_TOOLS=claude,codex,cursor KB_SYNC_SOURCES=claude kb_sync_report)"
-t "the report says what is copied"           "$(printf '%s' "$_rep" | grep -c 'Claude Code: its memory folder')" "1"
-t "the report says what was left off"        "$(printf '%s' "$_rep" | grep -c 'Not copied, because you left it off: Codex.')" "1"
-t "and how to switch it on"                  "$(printf '%s' "$_rep" | grep -c 'e.g. --sources claude,codex$')" "1"
+t "the report says every new conversation is saved"  "$(printf '%s' "$_rep" | grep -c 'Every new conversation on this computer is saved in your mission control from now on')" "1"
+t "for each tool here, the unticked one too"        "$(printf '%s' "$_rep" | grep -c -- '- Codex: what you type to it, and its answers')" "1"
+t "the ticked tool brings its memory folder"        "$(printf '%s' "$_rep" | grep -c 'Claude Code: what you type to it and its answers, and its memory folder')" "1"
+t "the report says whose older chats come in"       "$(printf '%s' "$_rep" | grep -c 'Older conversations brought in as well: Claude Code.')" "1"
+t "and whose stay out"                              "$(printf '%s' "$_rep" | grep -c 'Older conversations left out, as you chose: Codex.')" "1"
+t "and how to bring them in"                        "$(printf '%s' "$_rep" | grep -c 'e.g. --sources claude,codex$')" "1"
+t "it never says a tool's chats are not saved"      "$(printf '%s' "$_rep" | grep -c -i 'not copied\|no conversations are copied')" "0"
 t "a tool it cannot copy is named as still working with the mission control" \
   "$(printf '%s' "$_rep" | grep -c 'Also on this machine: Cursor. You can open your mission control folder in it')" "1"
 t "the old wording that read as 'does not work' is gone" \
   "$(printf '%s' "$_rep" | grep -c -i 'cannot sync\|not syncable\|format yet')" "0"
 t "several such tools are one sentence, in the plural" \
   "$(KB_ASSUME_TOOLS=cursor,gemini KB_SYNC_SOURCES= kb_sync_report | grep -c 'Cursor, Gemini CLI. You can open your mission control folder in them')" "1"
-t "a machine copying nothing is told so" \
-  "$(KB_ASSUME_TOOLS=- KB_SYNC_SOURCES= kb_sync_report | grep -c 'No conversations are copied')" "1"
+t "a machine with no AI tool yet is told its chats will be saved once one is here" \
+  "$(KB_ASSUME_TOOLS=- KB_SYNC_SOURCES= kb_sync_report | grep -c 'as soon as one of them is here')" "1"
+
+# EVERY NEW CHAT IS SAVED (2026-10-12). The moment this computer began saving is recorded once,
+# on a first install and on the first update that knows about it, and never moved after that.
+_sn=$(mktemp -d); mkdir -p "$_sn/.godspeed"; printf 'GODSPEED_PROMPT_SOURCES=' > "$_sn/.godspeed/device.env"
+( HOME="$_sn" kb_write_prompt_since ); _rc1=$?
+t "the start of saving is recorded"            "$(grep -Ec '^GODSPEED_PROMPT_SINCE=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$' "$_sn/.godspeed/device.env")" "1"
+t "on its own line, the line before intact"    "$(grep -c '^GODSPEED_PROMPT_SOURCES=$' "$_sn/.godspeed/device.env")" "1"
+t "and says it wrote it"                       "$_rc1" "0"
+_first="$(grep '^GODSPEED_PROMPT_SINCE=' "$_sn/.godspeed/device.env")"
+( HOME="$_sn" kb_write_prompt_since ); _rc2=$?
+t "a second run leaves it where it was"        "$(grep '^GODSPEED_PROMPT_SINCE=' "$_sn/.godspeed/device.env")" "$_first"
+t "and says it wrote nothing"                  "$_rc2" "1"
+rm -rf "$_sn"
+_upd="$(sed -n '/^if kb_write_prompt_since && \[ "\$IS_NEW" -eq 0 \]; then/,/^fi$/p' setup-godspeed.sh)"
+t "an update says, in one line, that new chats are saved from now on" \
+  "$(printf '%s' "$_upd" | grep -c 'from now on, every new chat with the AI apps on this computer is saved in your mission control')" "1"
+t "and the start is recorded after the choice, before the report" \
+  "$(awk '/^  kb_write_prompt_sources "\$SOURCES"/{a=NR} /^if kb_write_prompt_since/{b=NR} /^kb_sync_report$/{c=NR} END{print (a>0 && b>a && c>b) ? "yes" : "no"}' setup-godspeed.sh)" "yes"
 
 # A machine getting its FIRST mission control copies nothing until its owner names tools, like the
 # Windows wizard whose boxes start unticked there. An update or a second mission control beside the

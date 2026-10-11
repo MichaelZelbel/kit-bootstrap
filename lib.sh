@@ -1826,14 +1826,33 @@ kb_write_prompt_sources() {
   ok "recorded your choice on this device: GODSPEED_PROMPT_SOURCES=$v (in $f)"
 }
 
+# kb_write_prompt_since
+# THE MOMENT THIS COMPUTER BEGAN SAVING NEW CHATS (2026-10-12). Every new conversation with an AI
+# tool on this computer is saved from then on, whatever --sources says; --sources only decides
+# whether a tool's chats from BEFORE that moment come in too. Until 2026-10-12 an unticked tool
+# was never read at all, and the book tells every reader to untick them all, so no reader ever
+# had a conversation saved. Recorded once, as GODSPEED_PROMPT_SINCE in ~/.godspeed/device.env,
+# on a first install and on the first update that knows about it; never moved afterwards.
+# Returns 0 when it wrote the line now, 1 when the computer already had one.
+kb_write_prompt_since() {
+  local f="$HOME/.godspeed/device.env"
+  grep -q '^[[:space:]]*GODSPEED_PROMPT_SINCE=' "$f" 2>/dev/null && return 1
+  mkdir -p "$HOME/.godspeed"
+  if [ -s "$f" ] && [ -n "$(tail -c 1 "$f")" ]; then printf '\n' >> "$f"; fi
+  printf 'GODSPEED_PROMPT_SINCE=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$f"
+  return 0
+}
+
 # kb_sync_report
 # The truth about this machine, built from what was detected and chosen, never
 # from the promise. This is what the completion screen prints, so a person who
 # runs no other command still learns exactly what is read and where it goes.
 # Worded around what actually happens, copying conversations, because the old
 # "not syncable" read as "does not work with your mission control", which was never meant.
+# Since 2026-10-12 every new conversation is saved (kb_write_prompt_since), and the choice
+# decides only about the older ones, so the report says both, in that order.
 kb_sync_report() {
-  local on=",$(kb_enabled_sources)," id sync name note synced="" off="" other="" ids=""
+  local on=",$(kb_enabled_sources)," id sync name note saved="" older="" off="" other="" ids=""
   while IFS='|' read -r id sync name note; do
     [ -n "$id" ] || continue
     if [ "$sync" = "none" ]; then
@@ -1843,24 +1862,30 @@ kb_sync_report() {
     ids="$ids,$id"
     if [ "${on#*,$id,}" != "$on" ]; then
       case "$sync" in
-        memory+prompts) synced="$synced  - $name: its memory folder, plus what you type to it and its answers\n" ;;
-        *)              synced="$synced  - $name: what you type to it, and its answers\n" ;;
+        memory+prompts) saved="$saved  - $name: what you type to it and its answers, and its memory folder\n" ;;
+        *)              saved="$saved  - $name: what you type to it, and its answers\n" ;;
       esac
+      older="$older, $name"
     else
+      saved="$saved  - $name: what you type to it, and its answers\n"
       off="$off, $name"
     fi
   done <<KB_TOOLS
 $(kb_detect_ai_tools)
 KB_TOOLS
-  if [ -n "$synced" ]; then
-    printf 'Copied from this machine into your mission control, and pushed to its repository:\n'
-    printf '%b' "$synced"
+  if [ -n "$saved" ]; then
+    printf 'Every new conversation on this computer is saved in your mission control from now on:\n'
+    printf '%b' "$saved"
   else
-    printf 'No conversations are copied from this machine into your mission control.\n'
+    printf 'Every new conversation on this computer is saved in your mission control from now on,\n'
+    printf '  with Hermes, Claude Code, Codex or OpenCode, as soon as one of them is here.\n'
+  fi
+  if [ -n "$older" ]; then
+    printf 'Older conversations brought in as well: %s.\n' "${older#, }"
   fi
   if [ -n "$off" ]; then
-    printf 'Not copied, because you left it off: %s.\n' "${off#, }"
-    printf '  To copy one, run this again with --sources naming the tools you want, e.g. --sources %s\n' "${ids#,}"
+    printf 'Older conversations left out, as you chose: %s.\n' "${off#, }"
+    printf '  To bring them in too, run this again with --sources naming the tools, e.g. --sources %s\n' "${ids#,}"
   fi
   if [ -n "$other" ]; then
     case "${other#, }" in

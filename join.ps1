@@ -392,14 +392,35 @@ function Set-KitPromptSources {
     Write-KbOk "recorded your choice on this device: GODSPEED_PROMPT_SOURCES=$Value (in $f)"
 }
 
+function Set-KitPromptSince {
+    <#  THE MOMENT THIS PC BEGAN SAVING NEW CHATS (2026-10-12). The Windows twin of
+        kb_write_prompt_since in lib.sh. Every new conversation with an AI app on this PC is
+        saved from then on, ticked or not; the "Your conversations" boxes decide only whether
+        a tool's chats from BEFORE that moment come in too. Until 2026-10-12 an unticked box
+        meant the tool was never read at all, and the book tells every reader to leave them
+        all unticked, so no reader ever had a conversation saved. Recorded once, as
+        GODSPEED_PROMPT_SINCE in ~\.godspeed\device.env, never moved afterwards. Returns $true
+        when it wrote the line now. #>
+    if ($null -ne (Get-KitDeviceEnvValue 'GODSPEED_PROMPT_SINCE')) { return $false }
+    $dir = Join-Path (Get-KitHome) '.godspeed'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $f = Join-Path $dir 'device.env'
+    $lines = @()
+    if (Test-Path $f) { $lines = @(Get-Content $f) }
+    $lines += 'GODSPEED_PROMPT_SINCE=' + [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
+    Set-Content -Path $f -Value $lines -Encoding ascii
+    return $true
+}
+
 function Write-KitSyncReport {
     <#  The truth about this PC, built from what was detected and chosen, never
         from the promise. This is what the completion screen prints. Worded
         around what actually happens, copying conversations, because the old
         "not syncable" read as "does not work with your mission control", which was never
-        meant. #>
+        meant. Since 2026-10-12 every new conversation is saved (Set-KitPromptSince) and the
+        choice decides only about the older ones, so the report says both, in that order. #>
     $on = @((Get-KitEnabledSources) -split ',' | Where-Object { $_ })
-    $synced = @(); $off = @(); $other = @()
+    $saved = @(); $older = @(); $off = @(); $other = @()
     foreach ($line in @(Find-KitAiTools)) {
         $p = $line -split '\|', 4
         if ($p.Count -lt 3) { continue }
@@ -407,21 +428,27 @@ function Write-KitSyncReport {
         if ($sync -eq 'none') {
             $other += $name
         } elseif ($on -contains $id) {
-            if ($sync -eq 'memory+prompts') { $synced += "  - ${name}: its memory folder, plus what you type to it and its answers" }
-            else { $synced += "  - ${name}: what you type to it, and its answers" }
+            if ($sync -eq 'memory+prompts') { $saved += "  - ${name}: what you type to it and its answers, and its memory folder" }
+            else { $saved += "  - ${name}: what you type to it, and its answers" }
+            $older += $name
         } else {
+            $saved += "  - ${name}: what you type to it, and its answers"
             $off += $name
         }
     }
-    if ($synced.Count -gt 0) {
-        Write-Host "Copied from this PC into your mission control, and pushed to its repository:"
-        $synced | ForEach-Object { Write-Host $_ }
+    if ($saved.Count -gt 0) {
+        Write-Host "Every new conversation on this PC is saved in your mission control from now on:"
+        $saved | ForEach-Object { Write-Host $_ }
     } else {
-        Write-Host "No conversations are copied from this PC into your mission control."
+        Write-Host "Every new conversation on this PC is saved in your mission control from now on,"
+        Write-Host "  with Hermes, Claude Code, Codex or OpenCode, as soon as one of them is here."
+    }
+    if ($older.Count -gt 0) {
+        Write-Host "Older conversations brought in as well: $($older -join ', ')."
     }
     if ($off.Count -gt 0) {
-        Write-Host "Not copied, because you left it off: $($off -join ', ')."
-        Write-Host "  To copy one, run the installer again and tick it."
+        Write-Host "Older conversations left out, as you chose: $($off -join ', ')."
+        Write-Host "  To bring them in too, run the installer again and tick them."
     }
     if ($other.Count -gt 1) {
         Write-Host "Also on this PC: $($other -join ', '). You can open your mission control folder in them like in any"
@@ -3709,6 +3736,7 @@ if ($Sources -ne '(auto)') {
     if ($Sources.Trim() -eq '' -or $Sources.Trim() -eq '-') { $env:KB_SYNC_SOURCES = '-' }
     else { $env:KB_SYNC_SOURCES = $Sources }
 }
+[void](Set-KitPromptSince)   # every new chat on this PC is saved from now on
 Write-KitSyncReport
 
 # Get the latest of everything, because a join that leaves you on last month's memory

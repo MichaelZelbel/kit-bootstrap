@@ -108,7 +108,7 @@ foreach ($fn in 'Find-KitGodspeed', 'Test-KitGodspeed', 'Update-KitGodspeed', 'J
                  'Install-KitAge', 'Connect-KitAssistants', 'Connect-KitMenerioOnly',
                  'Set-KitDeviceEnvValue', 'Get-KitNotebookMirror', 'Test-KitNotebookRunnerAsks',
                  'Test-KitNotebookJobHere', 'Select-KitNotebookMirror', 'Request-KitPassphrase',
-                 'Set-KitPromptSources', 'Write-KitSyncReport', 'Get-KitHome',
+                 'Set-KitPromptSources', 'Set-KitPromptSince', 'Write-KitSyncReport', 'Get-KitHome',
                  'Write-KitExpiryRecord', 'Write-KitDueFolder', 'Get-KitRoomTwin',
                  'Connect-KitMail', 'Write-KitMailNote',
                  'Request-KitGmail', 'Show-KitGmailRetired', 'Connect-KitGmailOnly') {
@@ -455,12 +455,16 @@ Check "the choice is recorded, replaced not stacked, neighbours kept" {
           (@($lines | Where-Object { $_ -eq 'GODSPEED_DIR=C:\somewhere' }).Count -eq 1) }
     finally { $env:KB_HOME = $null }
 }
-Check "the report says what is copied, what was left off, and what still works with the mission control" {
+Check "the report says every new conversation is saved, whose older ones come in, and what still works with the mission control" {
     try { $env:KB_ASSUME_TOOLS = 'claude,codex,cursor'; $env:KB_SYNC_SOURCES = 'claude'
           $rep = (Write-KitSyncReport 6>&1 | Out-String)
-          $rep.Contains('Claude Code: its memory folder') -and
-          $rep.Contains('Not copied, because you left it off: Codex.') -and
-          $rep.Contains('run the installer again and tick it') -and
+          $rep.Contains('Every new conversation on this PC is saved in your mission control from now on') -and
+          $rep.Contains('- Codex: what you type to it, and its answers') -and
+          $rep.Contains('Claude Code: what you type to it and its answers, and its memory folder') -and
+          $rep.Contains('Older conversations brought in as well: Claude Code.') -and
+          $rep.Contains('Older conversations left out, as you chose: Codex.') -and
+          $rep.Contains('run the installer again and tick them') -and
+          ($rep -notmatch 'Not copied|No conversations are copied') -and
           $rep.Contains('Also on this PC: Cursor. You can open your mission control folder in it') -and
           ($rep -notmatch 'cannot sync|not syncable|format yet') }
     finally { $env:KB_ASSUME_TOOLS = $null; $env:KB_SYNC_SOURCES = $null }
@@ -470,10 +474,30 @@ Check "several such tools are one sentence, in the plural" {
           (Write-KitSyncReport 6>&1 | Out-String).Contains('Cursor, Gemini CLI. You can open your mission control folder in them') }
     finally { $env:KB_ASSUME_TOOLS = $null; $env:KB_SYNC_SOURCES = $null }
 }
-Check "a PC copying nothing is told so" {
+Check "a PC with no AI app yet is told its chats will be saved once one is here" {
     try { $env:KB_ASSUME_TOOLS = '-'; $env:KB_SYNC_SOURCES = '-'
-          (Write-KitSyncReport 6>&1 | Out-String).Contains('No conversations are copied') }
+          (Write-KitSyncReport 6>&1 | Out-String).Contains('as soon as one of them is here') }
     finally { $env:KB_ASSUME_TOOLS = $null; $env:KB_SYNC_SOURCES = $null }
+}
+# EVERY NEW CHAT IS SAVED (2026-10-12). The moment this PC began saving is recorded once, on a
+# first install and on the first update that knows about it, and never moved after that.
+Check "the start of saving is recorded once, beside the choice, and never moved" {
+    try { $env:KB_HOME = New-TestDir 'since-home'
+          New-Item -ItemType Directory -Force (Join-Path $env:KB_HOME '.godspeed') | Out-Null
+          $f = Join-Path $env:KB_HOME '.godspeed\device.env'
+          Set-Content $f 'GODSPEED_PROMPT_SOURCES=' -Encoding ascii
+          $first = Set-KitPromptSince
+          $line1 = @(Get-Content $f | Where-Object { $_ -match '^GODSPEED_PROMPT_SINCE=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$' })
+          $second = Set-KitPromptSince
+          $line2 = @(Get-Content $f | Where-Object { $_ -match '^GODSPEED_PROMPT_SINCE=' })
+          $first -and -not $second -and $line1.Count -eq 1 -and $line2.Count -eq 1 -and $line1[0] -eq $line2[0] -and
+          (@(Get-Content $f | Where-Object { $_ -eq 'GODSPEED_PROMPT_SOURCES=' }).Count -eq 1) }
+    finally { $env:KB_HOME = $null }
+}
+Check "an update says in one line that every new chat is saved from now on" {
+    $eng = Get-Content (Join-Path $PSScriptRoot 'setup-godspeed.ps1') -Raw
+    ($eng -match 'if \(\(Set-KitPromptSince\) -and -not \$isNew\) \{') -and
+    $eng.Contains('from now on, every new chat with the AI apps on this PC is saved in your mission control')
 }
 # THE WIZARD PAGE, as Michael met it on 2026-09-21: "Your AI tools", greyed boxes reading
 # "cannot sync", and no way to act on any of them. Checked in the source, because the page
@@ -482,7 +506,8 @@ Check "the wizard gives no tool a box it cannot tick, and names those tools in w
     $iss = Get-Content (Join-Path $PSScriptRoot 'godspeed-setup.iss') -Raw
     ($iss -notmatch 'ItemEnabled') -and ($iss -notmatch "cannot sync:") -and
     ($iss -match "Also on this PC: ' \+ Others") -and
-    ($iss -match 'Every AI tool on this PC can work with your mission control, ticked or not')
+    ($iss -match 'From now on, every new conversation with the AI apps on this PC is saved in your mission control') -and
+    ($iss -match 'A tick decides one thing: whether that app''''s conversations from before ')
 }
 Check "the wizard's boxes start unticked on a PC getting its first mission control" {
     $iss = Get-Content (Join-Path $PSScriptRoot 'godspeed-setup.iss') -Raw
