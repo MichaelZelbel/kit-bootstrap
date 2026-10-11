@@ -414,6 +414,18 @@ t "a config file is not wired as a command" "$([ -e "$_f/.local/bin/models.env" 
 mkdir -p "$_f/bare/.git" "$_f/bare/memory"
 ( HOME="$_f" kb_install_godspeed_cli "$_f/bare" ) >/dev/null 2>&1
 t "a mission control that ships no tools stays quiet" "$(HOME="$_f" kb_install_godspeed_cli "$_f/bare" 2>&1)" ""
+# 2026-10-11: the author's commands moved into a separate engine (dev/godspeed-engine/agents/mc-cli)
+# and this function kept looking only at agents/mc-cli, so it wired nothing and said nothing.
+mkdir -p "$_f/engined/.git" "$_f/engined/rules" "$_f/engined/dev/godspeed-engine/agents/mc-cli" "$_f/enghome"
+printf '#!/bin/sh\necho godspeed\n' > "$_f/engined/dev/godspeed-engine/agents/mc-cli/godspeed"
+printf '#!/bin/sh\necho lookup\n'   > "$_f/engined/dev/godspeed-engine/agents/mc-cli/mc-memory-lookup"
+( HOME="$_f/enghome" kb_install_godspeed_cli "$_f/engined" ) >/dev/null 2>&1
+t "commands kept in the engine folder are wired too" "$([ -e "$_f/enghome/.local/bin/godspeed" ] && echo yes)" "yes"
+t "and their siblings with them" "$([ -e "$_f/enghome/.local/bin/mc-memory-lookup" ] && echo yes)" "yes"
+# An engine folder with no commands in it is a broken pull, and it is said, never skipped silently.
+mkdir -p "$_f/emptyeng/.git" "$_f/emptyeng/rules" "$_f/emptyeng/dev/godspeed-engine"
+t "an engine with no commands in it says so" \
+  "$(HOME="$_f/enghome" kb_install_godspeed_cli "$_f/emptyeng" 2>&1 | grep -c 'NOT installed')" "1"
 # Not a git folder: say so and carry on, never abort the whole install.
 t "updating a non-git folder is not fatal" \
   "$(HOME="$_f" kb_update_godspeed "$_f/notagodspeed" >/dev/null 2>&1; echo $?)" "0"

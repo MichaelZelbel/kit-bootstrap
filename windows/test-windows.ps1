@@ -3411,6 +3411,80 @@ Check "a bash command still gets bash, a python one python, a node one node" {
     }
 }
 
+# --- THE COMMANDS IN THE ENGINE FOLDER, AND A LAUNCHER GIT BASH CAN RUN (2026-10-11) -------
+# The author's commands moved to dev\godspeed-engine\agents\mc-cli and this function looked only
+# at agents\mc-cli, so it returned without a word and `godspeed` was "not recognized" on every
+# Windows machine. And Git Bash runs no .cmd by its bare name, so even a .cmd left it missing there.
+function Invoke-CliInstallCase([scriptblock]$Body) {
+    $home0 = $HOME
+    try {
+        $h = New-TestDir ('cli-home-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+        $env:HOME = $h
+        Set-Variable -Name HOME -Value $h -Scope Global -Force
+        & $Body (Join-Path $h '.local\bin')
+    } finally {
+        Set-Variable -Name HOME -Value $home0 -Scope Global -Force
+        $env:HOME = $home0
+    }
+}
+$engGodspeed = New-TestDir 'engine-godspeed'
+$engCli = Join-Path $engGodspeed 'dev\godspeed-engine\agents\mc-cli'
+New-Item -ItemType Directory -Force $engCli | Out-Null
+Set-Content (Join-Path $engCli 'godspeed')          "#!/usr/bin/env bash`necho hi"
+Set-Content (Join-Path $engCli 'mc-memory-lookup')  "#!/usr/bin/env python3`nprint(1)"
+Set-Content (Join-Path $engCli 'mc-due')            "#!/usr/bin/env node`nconsole.log(1)"
+Check "commands kept in the engine folder are installed, dispatcher and siblings" {
+    Invoke-CliInstallCase { param($bin)
+        Install-KitGodspeedCli -Godspeed $engGodspeed | Out-Null
+        (Test-Path (Join-Path $bin 'godspeed.cmd')) -and (Test-Path (Join-Path $bin 'mc-memory-lookup.cmd')) -and
+        ((Get-Content (Join-Path $bin 'godspeed.cmd') -Raw) -match 'dev/godspeed-engine/agents/mc-cli/godspeed')
+    }
+}
+Check "and each gets a launcher Git Bash runs by name, LF-only, marked as ours" {
+    Invoke-CliInstallCase { param($bin)
+        Install-KitGodspeedCli -Godspeed $engGodspeed | Out-Null
+        $sh = [IO.File]::ReadAllText((Join-Path $bin 'godspeed'))
+        $py = [IO.File]::ReadAllText((Join-Path $bin 'mc-memory-lookup'))
+        ($sh -like '#!/bin/sh*') -and ($sh -notmatch "`r") -and (Test-KitCliShim (Join-Path $bin 'godspeed')) -and
+        ($sh -match 'exec "bash" ".*dev/godspeed-engine/agents/mc-cli/godspeed" "\$@"') -and
+        (($py -match 'exec "bash"') -eq (-not (Get-KitPython)))
+    }
+}
+Check "a name the kit's own programs hold keeps its program and its launcher" {
+    Invoke-CliInstallCase { param($bin)
+        New-Item -ItemType Directory -Force $bin | Out-Null
+        Set-Content (Join-Path $bin 'mc-due') "#!/bin/sh`nexec node `"`$(dirname `"`$0`")/due.js`" `"`$@`""
+        @('@echo off', 'node "%~dp0due.js" %*') | Set-Content (Join-Path $bin 'mc-due.cmd') -Encoding ascii
+        Install-KitGodspeedCli -Godspeed $engGodspeed | Out-Null
+        ((Get-Content (Join-Path $bin 'mc-due') -Raw) -match 'due\.js') -and
+        ((Get-Content (Join-Path $bin 'mc-due.cmd') -Raw) -match '%~dp0due\.js') -and
+        (Test-Path (Join-Path $bin 'godspeed'))
+    }
+}
+Check "a second run replaces its own launchers and changes nothing else" {
+    Invoke-CliInstallCase { param($bin)
+        Install-KitGodspeedCli -Godspeed $engGodspeed | Out-Null
+        $before = (Get-FileHash (Join-Path $bin 'godspeed')).Hash
+        Install-KitGodspeedCli -Godspeed $engGodspeed | Out-Null
+        (Get-FileHash (Join-Path $bin 'godspeed')).Hash -eq $before
+    }
+}
+Check "an engine folder with no commands in it says so instead of returning silently" {
+    $broken = New-TestDir 'engine-broken'
+    New-Item -ItemType Directory -Force (Join-Path $broken 'dev\godspeed-engine') | Out-Null
+    Invoke-CliInstallCase { param($bin)
+        $w = Install-KitGodspeedCli -Godspeed $broken 3>&1 | Out-String
+        $w -match 'NOT installed'
+    }
+}
+Check "a mission control with no engine and no commands still says nothing" {
+    $bare = New-TestDir 'cli-bare'
+    Invoke-CliInstallCase { param($bin)
+        $w = Install-KitGodspeedCli -Godspeed $bare 3>&1 6>&1 | Out-String
+        $w.Trim() -eq ''
+    }
+}
+
 # --- WINDOWS PINS A TAG NOW, LIKE ITS TWIN (2026-09-04) --------------------------------
 # install-godspeed.sh has always pinned an immutable tag and says why: this book's readers get
 # exactly the code that passed its end-to-end runs. setup-godspeed.ps1 defaulted to the moving v2
