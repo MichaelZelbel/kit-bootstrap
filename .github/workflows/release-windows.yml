@@ -1,0 +1,109 @@
+name: Release check on a fresh Windows
+# The Godspeed Mission Control release after godspeed-v2-integrated-2026-10-12-1, before it is
+# published: its exact GodspeedSetup.exe (committed on the product's release branch, checked by
+# SHA-256) run the way a reader who clicks Next everywhere does, on a fresh GitHub Windows machine,
+# once as a first installation and once as the update over the 12 October first release. Then what
+# a reader has: the notebook of this release, Hermes, the recipes, and Chapter 14's trackers
+# (windows/test-release-trackers.ps1). The private clean-install test repository could not run
+# (GitHub refused its jobs for billing), so this runs here, in kit-bootstrap's own public CI, as
+# full-alpha.yml does for the setup. A test branch only; nothing is published.
+on:
+  push:
+    branches: ['test/release-*']
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  KIT: https://github.com/MichaelZelbel/godspeed-mission-control
+  PUBLISH_COMMIT: f199e99b47ab644ab35a90cbdd7b14990c700b47
+  SETUP_SHA256: 41684eed4639048221f0d89d4434660c84b137fa00026d64c14266e5207cd845
+  PRODUCT: e861fcca3da77f971f7362ed21af49d51e241473
+  PREVIOUS_RELEASE: godspeed-v2-integrated-2026-10-12-1
+  PREVIOUS_PRODUCT: 8d56d992446d4ccf57565b7c7cc43e8ae4ebbf70
+jobs:
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [fresh, upgrade]
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: The release's GodspeedSetup.exe, checked
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "https://raw.githubusercontent.com/MichaelZelbel/godspeed-mission-control/$env:PUBLISH_COMMIT/installers/GodspeedSetup.exe" -OutFile GodspeedSetup.exe
+          $h = (Get-FileHash GodspeedSetup.exe -Algorithm SHA256).Hash.ToLower()
+          "setup under test: $h"
+          if ($h -ne $env:SETUP_SHA256) { 'not the release file'; exit 1 }
+          "main of the product while this runs (the setup copies the starter from it): " + (git ls-remote "$env:KIT.git" HEAD)
+      - name: The previous release, installed the way a reader did, and what the reader keeps
+        if: matrix.mode == 'upgrade'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "$env:KIT/releases/download/$env:PREVIOUS_RELEASE/GodspeedSetup.exe" -OutFile prev.exe
+          $env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')
+          $p = Start-Process .\prev.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=prev.log' -PassThru
+          if (-not $p.WaitForExit(3600000)) { 'previous release hung'; exit 1 }
+          "previous installer exit: $($p.ExitCode)"
+          $i = Get-Content "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha State\installation.json" -Raw | ConvertFrom-Json
+          "previous notebook: $($i.kitCommit) at $($i.workspace)"
+          if ($i.kitCommit -ne $env:PREVIOUS_PRODUCT) { 'not the previous release'; exit 1 }
+          Set-Content -Path "$HOME\godspeed-v2\my-own-notes.md" -Value 'Written by the reader before the update.' -Encoding utf8
+          $body = '{"table":"notes","operation":"insert","values":{"id":"written-before-the-update","title":"Written before the update","content":"This note was written with the previous release."},"selection":"*","single":true}'
+          (Invoke-RestMethod http://127.0.0.1:47831/api/query -Method Post -ContentType 'application/json' -Body $body).data.id
+      - name: Run GodspeedSetup.exe the way a reader who clicks Next everywhere does
+        shell: pwsh
+        run: |
+          # A reader starts the setup from Explorer; from this step's PowerShell 7 the setup's Windows
+          # PowerShell 5.1 would inherit PowerShell 7's module path and lose Get-FileHash.
+          $env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')
+          $setupArgs = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=setup.log')
+          if ('${{ matrix.mode }}' -eq 'upgrade') { $setupArgs += '/BESIDE=no' }
+          $p = Start-Process .\GodspeedSetup.exe -ArgumentList $setupArgs -PassThru
+          if (-not $p.WaitForExit(3600000)) { 'STILL RUNNING AFTER 60 MINUTES'; Get-Content "$env:LOCALAPPDATA\Godspeed\setup-log.txt" -Tail 40 -ErrorAction SilentlyContinue; exit 1 }
+          "installer exit: $($p.ExitCode)"
+          Get-Content "$env:LOCALAPPDATA\Godspeed\setup-log.txt" -Tail 30 -ErrorAction SilentlyContinue
+          if ($p.ExitCode -ne 0) { exit 1 }
+      - name: What a reader has
+        shell: pwsh
+        run: |
+          $fail = 0
+          function Want($what, [scriptblock]$test) { $ok = $false; try { $ok = [bool](& $test) } catch { Write-Host "   $_" }; if ($ok) { Write-Host "ok    $what" } else { Write-Host "FAIL  $what"; $script:fail++ } }
+          $mc = Join-Path $HOME 'godspeed-v2'; $state = Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
+          $i = Get-Content (Join-Path $state 'installation.json') -Raw | ConvertFrom-Json
+          $a = Get-Content (Join-Path $state 'assistant.json') -Raw | ConvertFrom-Json
+          Want "the mission control is at $mc" { (Test-Path (Join-Path $mc 'AGENTS.md')) -and ([IO.Path]::GetFullPath($i.workspace).TrimEnd('\') -eq [IO.Path]::GetFullPath($mc).TrimEnd('\')) }
+          Want "the notebook is this release's version ($($env:PRODUCT.Substring(0,7)))" { $i.kitCommit -eq $env:PRODUCT }
+          Want 'the notebook answers at 127.0.0.1:47831' { (Invoke-RestMethod http://127.0.0.1:47831/health -TimeoutSec 15).ok -eq $true }
+          Want 'its pages load' { (Invoke-WebRequest http://127.0.0.1:47831/dashboard -UseBasicParsing -TimeoutSec 15).Content -match 'id="root"' }
+          Want 'Hermes came with the setup' { $a.verified -eq $true -and (Test-Path -LiteralPath $a.executable) }
+          $cfg = Get-Content (Join-Path $(if ($a.home) { $a.home } else { Join-Path $state 'hermes-profile' }) 'config.yaml') -Raw
+          Want "the assistant's Hermes reaches the notebook's tools" { $cfg -match 'url: http://127\.0\.0\.1:47831/mcp' }
+          if ('${{ matrix.mode }}' -eq 'upgrade') {
+            Want 'the update made a backup of the notebook first' { @(Get-ChildItem (Join-Path $state 'backups') -Directory -ErrorAction SilentlyContinue).Count -ge 1 }
+            Want "the reader's own file is untouched" { (Get-Content (Join-Path $mc 'my-own-notes.md') -Raw).Contains('Written by the reader before the update.') }
+            $notes = Invoke-RestMethod http://127.0.0.1:47831/api/query -Method Post -ContentType 'application/json' -Body '{"table":"notes","operation":"select"}' -TimeoutSec 30
+            Want 'the note written with the previous release is still in the notebook' { @($notes.data | Where-Object { $_.id -eq 'written-before-the-update' }).Count -eq 1 }
+          }
+          if ($fail) { "$fail failed"; exit 1 } else { 'ALL PASS' }
+      - name: Chapter 14's trackers ("track belly 92 cm", the cycle, headaches, food and its table)
+        if: always()
+        shell: pwsh
+        run: ./windows/test-release-trackers.ps1 -Mode ${{ matrix.mode }}
+      - name: Keep the setup's records
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force evidence | Out-Null
+          Copy-Item setup.log, prev.log, "$env:LOCALAPPDATA\Godspeed\setup-log.txt" evidence -ErrorAction SilentlyContinue
+          Get-ChildItem "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha State" -Filter *.log -ErrorAction SilentlyContinue | Copy-Item -Destination evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-${{ matrix.mode }}-evidence
+          path: evidence/
+          retention-days: 14
