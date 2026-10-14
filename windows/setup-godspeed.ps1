@@ -119,6 +119,21 @@ Write-Host "  Setting up Godspeed Mission Control" -ForegroundColor Cyan
 Write-Host "  ==================="
 Write-Host ""
 
+function Set-GodspeedBundledStarterRef {
+    param([Parameter(Mandatory)][string]$AppRoot)
+    $starterManifestPath = Join-Path $AppRoot 'payload\candidate-manifest.json'
+    $starterManifest = Get-Content -LiteralPath $starterManifestPath -Raw -ErrorAction Stop | ConvertFrom-Json
+    if ($starterManifest.channel -ne 'full-alpha' -or $starterManifest.dataFormat -ne 1 -or
+        [string]$starterManifest.kitCommit -notmatch '^[a-fA-F0-9]{40}$') {
+        throw 'The bundled notebook has no supported, fixed starter revision.'
+    }
+    $env:GODSPEED_STARTER_REF = ([string]$starterManifest.kitCommit).ToLowerInvariant()
+}
+if ($IntegratedNotebook) {
+    try { Set-GodspeedBundledStarterRef -AppRoot $PSScriptRoot }
+    catch { Stop-Setup ('The notebook starter could not be selected: ' + $_.Exception.Message) }
+}
+
 # -----------------------------------------------------------------------------
 # 1. The shared install code.
 #
