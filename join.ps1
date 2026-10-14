@@ -1291,10 +1291,28 @@ function Copy-KitStarterGodspeed {
         [string]$StarterPath = 'starter-godspeed'
     )
 
+    $starterRef = $env:GODSPEED_STARTER_REF
+    if ($starterRef -and $starterRef -notmatch '^[a-fA-F0-9]{40}$') { return $false }
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("kit-starter-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
     try {
-        git clone --depth 1 --quiet $StarterRepo $tmp 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) { return $false }
+        if ($starterRef) {
+            # The bundle's starter is independent of the moving tools channel.
+            # Suppress native stderr under Windows PowerShell 5.1's Stop mode;
+            # exit codes decide whether the exact revision was fetched.
+            $starterErrorPreference = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = 'Continue'
+                git init --quiet $tmp 2>&1 | Out-Null
+                if ($LASTEXITCODE -ne 0) { return $false }
+                git -C $tmp fetch --depth 1 --quiet $StarterRepo $starterRef 2>&1 | Out-Null
+                if ($LASTEXITCODE -ne 0) { return $false }
+                git -C $tmp checkout --detach --quiet FETCH_HEAD 2>&1 | Out-Null
+                if ($LASTEXITCODE -ne 0) { return $false }
+            } finally { $ErrorActionPreference = $starterErrorPreference }
+        } else {
+            git clone --depth 1 --quiet $StarterRepo $tmp 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) { return $false }
+        }
 
         $src = Join-Path $tmp $StarterPath
         if (-not (Test-Path $src)) { return $false }

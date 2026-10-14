@@ -2476,11 +2476,20 @@ kb_sha256_lf() {
   else tr -d '\r' < "$1" | shasum -a 256 | cut -d' ' -f1; fi
 }
 kb_copy_starter_godspeed() {
-  local path="${1:-}" repo="${2:-}" sub="${3:-starter-godspeed}" tmp f base
+  local path="${1:-}" repo="${2:-}" sub="${3:-starter-godspeed}" ref="${GODSPEED_STARTER_REF:-}" tmp f base
   [ -n "$path" ] && [ -n "$repo" ] || return 1
+  # A packaged runtime can select its matching starter without moving the tools
+  # channel. Refuse moving names and never fall back to a different starter.
+  if [ -n "$ref" ] && ! [[ "$ref" =~ ^[a-fA-F0-9]{40}$ ]]; then return 1; fi
   tmp="$(mktemp -d 2>/dev/null)" || return 1
 
-  if ! git clone --depth 1 --quiet "$repo" "$tmp" >/dev/null 2>&1; then rm -rf "$tmp"; return 1; fi
+  if [ -n "$ref" ]; then
+    if ! git init --quiet "$tmp" >/dev/null 2>&1 \
+       || ! git -C "$tmp" fetch --depth 1 --quiet "$repo" "$ref" >/dev/null 2>&1 \
+       || ! git -C "$tmp" checkout --detach --quiet FETCH_HEAD >/dev/null 2>&1; then
+      rm -rf "$tmp"; return 1
+    fi
+  elif ! git clone --depth 1 --quiet "$repo" "$tmp" >/dev/null 2>&1; then rm -rf "$tmp"; return 1; fi
   if [ ! -d "$tmp/$sub" ]; then rm -rf "$tmp"; return 1; fi
 
   mkdir -p "$path"
