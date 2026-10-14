@@ -15,8 +15,8 @@ permissions:
   contents: read
 env:
   KIT: https://github.com/MichaelZelbel/godspeed-mission-control
-  PUBLISH_COMMIT: 5e38861a4fe197059b956fccc015e28d89d48342
-  SETUP_SHA256: 60997cc4840a68e6499fd935799ff4755de87812cda663c2ba19486d3fabe0b3
+  PUBLISH_COMMIT: 29568147ac3169af6c9a19e743ed6e0df4136284
+  SETUP_SHA256: 82c3c6672fc177a2dbb9b9976f57383418a6f71d84dfca13afaadba4e7861a3a
   PRODUCT: 02f4ecbdd89276783004e102d032178f952f1c6e
   PREVIOUS_RELEASE: godspeed-v2-integrated-2026-10-13-1
   PREVIOUS_PRODUCT: 9ab230680e2972eb424eeb54cbb83d1a8cc5ee9b
@@ -53,6 +53,7 @@ jobs:
           "previous notebook: $($i.kitCommit) at $($i.workspace)"
           if ($i.kitCommit -ne $env:PREVIOUS_PRODUCT) { 'not the previous release'; exit 1 }
           Set-Content -Path "$HOME\godspeed-v2\my-own-notes.md" -Value 'Written by the reader before the update.' -Encoding utf8
+          Add-Content -Path "$HOME\godspeed-v2\skills\next-action\SKILL.md" -Value 'Reader customization that the installer must preserve.' -Encoding utf8
           $body = '{"table":"notes","operation":"insert","values":{"id":"written-before-the-update","title":"Written before the update","content":"This note was written with the previous release."},"selection":"*","single":true}'
           (Invoke-RestMethod http://127.0.0.1:47831/api/query -Method Post -ContentType 'application/json' -Body $body).data.id
       - name: Run GodspeedSetup.exe the way a reader who clicks Next everywhere does
@@ -80,11 +81,15 @@ jobs:
           Want "the notebook is this release's version ($($env:PRODUCT.Substring(0,7)))" { $i.kitCommit -eq $env:PRODUCT }
           Want 'the notebook answers at 127.0.0.1:47831' { (Invoke-RestMethod http://127.0.0.1:47831/health -TimeoutSec 15).ok -eq $true }
           Want 'its pages load' { (Invoke-WebRequest http://127.0.0.1:47831/dashboard -UseBasicParsing -TimeoutSec 15).Content -match 'id="root"' }
+          if ('${{ matrix.mode }}' -eq 'fresh') {
+            Want 'fresh starter recipes need no review' { @(Get-ChildItem (Join-Path $mc 'conflicts') -Filter *.json -File -ErrorAction SilentlyContinue).Count -eq 0 }
+          }
           Want 'Hermes came with the setup' { $a.verified -eq $true -and (Test-Path -LiteralPath $a.executable) }
           $cfg = Get-Content (Join-Path $(if ($a.home) { $a.home } else { Join-Path $state 'hermes-profile' }) 'config.yaml') -Raw
           Want "the assistant's Hermes reaches the notebook's tools" { $cfg -match 'url: http://127\.0\.0\.1:47831/mcp' }
           if ('${{ matrix.mode }}' -eq 'upgrade') {
             Want 'the update made a backup of the notebook first' { @(Get-ChildItem (Join-Path $state 'backups') -Directory -ErrorAction SilentlyContinue).Count -ge 1 }
+            Want 'the reader-edited recipe is preserved' { (Get-Content (Join-Path $mc 'skills\next-action\SKILL.md') -Raw).Contains('Reader customization that the installer must preserve.') }
             Want "the reader's own file is untouched" { (Get-Content (Join-Path $mc 'my-own-notes.md') -Raw).Contains('Written by the reader before the update.') }
             $notes = Invoke-RestMethod http://127.0.0.1:47831/api/query -Method Post -ContentType 'application/json' -Body '{"table":"notes","operation":"select"}' -TimeoutSec 30
             Want 'the note written with the previous release is still in the notebook' { @($notes.data | Where-Object { $_.id -eq 'written-before-the-update' }).Count -eq 1 }

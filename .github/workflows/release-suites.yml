@@ -24,14 +24,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: kit-bootstrap test.sh, at the release's kit-bootstrap 0eafb06 (this branch's parent, without its test files)
+      - name: kit-bootstrap test.sh, at the release's exact release bootstrap
         shell: bash
         run: |
           set +e
-          git clone -q https://github.com/MichaelZelbel/kit-bootstrap.git kb && git -C kb checkout -q 0eafb061d28a077b2d7c0cc83d0bd002fcb44444
+          git clone -q https://github.com/MichaelZelbel/kit-bootstrap.git kb && git -C kb checkout -q 68f6103809e5b61b0c163b7797e7f4f65664aef3
           git -C kb log --oneline -1
           (cd kb && bash test.sh) > suite.out 2>&1; rc=$?
           grep -E 'FAIL' -A3 suite.out | head -80; tail -3 suite.out; exit $rc
+      - name: Pinned starter behavior on this operating system
+        if: always()
+        shell: bash
+        run: bash kb/test-starter-ref.sh
       - name: the collector's suite, from the product's release branch
         if: always()
         shell: bash
