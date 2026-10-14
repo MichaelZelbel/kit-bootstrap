@@ -37,7 +37,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          git clone -q --depth 1 --branch release/2026-10-12-2 https://github.com/MichaelZelbel/godspeed-mission-control kit
+          git clone -q --depth 1 --branch codex/notebook-production-label-release https://github.com/MichaelZelbel/godspeed-mission-control kit
           git -C kit log --oneline -1
           bash kit/tools/test-prompt-archive.sh > archive.out 2>&1; rc=$?
           grep -v '^  ok' archive.out | tail -15; exit $rc
