@@ -2818,6 +2818,9 @@ rm -rf "$_cc"
 else
   t "node is here for the computer cases" no yes
 fi
+t "the Windows finish page says where it is, how to start talking, and where to hear more" \
+  "$(grep -c 'WizardForm.FinishedLabel.Caption := FinishedWords();' windows/godspeed-setup.iss):$(grep -c "'To talk to it, open your notebook: Start menu, Open my notebook." windows/godspeed-setup.iss):$(grep -c "'I write about what it does and what broke, free: https://michaelzelbel.substack.com/subscribe'" windows/godspeed-setup.iss):$(grep -c 'WizardForm.RunList.Top := WizardForm.FinishedLabel.Top' windows/godspeed-setup.iss)" \
+  "1:1:1:1"
 echo
 echo "  $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

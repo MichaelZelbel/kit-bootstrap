@@ -451,6 +451,9 @@ begin
     Result := ComputerPaired or (not ComputerPage.Values[0]);
 end;
 
+{ Written further down, next to GetGodspeedDir, which it uses. }
+function FinishedWords(): String; forward;
+
 { The folder page introduces itself differently for a second mission control, because "this PC has
   not got a mission control yet" is then untrue and the reader would rightly not believe the rest. }
 procedure CurPageChanged(CurPageID: Integer);
@@ -473,7 +476,14 @@ begin
       WizardForm.FinishedLabel.Caption :=
         'Something stopped the setup before it was done, so your mission control may not work yet. Nothing you had is lost.' + #13#10 + #13#10 +
         'What happened is written in ' + ExpandConstant('{localappdata}\Godspeed\setup-log.txt') + '. Running this installer again tries once more.';
-    end;
+    end
+    else
+      { Until 14 October 2026 this page kept Windows' stock "Setup has finished" text, and the
+        setup's own summary (where the folder is, what to do next) sat in a window that closes
+        by itself, so nobody on Windows read what comes next. }
+      WizardForm.FinishedLabel.Caption := FinishedWords();
+    { The label grows with its text; the boxes below it move down instead of covering it. }
+    WizardForm.RunList.Top := WizardForm.FinishedLabel.Top + WizardForm.FinishedLabel.Height + ScaleY(12);
   end;
 end;
 
@@ -548,6 +558,25 @@ begin
   else
     Result := Trim(GodspeedPage.Values[0]);
   if Result = '' then Result := ExpandConstant('{%USERPROFILE}\godspeed');
+end;
+
+{ The last words a person reads after installing: where it is, how to start, where to hear more.
+  The same three lines end the Linux and Mac installer (install-native-notebook.sh). }
+function FinishedWords(): String;
+begin
+  if (FoundGodspeed <> '') and (not Beside) then
+    Result := 'Your mission control is up to date, in ' + GetGodspeedDir('') + '.'
+  else
+    Result := 'Your mission control is in ' + GetGodspeedDir('') + '.';
+#ifdef IntegratedNotebook
+  Result := Result + #13#10 + #13#10 +
+    'To talk to it, open your notebook: Start menu, Open my notebook. The first time, connect your own AI account in Settings.';
+#else
+  Result := Result + #13#10 + #13#10 +
+    'To talk to it, open Hermes in that folder.';
+#endif
+  Result := Result + #13#10 + #13#10 +
+    'I write about what it does and what broke, free: https://michaelzelbel.substack.com/subscribe';
 end;
 
 function GetRepoUrl(Param: String): String;
