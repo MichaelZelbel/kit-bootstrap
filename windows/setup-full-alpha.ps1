@@ -37,8 +37,10 @@ foreach($name in 'kitCommit','kitCommittedAt'){if($manifest.$name){$config|Add-M
 if(Test-Path -LiteralPath (Join-Path $AppRoot 'stop-full-alpha.ps1')){& (Join-Path $AppRoot 'stop-full-alpha.ps1')}
 # Record and media backup precede replacement of runtime settings. Software changes never alter data format here.
 # The notebook folder was records/ until 2026-10-05; an upgrade backs up either.
+$backup=$null
 if((Test-Path -LiteralPath (Join-Path $config.workspace 'notebook')) -or (Test-Path -LiteralPath (Join-Path $config.workspace 'records'))){
-  $backup=Join-Path (Get-FullAlphaBackupRoot -State $state) (Get-Date -Format 'yyyyMMdd-HHmmss-fff')
+  $backupRoot=Get-FullAlphaBackupRoot -State $state
+  $backup=Join-Path $backupRoot (Get-Date -Format 'yyyyMMdd-HHmmss-fff')
   $env:GODSPEED_WORKSPACE=$config.workspace;$env:GODSPEED_MEDIA_ROOT=$config.media
   Invoke-FullAlphaNode -Node (Join-Path $payload 'runtime\node.exe') -Arguments @((Join-Path $payload 'kit\notebook\bin\godspeed.mjs'),'backup',$backup) -Step 'Candidate backup'
 }
@@ -75,3 +77,7 @@ if(-not $NoStartup){
   $shortcut.WindowStyle=7;$shortcut.Save()
 }
 if(-not $NoStart){& (Join-Path $AppRoot 'start-full-alpha.ps1') -NoBrowser}
+# Every step of the update worked: start-full-alpha.ps1 throws when the notebook does not answer,
+# which ends this setup before here. So the newest three copies made before updates stay and older
+# ones go (Invoke-FullAlphaPruneUpdateCopies). Until 15 October 2026 none was ever removed.
+if($backup){Invoke-FullAlphaPruneUpdateCopies -Node (Join-Path $payload 'runtime\node.exe') -Kit (Join-Path $payload 'kit') -BackupRoot $backupRoot -Made $backup}

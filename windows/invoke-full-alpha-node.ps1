@@ -44,3 +44,14 @@ function Invoke-FullAlphaNode {
   throw ($Step+' failed (exit '+$taskCode+'). Upgrade stopped; retained recovery copies are unchanged.')
  }
 }
+# After an update that worked, the newest three of the copies made before updates stay and older
+# ones go, by the notebook's own rule (the product's notebook/core/upgrade-copies.mjs, which also
+# never touches a folder no installer made). Until 15 October 2026 every update added one, about
+# 250 MB on a grown notebook, and none was removed. A notebook version without that rule removes
+# nothing, and a copy that cannot be removed is said once and never fails the update that worked.
+function Invoke-FullAlphaPruneUpdateCopies {
+ param([Parameter(Mandatory)][string]$Node,[Parameter(Mandatory)][string]$Kit,[Parameter(Mandatory)][string]$BackupRoot,[Parameter(Mandatory)][string]$Made)
+ if(-not(Test-Path -LiteralPath (Join-Path $Kit 'notebook\core\upgrade-copies.mjs'))){return}
+ $taskPrune=Invoke-FullAlphaNative -Command $Node -Arguments @((Join-Path $Kit 'notebook\bin\godspeed.mjs'),'prune-backups',$BackupRoot,'--made',$Made)
+ if($taskPrune.Code -ne 0){Write-Output ('Older backups made before updates could not all be removed. They are in '+$BackupRoot)}
+}
