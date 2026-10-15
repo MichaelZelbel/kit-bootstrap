@@ -1,12 +1,13 @@
 name: Release check on a fresh Windows
-# The Godspeed Mission Control release after godspeed-v2-integrated-2026-10-12-1, before it is
+# The Godspeed Mission Control release of 15 October 2026 (the Identity page), before it is
 # published: its exact GodspeedSetup.exe (committed on the product's release branch, checked by
 # SHA-256) run the way a reader who clicks Next everywhere does, on a fresh GitHub Windows machine,
-# once as a first installation and once as the update over the 12 October first release. Then what
-# a reader has: the notebook of this release, Hermes, the recipes, and Chapter 14's trackers
-# (windows/test-release-trackers.ps1). The private clean-install test repository could not run
-# (GitHub refused its jobs for billing), so this runs here, in kit-bootstrap's own public CI, as
-# full-alpha.yml does for the setup. A test branch only; nothing is published.
+# once as a first installation and once as the update over the 14 October release. Then what a
+# reader has: the notebook of this release, Hermes, the recipes, Chapter 14's trackers
+# (windows/test-release-trackers.ps1) and the Identity page, with the assistant's SOUL.md written
+# from "who it is". The private clean-install test repository could not run (GitHub refuses its
+# jobs for billing), so this runs here, in kit-bootstrap's own public CI, as full-alpha.yml does
+# for the setup. A test branch only; nothing is published.
 on:
   push:
     branches: ['test/release-*']
@@ -15,11 +16,11 @@ permissions:
   contents: read
 env:
   KIT: https://github.com/MichaelZelbel/godspeed-mission-control
-  PUBLISH_COMMIT: 29568147ac3169af6c9a19e743ed6e0df4136284
-  SETUP_SHA256: 82c3c6672fc177a2dbb9b9976f57383418a6f71d84dfca13afaadba4e7861a3a
-  PRODUCT: 02f4ecbdd89276783004e102d032178f952f1c6e
-  PREVIOUS_RELEASE: godspeed-v2-integrated-2026-10-13-1
-  PREVIOUS_PRODUCT: 9ab230680e2972eb424eeb54cbb83d1a8cc5ee9b
+  PUBLISH_COMMIT: 73147857a8f559a900d7aeafa7f42b6c514cd300
+  SETUP_SHA256: 1b78fefe09bdc679a58528b48c79c09a47e8fbbf94f45d33e2114babdb841a4e
+  PRODUCT: c2ce006ed366281c1aa1a7650dd23ee746710946
+  PREVIOUS_RELEASE: godspeed-v2-integrated-2026-10-14-1
+  PREVIOUS_PRODUCT: 02f4ecbdd89276783004e102d032178f952f1c6e
 jobs:
   windows:
     strategy:
@@ -52,6 +53,9 @@ jobs:
           $i = Get-Content "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha State\installation.json" -Raw | ConvertFrom-Json
           "previous notebook: $($i.kitCommit) at $($i.workspace)"
           if ($i.kitCommit -ne $env:PREVIOUS_PRODUCT) { 'not the previous release'; exit 1 }
+          $prevState = Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'; $prevA = Get-Content (Join-Path $prevState 'assistant.json') -Raw | ConvertFrom-Json
+          $prevHome = $(if ($prevA.home) { $prevA.home } else { Join-Path $prevState 'hermes-profile' })
+          if (Test-Path (Join-Path $prevHome 'SOUL.md')) { Copy-Item (Join-Path $prevHome 'SOUL.md') soul-before.txt; "the previous release's SOUL.md begins: " + -join ((Get-Content soul-before.txt -Raw).ToCharArray() | Select-Object -First 80) } else { 'the previous release left no SOUL.md' }
           Set-Content -Path "$HOME\godspeed-v2\my-own-notes.md" -Value 'Written by the reader before the update.' -Encoding utf8
           Add-Content -Path "$HOME\godspeed-v2\skills\next-action\SKILL.md" -Value 'Reader customization that the installer must preserve.' -Encoding utf8
           $body = '{"table":"notes","operation":"insert","values":{"id":"written-before-the-update","title":"Written before the update","content":"This note was written with the previous release."},"selection":"*","single":true}'
@@ -99,6 +103,32 @@ jobs:
         if: always()
         shell: pwsh
         run: ./windows/test-release-trackers.ps1 -Mode ${{ matrix.mode }}
+      - name: The Identity page (who it is, rules, profile, recipes, earlier versions, and SOUL.md)
+        if: always()
+        shell: pwsh
+        run: |
+          $fail = 0
+          function Want($what, [scriptblock]$test) { $ok = $false; try { $ok = [bool](& $test) } catch { Write-Host "   $_" }; if ($ok) { Write-Host "ok    $what" } else { Write-Host "FAIL  $what"; $script:fail++ } }
+          $base = 'http://127.0.0.1:47831'; $state = Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
+          $a = Get-Content (Join-Path $state 'assistant.json') -Raw | ConvertFrom-Json
+          $soulHome = $(if ($a.home) { $a.home } else { Join-Path $state 'hermes-profile' })
+          $o = Invoke-RestMethod "$base/api/identity" -TimeoutSec 30
+          Want 'the page itself loads (/dashboard/identity)' { (Invoke-WebRequest "$base/dashboard/identity" -UseBasicParsing -TimeoutSec 15).Content -match 'id="root"' }
+          Want 'who it is: the persona paragraph of AGENTS.md' { $o.who.state -eq 'ok' -and $o.who.text -match '^You are' }
+          Want 'what it may and may not do: the rules, and the list in AGENTS.md is in step' { @($o.rules).Count -ge 5 -and $o.manual.rules_list -eq 'ok' }
+          Want 'what it knows about you: the profile pages' { @($o.profile).Count -ge 1 }
+          Want 'how it does its jobs: the recipes' { @($o.skills).Count -ge 5 }
+          Want 'earlier versions are listed for who it is' { @((Invoke-RestMethod "$base/api/identity/history?target=who" -TimeoutSec 30).data).Count -ge 1 }
+          Want 'earlier versions are listed for a rule' { @((Invoke-RestMethod "$base/api/identity/history?target=rule:never-spend-my-money" -TimeoutSec 30).data).Count -ge 1 }
+          Want "the assistant's SOUL.md ($soulHome) is written from who it is" { $o.soul.kind -eq 'ours' -and ((Get-Content (Join-Path $soulHome 'SOUL.md') -TotalCount 1) -match '^<!-- godspeed:who-it-is') }
+          Want 'SOUL.md says who it is, as AGENTS.md does' { (Get-Content (Join-Path $soulHome 'SOUL.md') -Raw).Contains(($o.who.text -split "`n")[0]) }
+          if ('${{ matrix.mode }}' -eq 'upgrade') {
+            if ((Test-Path soul-before.txt) -and (Get-Item soul-before.txt).Length -gt 0) {
+              $before = Get-FileHash soul-before.txt -Algorithm SHA256
+              Want 'the update kept the SOUL.md it replaced, beside it, unchanged' { @(Get-ChildItem $soulHome -Filter 'SOUL.before-godspeed-*.md' | Where-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash -eq $before.Hash }).Count -ge 1 }
+            } else { 'the previous release left no SOUL.md; nothing was there to keep' }
+          }
+          if ($fail) { "$fail failed"; exit 1 } else { 'ALL PASS' }
       - name: Keep the setup's records
         if: always()
         shell: pwsh
