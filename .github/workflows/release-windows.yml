@@ -59,6 +59,7 @@ jobs:
           $prevState = Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'; $prevA = Get-Content (Join-Path $prevState 'assistant.json') -Raw | ConvertFrom-Json
           $prevHome = $(if ($prevA.home) { $prevA.home } else { Join-Path $prevState 'hermes-profile' })
           if (Test-Path (Join-Path $prevHome 'SOUL.md')) { Copy-Item (Join-Path $prevHome 'SOUL.md') soul-before.txt; "the previous release's SOUL.md begins: " + -join ((Get-Content soul-before.txt -Raw).ToCharArray() | Select-Object -First 80) } else { 'the previous release left no SOUL.md' }
+          @(Get-ChildItem $prevHome -Filter 'SOUL.before-godspeed-*.md' -ErrorAction SilentlyContinue).Count | Set-Content soul-kept-before.txt
           Set-Content -Path "$HOME\godspeed-v2\my-own-notes.md" -Value 'Written by the reader before the update.' -Encoding utf8
           Add-Content -Path "$HOME\godspeed-v2\skills\next-action\SKILL.md" -Value 'Reader customization that the installer must preserve.' -Encoding utf8
           $body = '{"table":"notes","operation":"insert","values":{"id":"written-before-the-update","title":"Written before the update","content":"This note was written with the previous release."},"selection":"*","single":true}'
@@ -130,9 +131,14 @@ jobs:
               $before = Get-FileHash soul-before.txt -Algorithm SHA256
               if ((Get-Content soul-before.txt -TotalCount 1) -match '^<!-- godspeed:who-it-is') {
                 # Since 15 October the release before already writes SOUL.md from "who it is"; such a
-                # file holds nothing of the reader's, so nothing is replaced or copied
-                # (core/assistant-soul.mjs) and it must come through the update exactly as it was.
-                Want 'the SOUL.md the previous release wrote from who it is comes through the update unchanged' { (Get-FileHash (Join-Path $soulHome 'SOUL.md') -Algorithm SHA256).Hash -eq $before.Hash }
+                # file holds nothing of the reader's, so it is written again without a copy
+                # (core/assistant-soul.mjs). Since this release its first line, the mark, also names
+                # the extra instructions (assistant/extra-instructions.md, commit 89da0ff), so the
+                # first line is the new mark and everything below it comes through byte for byte.
+                $below = { param($file) ((Get-Content $file -Raw) -replace "`r`n", "`n") -replace '^[^\n]*\n', '' }
+                Want 'the SOUL.md the previous release wrote from who it is keeps its text below the mark' { (& $below soul-before.txt) -eq (& $below (Join-Path $soulHome 'SOUL.md')) }
+                Want 'its mark is the new one, naming the extra instructions' { (Get-Content (Join-Path $soulHome 'SOUL.md') -TotalCount 1) -match 'extra-instructions\.md' }
+                Want 'and no copy was kept of a file that held nothing of the reader''s' { @(Get-ChildItem $soulHome -Filter 'SOUL.before-godspeed-*.md').Count -eq [int](Get-Content soul-kept-before.txt) }
               } else {
                 Want 'the update kept the SOUL.md it replaced, beside it, unchanged' { @(Get-ChildItem $soulHome -Filter 'SOUL.before-godspeed-*.md' | Where-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash -eq $before.Hash }).Count -ge 1 }
               }
