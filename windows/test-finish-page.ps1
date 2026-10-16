@@ -133,7 +133,7 @@ if (-not $finish) { $w = Wizard; if ($w -ne [IntPtr]::Zero) { Picture $w (Join-P
 $texts = $finish | Where-Object Text | ForEach-Object { "[$($_.Class)] $($_.Text)" }
 $texts | Set-Content (Join-Path $Evidence 'finish-page.txt') -Encoding utf8
 '--- every text on the finish page ---'; $texts; '-------------------------------------'
-$label = $finish | Where-Object { $_.Class -eq 'TNewStaticText' -and $_.Text -match 'mission control' } | Select-Object -First 1
+$label = $finish | Where-Object { $_.Class -eq 'TNewStaticText' -and $_.Text -clike 'Your mission control *' } | Select-Object -First 1
 $fail = 0
 function Want($what, [bool]$ok) { if ($ok) { "ok    $what" } else { "FAIL  $what"; $script:fail++ } }
 $mc = Join-Path $HOME 'godspeed-v2'
