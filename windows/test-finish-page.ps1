@@ -6,8 +6,8 @@
   on screen, clicks Next on every page the way a reader who changes nothing does, waits through
   the installation, and on the finish page reads every text the wizard shows, saves a picture
   of the page, and checks the three lines: where the mission control is, how to start talking to
-  it, and the newsletter. The label must be tall enough for all of its words (measured with the
-  label's own font, as Setup itself measures), and the box under it must not cover it.
+  it, and the newsletter. The label must be tall enough for all of its words (measured as Setup
+  itself measures, in the wizard's font), and the box under it must not cover it.
 
   KB_UNATTENDED=1 only stops the setup's console window from asking its own questions (nobody
   is there to answer them on a test machine); the wizard and its pages are unchanged by it.
@@ -51,16 +51,21 @@ public static class Wiz {
   public static List<IntPtr> Kids(IntPtr p) { var l = new List<IntPtr>(); EnumChildWindows(p, (h, x) => { l.Add(h); return true; }, IntPtr.Zero); return l; }
   // A click on a button: BN_CLICKED to its parent, posted so the wizard's own work never blocks this script.
   public static void Click(IntPtr b) { PostMessage(GetParent(b), 0x0111, IntPtr.Zero, b); }
-  // The height a label's words need at its width, in its own font: DrawText with DT_CALCRECT and
-  // DT_WORDBREAK, which is how Setup fits a label. -1 when the label names no font.
-  public static int Needed(IntPtr label, string text) {
-    IntPtr font = SendMessage(label, 0x0031, IntPtr.Zero, IntPtr.Zero);
-    if (font == IntPtr.Zero) return -1;
+  // The height a label's words need at its width: DrawText with DT_CALCRECT and DT_WORDBREAK, which
+  // is how Setup fits a label, in the wizard's font (the system's message font at 9 points when the
+  // setup names none, as godspeed-setup.iss does) at the label's DPI. The label's own font handle
+  // cannot be used here: a font belongs to the process that made it.
+  [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr h);
+  [DllImport("gdi32.dll", CharSet=CharSet.Unicode)] static extern IntPtr CreateFont(int h, int w, int e, int o, int weight, uint i, uint u, uint s, uint cs, uint op, uint cp, uint q, uint pf, string face);
+  [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr o);
+  public static int Needed(IntPtr label, string text, string face, int points) {
+    uint dpi = GetDpiForWindow(label); if (dpi == 0) dpi = 96;
+    IntPtr font = CreateFont(-(int)Math.Round(points * dpi / 72.0), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 0, 0, face);
     RECT c; GetClientRect(label, out c);
-    IntPtr dc = GetDC(label); IntPtr old = SelectObject(dc, font);
+    IntPtr dc = GetDC(IntPtr.Zero); IntPtr old = SelectObject(dc, font);
     RECT r = new RECT(); r.Right = c.Right - c.Left;
     DrawText(dc, text, -1, ref r, 0x0400 | 0x0010 | 0x0800);
-    SelectObject(dc, old); ReleaseDC(label, dc);
+    SelectObject(dc, old); ReleaseDC(IntPtr.Zero, dc); DeleteObject(font);
     return r.Bottom - r.Top;
   }
 }
@@ -144,10 +149,10 @@ Want 'it ends with the newsletter line' ([bool]$label -and $label.Text.TrimEnd()
 Want 'the stock text is gone' (-not ($finish | Where-Object { $_.Text -match 'Setup has finished installing' }))
 if ($label) {
   $lr = New-Object Wiz+RECT; [void][Wiz]::GetWindowRect($label.H, [ref]$lr)
-  $need = [Wiz]::Needed($label.H, $label.Text)
-  "label: $($lr.Right - $lr.Left) x $($lr.Bottom - $lr.Top) pixels; its words need $need"
-  if ($need -lt 0) { 'the label names no font, so its height is judged from the picture only' }
-  else { Want 'the label is tall enough for all its words' (($lr.Bottom - $lr.Top) -ge $need) }
+  $face = [System.Drawing.SystemFonts]::MessageBoxFont.Name
+  $need = [Wiz]::Needed($label.H, $label.Text, $face, 9)
+  "label: $($lr.Right - $lr.Left) x $($lr.Bottom - $lr.Top) pixels; its words need $need in $face 9 pt"
+  Want 'the label is tall enough for all its words' (($lr.Bottom - $lr.Top) -ge $need)
   $box = $finish | Where-Object { $_.Class -eq 'TNewCheckListBox' } | Select-Object -First 1
   if ($box) {
     $br = New-Object Wiz+RECT; [void][Wiz]::GetWindowRect($box.H, [ref]$br)
