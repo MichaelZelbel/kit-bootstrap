@@ -1,13 +1,12 @@
 name: Release check on a fresh Windows
-# The Godspeed Mission Control release of 15 October 2026 (the Identity page), before it is
-# published: its exact GodspeedSetup.exe (committed on the product's release branch, checked by
-# SHA-256) run the way a reader who clicks Next everywhere does, on a fresh GitHub Windows machine,
-# once as a first installation and once as the update over the 14 October release. Then what a
-# reader has: the notebook of this release, Hermes, the recipes, Chapter 14's trackers
-# (windows/test-release-trackers.ps1) and the Identity page, with the assistant's SOUL.md written
-# from "who it is". The private clean-install test repository could not run (GitHub refuses its
-# jobs for billing), so this runs here, in kit-bootstrap's own public CI, as full-alpha.yml does
-# for the setup. A test branch only; nothing is published.
+# The Godspeed Mission Control release of 16 October 2026 (the installer's last words: where the
+# mission control is, how to start talking to it, and the free newsletter), before it is published.
+# Product 31f434a is the 15 October product c2ce006 plus only the Linux and Mac last words; setup
+# be36351 is the 15 October bootstrap 68f6103 plus only the Windows finish page. The setup is
+# compiled here on a fresh GitHub Windows machine with build-full-alpha.ps1 and Inno Setup 6 (no
+# Windows machine was at hand on the server that prepared it), then run the way a reader who
+# clicks Next everywhere does, once as a first installation and once as the update over the
+# 15 October release. A test branch only; nothing is published.
 on:
   push:
     branches: ['test/release-*']
@@ -16,13 +15,53 @@ permissions:
   contents: read
 env:
   KIT: https://github.com/MichaelZelbel/godspeed-mission-control
-  PUBLISH_COMMIT: 73147857a8f559a900d7aeafa7f42b6c514cd300
-  SETUP_SHA256: 1b78fefe09bdc679a58528b48c79c09a47e8fbbf94f45d33e2114babdb841a4e
-  PRODUCT: c2ce006ed366281c1aa1a7650dd23ee746710946
-  PREVIOUS_RELEASE: godspeed-v2-integrated-2026-10-14-1
-  PREVIOUS_PRODUCT: 02f4ecbdd89276783004e102d032178f952f1c6e
+  PRODUCT: 31f434a133d33f1ea0ad5bbc7cce202fe50c9842
+  BOOTSTRAP: be363517436cac40e14ed5106b414513b0d39f3f
+  PREVIOUS_RELEASE: godspeed-v2-integrated-2026-10-15-1
+  PREVIOUS_PRODUCT: c2ce006ed366281c1aa1a7650dd23ee746710946
 jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: MichaelZelbel/kit-bootstrap
+          ref: ${{ env.BOOTSTRAP }}
+          path: kb
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: MichaelZelbel/godspeed-mission-control
+          ref: ${{ env.PRODUCT }}
+          path: product
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - run: npm ci --no-audit --no-fund
+        working-directory: product/notebook/ui
+      - run: npm run build
+        working-directory: product/notebook/ui
+      - name: Compile GodspeedSetup.exe with build-full-alpha.ps1 and Inno Setup 6
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe')) { choco install innosetup --no-progress -y }
+          ./kb/windows/build-full-alpha.ps1 -KitCheckout "$pwd/product"
+          $m = Get-Content kb/windows/dist/candidate-manifest.json -Raw | ConvertFrom-Json
+          "manifest: product $($m.kitCommit), bootstrap $($m.bootstrapCommit)"
+          if ($m.kitCommit -ne $env:PRODUCT -or $m.bootstrapCommit -ne $env:BOOTSTRAP) { 'built from the wrong commits'; exit 1 }
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item kb/windows/dist/GodspeedSetup-Full-Alpha.exe out/GodspeedSetup.exe
+          Copy-Item kb/windows/dist/candidate-manifest.json out/windows-manifest.json
+          (Get-FileHash out/GodspeedSetup.exe -Algorithm SHA256).Hash.ToLower()
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GodspeedSetup-release
+          path: out/
+          retention-days: 30
   windows:
+    needs: build
     strategy:
       fail-fast: false
       matrix:
@@ -33,14 +72,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: The release's GodspeedSetup.exe, checked
+      - uses: actions/download-artifact@v4
+        with:
+          name: GodspeedSetup-release
+          path: built
+      - name: The setup built above
         shell: pwsh
         run: |
-          Invoke-WebRequest "https://raw.githubusercontent.com/MichaelZelbel/godspeed-mission-control/$env:PUBLISH_COMMIT/installers/GodspeedSetup.exe" -OutFile GodspeedSetup.exe
-          $h = (Get-FileHash GodspeedSetup.exe -Algorithm SHA256).Hash.ToLower()
-          "setup under test: $h"
-          if ($h -ne $env:SETUP_SHA256) { 'not the release file'; exit 1 }
-          "main of the product while this runs (the setup copies the starter from it): " + (git ls-remote "$env:KIT.git" HEAD)
+          Copy-Item built/GodspeedSetup.exe GodspeedSetup.exe
+          "setup under test: " + (Get-FileHash GodspeedSetup.exe -Algorithm SHA256).Hash.ToLower()
       - name: The previous release, installed the way a reader did, and what the reader keeps
         if: matrix.mode == 'upgrade'
         shell: pwsh
