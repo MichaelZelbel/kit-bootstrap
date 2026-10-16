@@ -1,0 +1,46 @@
+name: Finish page check, checked
+# windows/test-finish-page.ps1 against a stand-in setup (windows/test-finish-page-mock.iss), before
+# it is trusted with the release's real setup: it must pass a finish label fitted to its words and
+# fail one that keeps the stock height. Minutes, not the half hour of a real installation.
+on:
+  push:
+    branches: ['test/finish-page-selftest']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  selftest:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile the two stand-ins
+        shell: pwsh
+        run: |
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y | Out-Null }
+          & $iscc /Q /DFit windows/test-finish-page-mock.iss; if ($LASTEXITCODE) { exit 1 }
+          & $iscc /Q windows/test-finish-page-mock.iss; if ($LASTEXITCODE) { exit 1 }
+          Get-ChildItem windows/dist
+      - name: A fitted label passes
+        shell: pwsh
+        run: ./windows/test-finish-page.ps1 -Setup windows/dist/mock-fit.exe -Evidence evidence-fit -TimeoutMinutes 8
+      - name: A label left at the stock height fails
+        if: always()
+        shell: pwsh
+        run: |
+          $out = & pwsh -NoProfile -File ./windows/test-finish-page.ps1 -Setup windows/dist/mock-nofit.exe -Evidence evidence-nofit -TimeoutMinutes 8 2>&1
+          $out
+          if ($LASTEXITCODE -eq 0) { 'the check passed a label too short for its words'; exit 1 }
+          if (-not ($out -match 'FAIL  the label is tall enough for all its words')) { 'it failed, but not on the label height'; exit 1 }
+          'the check caught the short label'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: finish-page-selftest
+          path: |
+            evidence-fit/
+            evidence-nofit/
+          retention-days: 7
