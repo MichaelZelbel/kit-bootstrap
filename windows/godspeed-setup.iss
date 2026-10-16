@@ -482,7 +482,10 @@ begin
         setup's own summary (where the folder is, what to do next) sat in a window that closes
         by itself, so nobody on Windows read what comes next. }
       WizardForm.FinishedLabel.Caption := FinishedWords();
-    { The label grows with its text; the boxes below it move down instead of covering it. }
+    { The label keeps the height Setup gave its stock text, which is shorter than these words, so
+      the last line (the newsletter) would be cut off. Fit it to its text, then move the boxes
+      below it down instead of letting them cover it. }
+    WizardForm.AdjustLabelHeight(WizardForm.FinishedLabel);
     WizardForm.RunList.Top := WizardForm.FinishedLabel.Top + WizardForm.FinishedLabel.Height + ScaleY(12);
   end;
 end;
