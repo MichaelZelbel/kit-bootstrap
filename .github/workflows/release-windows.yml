@@ -1,14 +1,13 @@
 name: Release check on a fresh Windows
-# The Godspeed Mission Control release of 16 October 2026 (the installers' last words), before it
-# is published: its exact GodspeedSetup.exe (committed on the product's release branch, checked by
-# SHA-256) run the way a reader who clicks Next everywhere does, on a fresh GitHub Windows machine,
-# once as a first installation and once as the update over the 15 October release. Then what a
+# The Godspeed Mission Control release of 16 October 2026, second update (the setup in two parts),
+# before it is published: its exact GodspeedSetup.exe (committed on the product's release branch,
+# checked by SHA-256) run the way a reader who clicks Next everywhere does, on a fresh GitHub Windows
+# machine, once as a first installation and once as the update over the morning release. Then what a
 # reader has: the notebook of this release, Hermes, the recipes, Chapter 14's trackers
 # (windows/test-release-trackers.ps1) and the Identity page, with the assistant's SOUL.md written
-# from "who it is". New for this release: a third run with the wizard on screen, which reads the
-# setup's last page (windows/test-finish-page.ps1), because a silent setup never shows it.
-# Product 31f434a is the 15 October product c2ce006 plus only the Linux and Mac last words; setup
-# 4ce3d49 is the 15 October bootstrap 68f6103 plus only the Windows finish page. The private
+# from "who it is", and a third run with the wizard on screen that reads the setup's last page
+# (windows/test-finish-page.ps1). Product e09577c is main; setup 5f42a5b is the 15 October setup
+# with the Windows keep-three change (ba7abaf) and the finish page (4ce3d49). The private
 # clean-install test repository could not run (GitHub refuses its jobs for billing), so this runs
 # here, in kit-bootstrap's own public CI, as full-alpha.yml does for the setup. A test branch only;
 # nothing is published.
@@ -20,11 +19,11 @@ permissions:
   contents: read
 env:
   KIT: https://github.com/MichaelZelbel/godspeed-mission-control
-  PUBLISH_COMMIT: 186b24c4ddc7fd2a924d7627e3105c60074610ec
-  SETUP_SHA256: a9a4fe2fc0c11552ed3d2c6711371deca3240a8ac722a1ef158fbaa1fbb0d8d3
-  PRODUCT: 31f434a133d33f1ea0ad5bbc7cce202fe50c9842
-  PREVIOUS_RELEASE: godspeed-v2-integrated-2026-10-15-1
-  PREVIOUS_PRODUCT: c2ce006ed366281c1aa1a7650dd23ee746710946
+  PUBLISH_COMMIT: 5a2e2ecefc727b3f651375e9f45d1c55c7bb1b6a
+  SETUP_SHA256: 68d7b0d7b437700da4a2c210084354871e28341c27600d110a4721024d1952b5
+  PRODUCT: e09577cd322124aade3960509fb7957b5d2ed37c
+  PREVIOUS_RELEASE: godspeed-v2-integrated-2026-10-16-1
+  PREVIOUS_PRODUCT: 31f434a133d33f1ea0ad5bbc7cce202fe50c9842
 jobs:
   windows:
     strategy:
