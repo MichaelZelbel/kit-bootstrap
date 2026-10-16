@@ -1,0 +1,47 @@
+name: Release suites on Linux and a Mac
+# kit-bootstrap's own test.sh and the product's collector suite (tools/test-prompt-archive.sh) where
+# they really run, bash on a fresh Ubuntu and on a real Mac, for the release after
+# godspeed-v2-integrated-2026-10-15-1 (16 October 2026, the installer's last words): the clean-install test's "suites" job, here because the
+# private test repository's jobs are refused by GitHub's billing. Both suites are public already.
+# macOS has five known failures of test.sh, from bash 3.2 (three `$(case ...)`) and /var against
+# /private/var (two), since 8 October; they are listed, not hidden.
+on:
+  push:
+    branches: ['test/release-*']
+    paths: ['.github/workflows/release-suites.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  suites:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: kit-bootstrap test.sh, at the release's exact release bootstrap
+        shell: bash
+        run: |
+          set +e
+          git clone -q https://github.com/MichaelZelbel/kit-bootstrap.git kb && git -C kb checkout -q be363517436cac40e14ed5106b414513b0d39f3f
+          git -C kb log --oneline -1
+          (cd kb && bash test.sh) > suite.out 2>&1; rc=$?
+          grep -E 'FAIL' -A3 suite.out | head -80; tail -3 suite.out; exit $rc
+      - name: Pinned starter behavior on this operating system
+        if: always()
+        shell: bash
+        run: bash kb/test-starter-ref.sh
+      - name: the collector's suite, from the product's release branch
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          git clone -q https://github.com/MichaelZelbel/godspeed-mission-control kit && git -C kit checkout -q 31f434a133d33f1ea0ad5bbc7cce202fe50c9842
+          git -C kit log --oneline -1
+          bash kit/tools/test-prompt-archive.sh > archive.out 2>&1; rc=$?
+          grep -v '^  ok' archive.out | tail -15; exit $rc

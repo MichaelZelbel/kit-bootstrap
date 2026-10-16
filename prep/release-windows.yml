@@ -1,0 +1,184 @@
+name: Release check on a fresh Windows
+# The Godspeed Mission Control release of 16 October 2026 (the installer's last words: where the
+# mission control is, how to start talking to it, and the free newsletter), before it is published.
+# Product 31f434a is the 15 October product c2ce006 plus only the Linux and Mac last words; setup
+# be36351 is the 15 October bootstrap 68f6103 plus only the Windows finish page. The setup is
+# compiled here on a fresh GitHub Windows machine with build-full-alpha.ps1 and Inno Setup 6 (no
+# Windows machine was at hand on the server that prepared it), then run the way a reader who
+# clicks Next everywhere does, once as a first installation and once as the update over the
+# 15 October release. A test branch only; nothing is published.
+on:
+  push:
+    branches: ['test/release-*']
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  KIT: https://github.com/MichaelZelbel/godspeed-mission-control
+  PRODUCT: 31f434a133d33f1ea0ad5bbc7cce202fe50c9842
+  BOOTSTRAP: be363517436cac40e14ed5106b414513b0d39f3f
+  PREVIOUS_RELEASE: godspeed-v2-integrated-2026-10-15-1
+  PREVIOUS_PRODUCT: c2ce006ed366281c1aa1a7650dd23ee746710946
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: MichaelZelbel/kit-bootstrap
+          ref: ${{ env.BOOTSTRAP }}
+          path: kb
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: MichaelZelbel/godspeed-mission-control
+          ref: ${{ env.PRODUCT }}
+          path: product
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - run: npm ci --no-audit --no-fund
+        working-directory: product/notebook/ui
+      - run: npm run build
+        working-directory: product/notebook/ui
+      - name: Compile GodspeedSetup.exe with build-full-alpha.ps1 and Inno Setup 6
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe')) { choco install innosetup --no-progress -y }
+          ./kb/windows/build-full-alpha.ps1 -KitCheckout "$pwd/product"
+          $m = Get-Content kb/windows/dist/candidate-manifest.json -Raw | ConvertFrom-Json
+          "manifest: product $($m.kitCommit), bootstrap $($m.bootstrapCommit)"
+          if ($m.kitCommit -ne $env:PRODUCT -or $m.bootstrapCommit -ne $env:BOOTSTRAP) { 'built from the wrong commits'; exit 1 }
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item kb/windows/dist/GodspeedSetup-Full-Alpha.exe out/GodspeedSetup.exe
+          Copy-Item kb/windows/dist/candidate-manifest.json out/windows-manifest.json
+          (Get-FileHash out/GodspeedSetup.exe -Algorithm SHA256).Hash.ToLower()
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GodspeedSetup-release
+          path: out/
+          retention-days: 30
+  windows:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [fresh, upgrade]
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: GodspeedSetup-release
+          path: built
+      - name: The setup built above
+        shell: pwsh
+        run: |
+          Copy-Item built/GodspeedSetup.exe GodspeedSetup.exe
+          "setup under test: " + (Get-FileHash GodspeedSetup.exe -Algorithm SHA256).Hash.ToLower()
+      - name: The previous release, installed the way a reader did, and what the reader keeps
+        if: matrix.mode == 'upgrade'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "$env:KIT/releases/download/$env:PREVIOUS_RELEASE/GodspeedSetup.exe" -OutFile prev.exe
+          $env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')
+          $p = Start-Process .\prev.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=prev.log' -PassThru
+          if (-not $p.WaitForExit(3600000)) { 'previous release hung'; exit 1 }
+          "previous installer exit: $($p.ExitCode)"
+          $i = Get-Content "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha State\installation.json" -Raw | ConvertFrom-Json
+          "previous notebook: $($i.kitCommit) at $($i.workspace)"
+          if ($i.kitCommit -ne $env:PREVIOUS_PRODUCT) { 'not the previous release'; exit 1 }
+          $prevState = Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'; $prevA = Get-Content (Join-Path $prevState 'assistant.json') -Raw | ConvertFrom-Json
+          $prevHome = $(if ($prevA.home) { $prevA.home } else { Join-Path $prevState 'hermes-profile' })
+          if (Test-Path (Join-Path $prevHome 'SOUL.md')) { Copy-Item (Join-Path $prevHome 'SOUL.md') soul-before.txt; "the previous release's SOUL.md begins: " + -join ((Get-Content soul-before.txt -Raw).ToCharArray() | Select-Object -First 80) } else { 'the previous release left no SOUL.md' }
+          Set-Content -Path "$HOME\godspeed-v2\my-own-notes.md" -Value 'Written by the reader before the update.' -Encoding utf8
+          Add-Content -Path "$HOME\godspeed-v2\skills\next-action\SKILL.md" -Value 'Reader customization that the installer must preserve.' -Encoding utf8
+          $body = '{"table":"notes","operation":"insert","values":{"id":"written-before-the-update","title":"Written before the update","content":"This note was written with the previous release."},"selection":"*","single":true}'
+          (Invoke-RestMethod http://127.0.0.1:47831/api/query -Method Post -ContentType 'application/json' -Body $body).data.id
+      - name: Run GodspeedSetup.exe the way a reader who clicks Next everywhere does
+        shell: pwsh
+        run: |
+          # A reader starts the setup from Explorer; from this step's PowerShell 7 the setup's Windows
+          # PowerShell 5.1 would inherit PowerShell 7's module path and lose Get-FileHash.
+          $env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')
+          $setupArgs = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=setup.log')
+          if ('${{ matrix.mode }}' -eq 'upgrade') { $setupArgs += '/BESIDE=no' }
+          $p = Start-Process .\GodspeedSetup.exe -ArgumentList $setupArgs -PassThru
+          if (-not $p.WaitForExit(3600000)) { 'STILL RUNNING AFTER 60 MINUTES'; Get-Content "$env:LOCALAPPDATA\Godspeed\setup-log.txt" -Tail 40 -ErrorAction SilentlyContinue; exit 1 }
+          "installer exit: $($p.ExitCode)"
+          Get-Content "$env:LOCALAPPDATA\Godspeed\setup-log.txt" -Tail 30 -ErrorAction SilentlyContinue
+          if ($p.ExitCode -ne 0) { exit 1 }
+      - name: What a reader has
+        shell: pwsh
+        run: |
+          $fail = 0
+          function Want($what, [scriptblock]$test) { $ok = $false; try { $ok = [bool](& $test) } catch { Write-Host "   $_" }; if ($ok) { Write-Host "ok    $what" } else { Write-Host "FAIL  $what"; $script:fail++ } }
+          $mc = Join-Path $HOME 'godspeed-v2'; $state = Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
+          $i = Get-Content (Join-Path $state 'installation.json') -Raw | ConvertFrom-Json
+          $a = Get-Content (Join-Path $state 'assistant.json') -Raw | ConvertFrom-Json
+          Want "the mission control is at $mc" { (Test-Path (Join-Path $mc 'AGENTS.md')) -and ([IO.Path]::GetFullPath($i.workspace).TrimEnd('\') -eq [IO.Path]::GetFullPath($mc).TrimEnd('\')) }
+          Want "the notebook is this release's version ($($env:PRODUCT.Substring(0,7)))" { $i.kitCommit -eq $env:PRODUCT }
+          Want 'the notebook answers at 127.0.0.1:47831' { (Invoke-RestMethod http://127.0.0.1:47831/health -TimeoutSec 15).ok -eq $true }
+          Want 'its pages load' { (Invoke-WebRequest http://127.0.0.1:47831/dashboard -UseBasicParsing -TimeoutSec 15).Content -match 'id="root"' }
+          if ('${{ matrix.mode }}' -eq 'fresh') {
+            Want 'fresh starter recipes need no review' { @(Get-ChildItem (Join-Path $mc 'conflicts') -Filter *.json -File -ErrorAction SilentlyContinue).Count -eq 0 }
+          }
+          Want 'Hermes came with the setup' { $a.verified -eq $true -and (Test-Path -LiteralPath $a.executable) }
+          $cfg = Get-Content (Join-Path $(if ($a.home) { $a.home } else { Join-Path $state 'hermes-profile' }) 'config.yaml') -Raw
+          Want "the assistant's Hermes reaches the notebook's tools" { $cfg -match 'url: http://127\.0\.0\.1:47831/mcp' }
+          if ('${{ matrix.mode }}' -eq 'upgrade') {
+            Want 'the update made a backup of the notebook first' { @(Get-ChildItem (Join-Path $state 'backups') -Directory -ErrorAction SilentlyContinue).Count -ge 1 }
+            Want 'the reader-edited recipe is preserved' { (Get-Content (Join-Path $mc 'skills\next-action\SKILL.md') -Raw).Contains('Reader customization that the installer must preserve.') }
+            Want "the reader's own file is untouched" { (Get-Content (Join-Path $mc 'my-own-notes.md') -Raw).Contains('Written by the reader before the update.') }
+            $notes = Invoke-RestMethod http://127.0.0.1:47831/api/query -Method Post -ContentType 'application/json' -Body '{"table":"notes","operation":"select"}' -TimeoutSec 30
+            Want 'the note written with the previous release is still in the notebook' { @($notes.data | Where-Object { $_.id -eq 'written-before-the-update' }).Count -eq 1 }
+          }
+          if ($fail) { "$fail failed"; exit 1 } else { 'ALL PASS' }
+      - name: Chapter 14's trackers ("track belly 92 cm", the cycle, headaches, food and its table)
+        if: always()
+        shell: pwsh
+        run: ./windows/test-release-trackers.ps1 -Mode ${{ matrix.mode }}
+      - name: The Identity page (who it is, rules, profile, recipes, earlier versions, and SOUL.md)
+        if: always()
+        shell: pwsh
+        run: |
+          $fail = 0
+          function Want($what, [scriptblock]$test) { $ok = $false; try { $ok = [bool](& $test) } catch { Write-Host "   $_" }; if ($ok) { Write-Host "ok    $what" } else { Write-Host "FAIL  $what"; $script:fail++ } }
+          $base = 'http://127.0.0.1:47831'; $state = Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
+          $a = Get-Content (Join-Path $state 'assistant.json') -Raw | ConvertFrom-Json
+          $soulHome = $(if ($a.home) { $a.home } else { Join-Path $state 'hermes-profile' })
+          $o = Invoke-RestMethod "$base/api/identity" -TimeoutSec 30
+          Want 'the page itself loads (/dashboard/identity)' { (Invoke-WebRequest "$base/dashboard/identity" -UseBasicParsing -TimeoutSec 15).Content -match 'id="root"' }
+          Want 'who it is: the persona paragraph of AGENTS.md' { $o.who.state -eq 'ok' -and $o.who.text -match '^You are' }
+          Want 'what it may and may not do: the rules, and the list in AGENTS.md is in step' { @($o.rules).Count -ge 5 -and $o.manual.rules_list -eq 'ok' }
+          Want 'what it knows about you: the profile pages' { @($o.profile).Count -ge 1 }
+          Want 'how it does its jobs: the recipes' { @($o.skills).Count -ge 5 }
+          Want 'earlier versions are listed for who it is' { @((Invoke-RestMethod "$base/api/identity/history?target=who" -TimeoutSec 30).data).Count -ge 1 }
+          Want 'earlier versions are listed for a rule' { @((Invoke-RestMethod "$base/api/identity/history?target=rule:never-spend-my-money" -TimeoutSec 30).data).Count -ge 1 }
+          Want "the assistant's SOUL.md ($soulHome) is written from who it is" { $o.soul.kind -eq 'ours' -and ((Get-Content (Join-Path $soulHome 'SOUL.md') -TotalCount 1) -match '^<!-- godspeed:who-it-is') }
+          Want 'SOUL.md says who it is, as AGENTS.md does' { (Get-Content (Join-Path $soulHome 'SOUL.md') -Raw).Contains(($o.who.text -split "`n")[0]) }
+          if ('${{ matrix.mode }}' -eq 'upgrade') {
+            if ((Test-Path soul-before.txt) -and (Get-Item soul-before.txt).Length -gt 0) {
+              $before = Get-FileHash soul-before.txt -Algorithm SHA256
+              Want 'the update kept the SOUL.md it replaced, beside it, unchanged' { @(Get-ChildItem $soulHome -Filter 'SOUL.before-godspeed-*.md' | Where-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash -eq $before.Hash }).Count -ge 1 }
+            } else { 'the previous release left no SOUL.md; nothing was there to keep' }
+          }
+          if ($fail) { "$fail failed"; exit 1 } else { 'ALL PASS' }
+      - name: Keep the setup's records
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force evidence | Out-Null
+          Copy-Item setup.log, prev.log, "$env:LOCALAPPDATA\Godspeed\setup-log.txt" evidence -ErrorAction SilentlyContinue
+          Get-ChildItem "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha State" -Filter *.log -ErrorAction SilentlyContinue | Copy-Item -Destination evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-${{ matrix.mode }}-evidence
+          path: evidence/
+          retention-days: 14
