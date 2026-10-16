@@ -129,7 +129,14 @@ jobs:
           if ('${{ matrix.mode }}' -eq 'upgrade') {
             if ((Test-Path soul-before.txt) -and (Get-Item soul-before.txt).Length -gt 0) {
               $before = Get-FileHash soul-before.txt -Algorithm SHA256
-              Want 'the update kept the SOUL.md it replaced, beside it, unchanged' { @(Get-ChildItem $soulHome -Filter 'SOUL.before-godspeed-*.md' | Where-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash -eq $before.Hash }).Count -ge 1 }
+              if ((Get-Content soul-before.txt -TotalCount 1) -match '^<!-- godspeed:who-it-is') {
+                # Since 15 October the release before already writes SOUL.md from "who it is"; such a
+                # file holds nothing of the reader's, so nothing is replaced or copied
+                # (core/assistant-soul.mjs) and it must come through the update exactly as it was.
+                Want 'the SOUL.md the previous release wrote from who it is comes through the update unchanged' { (Get-FileHash (Join-Path $soulHome 'SOUL.md') -Algorithm SHA256).Hash -eq $before.Hash }
+              } else {
+                Want 'the update kept the SOUL.md it replaced, beside it, unchanged' { @(Get-ChildItem $soulHome -Filter 'SOUL.before-godspeed-*.md' | Where-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash -eq $before.Hash }).Count -ge 1 }
+              }
             } else { 'the previous release left no SOUL.md; nothing was there to keep' }
           }
           if ($fail) { "$fail failed"; exit 1 } else { 'ALL PASS' }

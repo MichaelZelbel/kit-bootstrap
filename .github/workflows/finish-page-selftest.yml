@@ -25,10 +25,12 @@ jobs:
           & $iscc /Q windows/test-finish-page-mock.iss; if ($LASTEXITCODE) { exit 1 }
           Get-ChildItem windows/dist
       - name: A fitted label passes
+        timeout-minutes: 12
         shell: pwsh
         run: ./windows/test-finish-page.ps1 -Setup windows/dist/mock-fit.exe -Evidence evidence-fit -TimeoutMinutes 8
       - name: A label left at the stock height fails
         if: always()
+        timeout-minutes: 12
         shell: pwsh
         run: |
           $out = & pwsh -NoProfile -File ./windows/test-finish-page.ps1 -Setup windows/dist/mock-nofit.exe -Evidence evidence-nofit -TimeoutMinutes 8 2>&1

@@ -73,7 +73,13 @@ function Wizard {
   return [IntPtr]::Zero
 }
 function Dialogs { foreach ($h in [Wiz]::Tops()) { if ([Wiz]::IsWindowVisible($h) -and [Wiz]::Cls($h) -eq '#32770' -and [Wiz]::Text($h) -match 'Setup|Godspeed') { $h } } }
-function Controls($w) { foreach ($k in [Wiz]::Kids($w)) { if ([Wiz]::IsWindowVisible($k)) { [pscustomobject]@{ H = $k; Class = [Wiz]::Cls($k); Text = [Wiz]::Text($k); Enabled = [Wiz]::IsWindowEnabled($k) } } } }
+function Controls($w) { foreach ($k in [Wiz]::Kids($w)) { if ([Wiz]::IsWindowVisible($k)) { $t = [Wiz]::Text($k); [pscustomobject]@{ H = $k; Class = [Wiz]::Cls($k); Text = $t; Name = ($t -replace '&', '' -replace '[<>]', '').Trim(); Enabled = [Wiz]::IsWindowEnabled($k) } } } }
+# A setup still running when this ends (a check that failed part way) is closed, so the next
+# step starts on a clean desktop and no leftover window keeps this step's output open.
+function Close-Setup($p) {
+  if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+  Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -match '\\is-[^\\]+\.tmp\\' } | Stop-Process -Force -ErrorAction SilentlyContinue
+}
 function Picture($w, $file) {
   try {
     $r = New-Object Wiz+RECT; [void][Wiz]::GetWindowRect($w, [ref]$r)
@@ -92,6 +98,7 @@ $env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machi
 $log = Join-Path $Evidence 'finish-page-setup.log'
 $p = Start-Process (Resolve-Path $Setup).Path -ArgumentList "/LOG=`"$log`"" -PassThru
 "setup started (process $($p.Id)), with its wizard on screen"
+try {
 $deadline = (Get-Date).AddMinutes($TimeoutMinutes); $last = ''; $finish = $null; $n = 0
 $clicked = ''; $clickedAt = Get-Date; $tries = @{}
 while ((Get-Date) -lt $deadline) {
@@ -107,10 +114,10 @@ while ((Get-Date) -lt $deadline) {
   $buttons = @($c | Where-Object { $_.Class -eq 'TNewButton' })
   $page = (@($c | Where-Object { $_.Class -eq 'TNewStaticText' -and $_.Text }) | Select-Object -First 2 | ForEach-Object Text) -join ' / '
   if ($page -ne $last) { "page: $page   [buttons: $(($buttons | ForEach-Object { $_.Text + $(if ($_.Enabled) { '' } else { ' (off)' }) }) -join ', ')]"; $last = $page }
-  if ($buttons | Where-Object { $_.Text -eq '&Finish' -and $_.Enabled }) {
+  if ($buttons | Where-Object { $_.Name -eq 'Finish' -and $_.Enabled }) {
     Start-Sleep -Seconds 2; $finish = @(Controls $w); Picture $w (Join-Path $Evidence 'finish-page.png'); break
   }
-  $next = $buttons | Where-Object { ($_.Text -eq '&Next >' -or $_.Text -eq '&Install') -and $_.Enabled } | Select-Object -First 1
+  $next = $buttons | Where-Object { ($_.Name -eq 'Next' -or $_.Name -eq 'Install') -and $_.Enabled } | Select-Object -First 1
   if (-not $next) { continue }
   $sig = "$page|$($next.Text)"
   # One click per page: the next only when the page has not moved on for a minute, so a click
@@ -147,7 +154,8 @@ if ($label) {
     Want 'the box below starts under the words, not over them' ($br.Top -ge $lr.Bottom)
   }
 }
-$fb = $finish | Where-Object { $_.Text -eq '&Finish' } | Select-Object -First 1
+$fb = $finish | Where-Object { $_.Name -eq 'Finish' } | Select-Object -First 1
 if ($fb) { [Wiz]::Click($fb.H) }
 if (-not $p.WaitForExit(120000)) { 'the setup did not close after Finish'; $fail++ } else { "setup exit: $($p.ExitCode)" }
+} finally { Close-Setup $p }
 if ($fail) { "$fail failed"; exit 1 } else { 'ALL PASS' }
