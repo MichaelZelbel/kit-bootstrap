@@ -37,7 +37,7 @@ jobs:
           $out
           if ($LASTEXITCODE -eq 0) { 'the check passed a label too short for its words'; exit 1 }
           if (-not ($out -match 'FAIL  the label is tall enough for all its words')) { 'it failed, but not on the label height'; exit 1 }
-          'the check caught the short label'
+          'the check caught the short label'; exit 0
       - uses: actions/upload-artifact@v4
         if: always()
         with:
