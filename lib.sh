@@ -2413,7 +2413,11 @@ kb_install_hermes() {
   fi
   log "Installing Hermes..."
   export PATH="$HOME/.local/bin:$PATH"
-  curl -fsSL https://hermes-agent.nousresearch.com/install.sh 2>/dev/null | bash >/dev/null 2>&1
+  # --non-interactive: on a real terminal Hermes' installer runs its own `hermes setup` and
+  # `hermes gateway install` wizards on /dev/tty, and with its output silenced here the person saw
+  # "Installing Hermes..." and nothing else, forever (fresh Ubuntu 24.04, 2026-10-18). CI has no
+  # terminal, so it never hung there. Godspeed connects the AI later with `hermes model`.
+  curl -fsSL https://hermes-agent.nousresearch.com/install.sh 2>/dev/null | bash -s -- --non-interactive >/dev/null 2>&1
   kb_persist_path
   if kb_hermes_here; then ok "Hermes installed"; return 0; fi
   warn "Hermes did not become usable. Open a new terminal and run: hermes --version"

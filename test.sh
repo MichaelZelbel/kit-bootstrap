@@ -819,6 +819,7 @@ cat > "$_hm/fake-installer.sh" <<'FAKE'
 mkdir -p "$HOME/.local/bin"
 printf '#!/bin/sh\nexit 0\n' > "$HOME/.local/bin/hermes"
 chmod +x "$HOME/.local/bin/hermes"
+printf '%s\n' "$*" > "$HOME/installer-args"
 FAKE
 out="$( ( curl() { cat "$_hm/fake-installer.sh"; }
           HOME="$_hm/fresh"; PATH="/usr/bin:/bin"
@@ -827,6 +828,11 @@ case "$out" in *"rc=0"*) t "an absent Hermes is fetched and becomes usable" yes 
                *) t "an absent Hermes is fetched and becomes usable" "$out" "rc=0" ;; esac
 t "and the launcher landed where Hermes puts it" \
   "$([ -x "$_hm/fresh/.local/bin/hermes" ] && echo yes)" "yes"
+# 2026-10-18, fresh Ubuntu 24.04 on a real terminal: Hermes' installer opened its own setup
+# wizard on /dev/tty, its screens went to /dev/null with the rest of its output, and the person
+# saw "Installing Hermes..." forever. CI has no terminal, so every run here had passed.
+t "and Hermes' installer is told --non-interactive, so its own wizards never wait unseen" \
+  "$(cat "$_hm/fresh/installer-args" 2>/dev/null)" "--non-interactive"
 
 # A fetch that delivers nothing must warn and note the miss, never claim success.
 out="$( ( curl() { :; }
