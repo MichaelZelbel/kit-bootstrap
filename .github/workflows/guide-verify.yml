@@ -1,0 +1,459 @@
+name: Guide check on fresh machines
+# The public user guide for Godspeed Mission Control (godspeedmissioncontrol.com/guide, release
+# godspeed-v2-integrated-2026-10-16-2) says how to install, update, back up, use the commands and
+# uninstall. This runs those instructions as written on fresh GitHub machines: Ubuntu, Windows and
+# a Mac, and records what really happens. It only gathers evidence (the logs are the result); the
+# product is not changed and nothing is published. No AI account, no Telegram, no secrets, and no
+# install count: GODSPEED_INSTALL_COUNT=no and DO_NOT_TRACK=1 answer that question with no.
+# Downloads come from the GitHub release, never from the website's short links.
+on:
+  push:
+    branches: ['test/guide-2026-10-17']
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Comma list of jobs to run (empty: all)'
+        required: false
+        default: ''
+permissions:
+  contents: read
+env:
+  RELEASE: godspeed-v2-integrated-2026-10-16-2
+  PREVIOUS: godspeed-v2-integrated-2026-10-16-1
+  DL: https://github.com/MichaelZelbel/godspeed-mission-control/releases/download
+  SCRIPT_SHA256: 8e4f2e3745ddafbccd4149fa2f3ebbcf7e1202d224cff57dcb519de31b88eedf
+  PREV_SCRIPT_SHA256: 54fa4a1650bc7f6c7806b75b7e5c36cabb776e934bf13976d7dd48dd0b49921c
+  GODSPEED_INSTALL_COUNT: 'no'
+  DO_NOT_TRACK: '1'
+  PW: playwright-core@1.47.2
+jobs:
+  linux-fresh:
+    if: github.event_name == 'push' || inputs.only == '' || contains(inputs.only, 'linux-fresh')
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: The machine
+        run: |
+          mkdir -p evidence
+          { cat /etc/os-release | head -4; echo "image: $ImageOS $ImageVersion"; uname -m; whoami; id
+            for c in git node npm gh hermes curl sudo systemctl; do printf '%-9s %s\n' "$c" "$(command -v $c || echo missing)"; done
+            node --version; git --version; gh --version | head -1
+            if { : < /dev/tty; } 2>/dev/null; then echo 'a terminal can be opened'; else echo 'no terminal: questions cannot be asked'; fi
+            sudo -n true && echo 'sudo needs no password here'
+            ip -4 addr | grep inet; } 2>&1 | tee evidence/machine.txt
+      - name: Install, the guide's Linux checksum route exactly as written (install-mac-linux.md steps 2-3)
+        run: |
+          set +e; set -o pipefail
+          start=$(date +%s)
+          curl -fsSLO https://github.com/MichaelZelbel/godspeed-mission-control/releases/download/godspeed-v2-integrated-2026-10-16-2/install-godspeed.sh
+          echo "8e4f2e3745ddafbccd4149fa2f3ebbcf7e1202d224cff57dcb519de31b88eedf  install-godspeed.sh" | sha256sum -c - && bash install-godspeed.sh 2>&1 | tee evidence/install.log
+          rc=${PIPESTATUS[0]}; echo "exit $rc after $(( ($(date +%s) - start) / 60 )) min" | tee -a evidence/install.log
+          exit $rc
+      - name: The checksum refuses any other file (install-mac-linux.md step 3)
+        if: always()
+        run: |
+          set +e
+          mkdir -p other && cp install-godspeed.sh other/ && echo '# changed' >> other/install-godspeed.sh && cd other
+          { echo "8e4f2e3745ddafbccd4149fa2f3ebbcf7e1202d224cff57dcb519de31b88eedf  install-godspeed.sh" | sha256sum -c - && echo 'WOULD RUN'; } 2>&1 | tee ../evidence/checksum-refusal.txt
+      - name: The notebook's pages in a browser (first-setup, check-it-works, folders-and-settings, backups-and-devices)
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw" && cp .github/guide-verify/ui-check.mjs "$RUNNER_TEMP/pw/" && npm i --prefix "$RUNNER_TEMP/pw" --no-save --silent "$PW" >/dev/null
+          CHANNEL=chrome EVIDENCE="$PWD/evidence" node "$RUNNER_TEMP/pw/ui-check.mjs" 2>&1 | tee evidence/ui.log
+      - name: Service, version, folders, terminal commands, the notebook's own command
+        if: always()
+        run: bash .github/guide-verify/unix-checks.sh linux 2>&1 | tee evidence/checks.log
+      - name: Keep the logs before uninstalling
+        if: always()
+        run: set +e; cp ~/.godspeed/*.log evidence/ 2>/dev/null; journalctl -u godspeed-integrated-notebook.service --no-pager > evidence/notebook-journal.txt 2>&1; true
+      - name: Uninstall as uninstall.md writes it, then what is left
+        if: always()
+        run: bash .github/guide-verify/unix-uninstall.sh linux 2>&1 | tee evidence/uninstall.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: linux-fresh, path: evidence/, retention-days: 30}
+
+  linux-update:
+    if: github.event_name == 'push' || inputs.only == '' || contains(inputs.only, 'linux-update')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: The previous release, installed through its own checksum route
+        run: |
+          set +e; set -o pipefail; mkdir -p evidence prev && cd prev
+          curl -fsSLO "$DL/$PREVIOUS/install-godspeed.sh"
+          echo "$PREV_SCRIPT_SHA256  install-godspeed.sh" | sha256sum -c - && bash install-godspeed.sh 2>&1 | tee ../evidence/install-previous.log
+          rc=${PIPESTATUS[0]}; echo "exit $rc"
+          echo "version: $(cat ~/godspeed-v2/.godspeed/integrated-runtime/version)"
+          exit $rc
+      - name: What the reader has before the update (a note, an own file, an edited skill)
+        run: |
+          curl -s http://127.0.0.1:47831/api/query -H 'content-type: application/json' -d '{"table":"notes","operation":"insert","values":{"id":"written-before-the-update","title":"Written before the update","content":"This note was written with the previous release."},"selection":"*","single":true}'; echo
+          echo 'Written by the reader before the update.' > ~/godspeed-v2/my-own-notes.md
+          echo 'Reader customization that the installer must preserve.' >> ~/godspeed-v2/skills/next-action/SKILL.md
+          curl -s http://127.0.0.1:47831/health; echo
+      - name: The update as updates-and-versions.md writes it (the release's two lines)
+        run: |
+          set +e; set -o pipefail
+          curl -fsSLO https://github.com/MichaelZelbel/godspeed-mission-control/releases/download/godspeed-v2-integrated-2026-10-16-2/install-godspeed.sh
+          echo "8e4f2e3745ddafbccd4149fa2f3ebbcf7e1202d224cff57dcb519de31b88eedf  install-godspeed.sh" | sha256sum -c - && bash install-godspeed.sh 2>&1 | tee evidence/update.log
+          rc=${PIPESTATUS[0]}; echo "exit $rc" | tee -a evidence/update.log
+          exit $rc
+      - name: What the reader has after the update
+        if: always()
+        run: |
+          set +e; R=~/godspeed-v2/.godspeed/integrated-runtime
+          { echo "version: $(cat $R/version)"; echo "previous-version: $(cat $R/previous-version)"; ls $R/versions $R/backups
+            grep -n -E 'backup of your knowledge|put back|pre-upgrade|Your mission control is in|To talk to it|up to date' evidence/update.log
+            curl -s http://127.0.0.1:47831/health; echo
+            curl -s http://127.0.0.1:47831/api/query -H 'content-type: application/json' -d '{"table":"notes","operation":"select"}' | grep -o 'written-before-the-update' | head -1 || echo 'the note is GONE'
+            cat ~/godspeed-v2/my-own-notes.md; tail -2 ~/godspeed-v2/skills/next-action/SKILL.md; ls ~/godspeed-v2/conflicts 2>/dev/null
+            du -sh $R/backups/* ; systemctl is-active godspeed-integrated-notebook.service; } 2>&1 | tee evidence/after-update.txt
+      - name: Running it with --beside on the same folder (a message the guide quotes)
+        if: always()
+        run: set +e; bash install-godspeed.sh --beside --godspeed "$HOME/godspeed-v2" 2>&1 | tail -8 | tee evidence/beside-same-folder.txt; true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: linux-update, path: evidence/, retention-days: 30}
+
+  mac:
+    if: github.event_name == 'push' || inputs.only == '' || contains(inputs.only, 'mac')
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: The machine
+        run: |
+          mkdir -p evidence
+          { sw_vers; uname -m; echo "image: $ImageOS $ImageVersion"; whoami; echo "login shell: $SHELL"
+            for c in brew git node npm gh hermes bash zsh sha256sum shasum; do printf '%-9s %s\n' "$c" "$(command -v $c || echo missing)"; done
+            /bin/bash --version | head -1; bash --version | head -1; node --version; brew --version | head -1
+            ls -la ~/.zshrc ~/.zprofile ~/.bashrc ~/.bash_profile 2>&1; } 2>&1 | tee evidence/machine.txt
+      - name: Install, the guide's Mac checksum route exactly as written (install-mac-linux.md step 3, On a Mac)
+        run: |
+          set +e; set -o pipefail
+          # A reader's Mac runs its own bash 3.2 for `bash`; this runner puts a newer one first.
+          export PATH="/bin:$PATH"; echo "bash here: $(command -v bash) $(bash --version | head -1)"
+          start=$(date +%s)
+          curl -fsSLO https://github.com/MichaelZelbel/godspeed-mission-control/releases/download/godspeed-v2-integrated-2026-10-16-2/install-godspeed.sh
+          echo "8e4f2e3745ddafbccd4149fa2f3ebbcf7e1202d224cff57dcb519de31b88eedf  install-godspeed.sh" | shasum -a 256 -c - && bash install-godspeed.sh 2>&1 | tee evidence/install.log
+          rc=${PIPESTATUS[0]}; echo "exit $rc after $(( ($(date +%s) - start) / 60 )) min" | tee -a evidence/install.log
+          exit $rc
+      - name: Before starting it, does anything answer? Then start it with the line the installer printed
+        if: always()
+        run: |
+          set +e
+          curl -s -m 5 http://127.0.0.1:47831/health || echo 'nothing answers yet, as the guide says for a Mac'
+          line=$(grep -m1 '^Start the notebook with:' evidence/install.log | sed 's/^Start the notebook with: //')
+          echo "the line: $line" | tee evidence/start-line.txt
+          nohup bash -c "$line" > evidence/notebook-first-start.log 2>&1 &
+          for i in $(seq 1 60); do curl -s -m 3 http://127.0.0.1:47831/health && break; sleep 3; done; echo
+          echo "answered after about $((i*3)) s"
+      - name: The notebook's pages in a browser
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw" && cp .github/guide-verify/ui-check.mjs "$RUNNER_TEMP/pw/" && npm i --prefix "$RUNNER_TEMP/pw" --no-save --silent "$PW" >/dev/null
+          CHANNEL=chrome EVIDENCE="$PWD/evidence" node "$RUNNER_TEMP/pw/ui-check.mjs" 2>&1 | tee evidence/ui.log
+      - name: Version, folders, terminal commands (and whether zsh finds them), the notebook's own command
+        if: always()
+        run: bash .github/guide-verify/unix-checks.sh mac 2>&1 | tee evidence/checks.log
+      - name: Does the notebook keep running when its terminal window closes? (the window is a pseudo-terminal here, and closing it hangs it up)
+        if: always()
+        run: |
+          set +e
+          { pkill -f 'integrated-runtime/start.mjs'; pkill -f supervise.mjs; sleep 3
+            curl -s -m 3 http://127.0.0.1:47831/health || echo 'stopped'
+            line=$(cat evidence/start-line.txt | sed 's/^the line: //')
+            script -q /dev/null bash -c "$line" > evidence/notebook-in-terminal.log 2>&1 &
+            term=$!
+            for i in $(seq 1 60); do curl -s -m 3 http://127.0.0.1:47831/health >/dev/null && break; sleep 3; done
+            echo "running in the terminal (pid $term):"; curl -s http://127.0.0.1:47831/health; echo
+            kill -9 $term; echo 'the terminal window is closed (its terminal process killed)'
+            sleep 10
+            curl -s -m 5 http://127.0.0.1:47831/health && echo ' <- STILL ANSWERS after the terminal closed' || echo 'NOTHING ANSWERS after the terminal closed'
+            ps aux | grep -E 'start.mjs|supervise.mjs' | grep -v grep; } 2>&1 | tee evidence/terminal-close.txt
+      - name: Uninstall as uninstall.md writes it for a Mac, then what is left
+        if: always()
+        run: bash .github/guide-verify/unix-uninstall.sh mac 2>&1 | tee evidence/uninstall.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: mac, path: evidence/, retention-days: 30}
+
+  windows-fresh:
+    if: github.event_name == 'push' || inputs.only == '' || contains(inputs.only, 'windows-fresh')
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: The machine
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force evidence | Out-Null
+          & { (Get-CimInstance Win32_OperatingSystem).Caption + ' ' + (Get-CimInstance Win32_OperatingSystem).Version; "image: $env:ImageOS $env:ImageVersion"; "user: $env:USERNAME, PowerShell $($PSVersionTable.PSVersion)"
+              foreach ($c in 'git','node','gh','winget','hermes') { "{0,-7} {1}" -f $c, ((Get-Command $c -ErrorAction SilentlyContinue).Source) }
+              "Documents: $([Environment]::GetFolderPath('MyDocuments'))"; "OneDrive: $env:OneDrive" } 2>&1 | Tee-Object evidence/machine.txt
+      - name: Download and check, as install-windows.md step 1 and its tip
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force "$env:USERPROFILE\Downloads" | Out-Null
+          Invoke-WebRequest "$env:DL/$env:RELEASE/GodspeedSetup.exe" -OutFile "$env:USERPROFILE\Downloads\GodspeedSetup.exe" -UseBasicParsing
+          Get-FileHash "$env:USERPROFILE\Downloads\GodspeedSetup.exe" -Algorithm SHA256 | Format-List | Out-String
+          (Invoke-WebRequest "$env:DL/$env:RELEASE/SHA256SUMS" -UseBasicParsing).Content
+          $f = Get-Item "$env:USERPROFILE\Downloads\GodspeedSetup.exe"; "size $($f.Length) bytes ($([math]::Round($f.Length/1MB,1)) MB); file version $($f.VersionInfo.FileVersion); product $($f.VersionInfo.ProductName) $($f.VersionInfo.ProductVersion)"
+      - name: Install without the wizard, as install-windows.md writes it (.\GodspeedSetup.exe /VERYSILENT /SUPPRESSMSGBOXES)
+        shell: powershell
+        run: |
+          $env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')
+          cd "$env:USERPROFILE\Downloads"
+          $t0 = Get-Date
+          .\GodspeedSetup.exe /VERYSILENT /SUPPRESSMSGBOXES
+          "the PowerShell prompt came back after $([int]((Get-Date) - $t0).TotalSeconds) s"
+          Start-Sleep 5
+          "still running then: " + ((Get-Process | Where-Object { $_.ProcessName -match 'GodspeedSetup' } | ForEach-Object ProcessName) -join ', ')
+          $until = (Get-Date).AddMinutes(80)
+          while ((Get-Process | Where-Object { $_.ProcessName -match 'GodspeedSetup' }) -and (Get-Date) -lt $until) { Start-Sleep 10 }
+          "the setup finished after $([int]((Get-Date) - $t0).TotalMinutes) min"
+          "setup-result.txt: " + (Get-Content "$env:LOCALAPPDATA\Godspeed\setup-result.txt" -Raw -ErrorAction SilentlyContinue)
+          Get-Content "$env:LOCALAPPDATA\Godspeed\setup-log.txt" -Tail 40 -ErrorAction SilentlyContinue
+      - name: Start menu, Startup, tasks, folders, release, health
+        if: always()
+        shell: pwsh
+        run: ./.github/guide-verify/win-checks.ps1 -Part places 2>&1 | Tee-Object evidence/places.txt
+      - name: Stop it, then start it the way the Startup shortcut does
+        if: always()
+        shell: pwsh
+        run: ./.github/guide-verify/win-checks.ps1 -Part startup 2>&1 | Tee-Object evidence/startup.txt
+      - name: The notebook's pages in a browser (Edge)
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\pw" | Out-Null; Copy-Item .github/guide-verify/ui-check.mjs "$env:RUNNER_TEMP\pw\"
+          npm i --prefix "$env:RUNNER_TEMP\pw" --no-save --silent $env:PW | Out-Null
+          $env:CHANNEL = 'msedge'; $env:EVIDENCE = "$PWD\evidence"; node "$env:RUNNER_TEMP\pw\ui-check.mjs" 2>&1 | Tee-Object evidence/ui.log
+      - name: Terminal commands in a new PowerShell, Command Prompt and Git Bash
+        if: always()
+        shell: pwsh
+        run: ./.github/guide-verify/win-checks.ps1 -Part commands 2>&1 | Tee-Object evidence/commands.txt
+      - name: The notebook's own command, the Windows blocks
+        if: always()
+        shell: pwsh
+        run: ./.github/guide-verify/win-checks.ps1 -Part notebook 2>&1 | Tee-Object evidence/notebook-command.txt
+      - name: Keep the logs before uninstalling
+        if: always()
+        shell: pwsh
+        run: |
+          Copy-Item "$env:LOCALAPPDATA\Godspeed\setup-log.txt" evidence -ErrorAction SilentlyContinue
+          Get-ChildItem "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha State" -Filter *.log -ErrorAction SilentlyContinue | Copy-Item -Destination evidence
+      - name: Uninstall silently, then Remove the rest, as uninstall.md writes it
+        if: always()
+        shell: pwsh
+        run: ./.github/guide-verify/win-uninstall.ps1 2>&1 | Tee-Object evidence/uninstall.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: windows-fresh, path: evidence/, retention-days: 30}
+
+  windows-update-beside-no:
+    if: github.event_name == 'push' || inputs.only == '' || contains(inputs.only, 'windows-update-beside-no')
+    runs-on: windows-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: The previous release, installed silently
+        shell: pwsh
+        run: ./.github/guide-verify/win-install.ps1 -Release $env:PREVIOUS 2>&1 | Tee-Object evidence/install-previous.txt
+      - name: What the reader has before the update (a note, an own file, an edited skill)
+        shell: pwsh
+        run: |
+          $body = '{"table":"notes","operation":"insert","values":{"id":"written-before-the-update","title":"Written before the update","content":"This note was written with the previous release."},"selection":"*","single":true}'
+          (Invoke-RestMethod http://127.0.0.1:47831/api/query -Method Post -ContentType 'application/json' -Body $body).data.id
+          Set-Content "$HOME\godspeed-v2\my-own-notes.md" 'Written by the reader before the update.'
+          Add-Content "$HOME\godspeed-v2\skills\next-action\SKILL.md" 'Reader customization that the installer must preserve.'
+      - name: The update, silently with /BESIDE=no (install-windows.md, Install without the wizard)
+        shell: pwsh
+        run: ./.github/guide-verify/win-install.ps1 -Release $env:RELEASE -Switches '/VERYSILENT','/SUPPRESSMSGBOXES','/BESIDE=no' 2>&1 | Tee-Object evidence/update.txt
+      - name: What the reader has after the update
+        if: always()
+        shell: pwsh
+        run: |
+          & {
+            $state = "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha State"
+            $i = Get-Content "$state\installation.json" -Raw | ConvertFrom-Json; "workspace: $($i.workspace)  kitCommit: $($i.kitCommit)"
+            'backups made before updates:'; Get-ChildItem "$state\backups" -Directory -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name)" }
+            $notes = Invoke-RestMethod http://127.0.0.1:47831/api/query -Method Post -ContentType 'application/json' -Body '{"table":"notes","operation":"select"}' -TimeoutSec 30
+            "the note from before: " + [bool](@($notes.data | Where-Object { $_.id -eq 'written-before-the-update' }).Count)
+            Get-Content "$HOME\godspeed-v2\my-own-notes.md"; Get-Content "$HOME\godspeed-v2\skills\next-action\SKILL.md" -Tail 1
+            'godspeed folders in the user folder:'; Get-ChildItem $HOME -Directory -Filter 'godspeed*' | ForEach-Object { "  $($_.Name)" }
+            'conflicts:'; Get-ChildItem "$HOME\godspeed-v2\conflicts" -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name)" }
+          } 2>&1 | Tee-Object evidence/after-update.txt
+      - name: The Start menu's "Update my mission control", run on this version 2 PC (updates-and-versions.md, not yet verified there)
+        if: always()
+        shell: pwsh
+        run: |
+          & {
+            $state = "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha State"; $app = "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha"
+            function Snapshot { "installation.json kitCommit: " + (Get-Content "$state\installation.json" -Raw | ConvertFrom-Json).kitCommit
+              "program's manifest kitCommit: " + (Get-Content "$app\payload\candidate-manifest.json" -Raw | ConvertFrom-Json).kitCommit
+              "mission control HEAD: " + (git -C "$HOME\godspeed-v2" log --oneline -1)
+              "device.env GODSPEED_DIR: " + ((Get-Content "$HOME\.godspeed\device.env") -match '^GODSPEED_DIR=')
+              ".local\bin: " + @(Get-ChildItem "$HOME\.local\bin").Count + " files, newest " + (Get-ChildItem "$HOME\.local\bin" | Sort-Object LastWriteTime | Select-Object -Last 1 | ForEach-Object { "$($_.Name) $($_.LastWriteTime)" })
+              try { 'health: ' + (Invoke-WebRequest http://127.0.0.1:47831/health -UseBasicParsing -TimeoutSec 10).Content } catch { "health: $($_.Exception.Message)" } }
+            'BEFORE'; Snapshot
+            $lnk = Get-ChildItem ([Environment]::GetFolderPath('Programs') + '\Godspeed Mission Control') -Filter 'Update*' | Select-Object -First 1
+            $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk.FullName); "the entry runs: $($s.TargetPath) $($s.Arguments)"
+            $env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine'); $env:KB_UNATTENDED = '1'
+            Set-Content "$env:RUNNER_TEMP\empty.txt" ''
+            $p = Start-Process $s.TargetPath -ArgumentList $s.Arguments -PassThru -RedirectStandardInput "$env:RUNNER_TEMP\empty.txt" -RedirectStandardOutput "$env:RUNNER_TEMP\update-entry.out" -RedirectStandardError "$env:RUNNER_TEMP\update-entry.err"
+            if (-not $p.WaitForExit(1800000)) { 'still running after 30 minutes; stopped'; Stop-Process -Id $p.Id -Force }
+            "exit: $($p.ExitCode)"; Get-Content "$env:RUNNER_TEMP\update-entry.out" -Tail 60; Get-Content "$env:RUNNER_TEMP\update-entry.err" -Tail 20
+            'AFTER'; Snapshot
+          } 2>&1 | Tee-Object evidence/update-entry.txt
+      - name: An older installer over the newer notebook (troubleshooting.md, The installer is older than your notebook)
+        if: always()
+        shell: pwsh
+        run: |
+          & {
+            $app = "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha"; $state = "$app State"
+            ./.github/guide-verify/win-install.ps1 -Release $env:PREVIOUS -Switches '/VERYSILENT','/SUPPRESSMSGBOXES','/BESIDE=no'
+            "installation.json kitCommit after: " + (Get-Content "$state\installation.json" -Raw | ConvertFrom-Json).kitCommit
+            "the program folder's manifest kitCommit after: " + (Get-Content "$app\payload\candidate-manifest.json" -Raw | ConvertFrom-Json).kitCommit
+            Select-String -Path "$env:LOCALAPPDATA\Godspeed\setup-log.txt" -Pattern 'older version|STOPPED' | Select-Object -Last 3 | ForEach-Object Line
+            'start it as the Startup shortcut does:'
+            $p = Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',"`"$app\start-full-alpha.ps1`"",'-NoBrowser' -PassThru; [void]$p.WaitForExit(180000); "exit $($p.ExitCode)"
+            try { 'health: ' + (Invoke-WebRequest http://127.0.0.1:47831/health -UseBasicParsing -TimeoutSec 10).Content } catch { "health: $($_.Exception.Message)" }
+            Get-Content "$state\service-error.log" -Tail 10 -ErrorAction SilentlyContinue
+          } 2>&1 | Tee-Object evidence/older-installer.txt
+      - name: Keep the logs
+        if: always()
+        shell: pwsh
+        run: |
+          Copy-Item "$env:LOCALAPPDATA\Godspeed\setup-log.txt" evidence -ErrorAction SilentlyContinue
+          Get-ChildItem "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha State" -Filter *.log -ErrorAction SilentlyContinue | Copy-Item -Destination evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: windows-update-beside-no, path: evidence/, retention-days: 30}
+
+  windows-update-silent-default:
+    if: github.event_name == 'push' || inputs.only == '' || contains(inputs.only, 'windows-update-silent-default')
+    runs-on: windows-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: The previous release, installed silently
+        shell: pwsh
+        run: ./.github/guide-verify/win-install.ps1 -Release $env:PREVIOUS 2>&1 | Tee-Object evidence/install-previous.txt
+      - name: The new release with only /VERYSILENT /SUPPRESSMSGBOXES, as install-windows.md writes it, watched for message boxes
+        shell: pwsh
+        run: |
+          ./.github/guide-verify/win-install.ps1 -Release $env:RELEASE -DownloadOnly
+          ./.github/guide-verify/silent-watch.ps1 -Setup "$env:RUNNER_TEMP\$env:RELEASE-GodspeedSetup.exe" -Arguments '/VERYSILENT','/SUPPRESSMSGBOXES' -AnswerAfterSeconds 180 2>&1 | Tee-Object evidence/silent-default.txt
+      - name: Where it ended
+        if: always()
+        shell: pwsh
+        run: |
+          & { "setup-result.txt: " + (Get-Content "$env:LOCALAPPDATA\Godspeed\setup-result.txt" -Raw -ErrorAction SilentlyContinue)
+              Get-Content "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha State\installation.json" -Raw
+              'godspeed folders in the user folder:'; Get-ChildItem $HOME -Directory -Filter 'godspeed*' | ForEach-Object { "  $($_.FullName)" }
+              try { 'health: ' + (Invoke-WebRequest http://127.0.0.1:47831/health -UseBasicParsing -TimeoutSec 10).Content } catch { "health: $($_.Exception.Message)" }
+              Get-Content "$env:LOCALAPPDATA\Godspeed\setup-log.txt" -Tail 30 -ErrorAction SilentlyContinue } 2>&1 | Tee-Object evidence/where-it-ended.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: windows-update-silent-default, path: evidence/, retention-days: 30}
+
+  windows-wizard-fresh:
+    if: github.event_name == 'push' || inputs.only == '' || contains(inputs.only, 'windows-wizard-fresh')
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: The wizard on screen, every page read (install-windows.md, Install), then the uninstaller's messages (uninstall.md)
+        shell: pwsh
+        run: |
+          ./.github/guide-verify/win-install.ps1 -Release $env:RELEASE -DownloadOnly
+          $env:KB_UNATTENDED = '1'
+          ./.github/guide-verify/wizard.ps1 -Setup "$env:RUNNER_TEMP\$env:RELEASE-GodspeedSetup.exe" -Plan fresh -Evidence evidence -Uninstall 2>&1 | Tee-Object evidence/wizard-fresh.txt
+          'after the uninstaller:'; foreach ($p in "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha", "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha State", "$HOME\godspeed-v2") { "$(Test-Path $p)  $p" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: windows-wizard-fresh, path: evidence/, retention-days: 30}
+
+  windows-wizard-update:
+    if: github.event_name == 'push' || inputs.only == '' || contains(inputs.only, 'windows-wizard-update')
+    runs-on: windows-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: The previous release, installed silently
+        shell: pwsh
+        run: ./.github/guide-verify/win-install.ps1 -Release $env:PREVIOUS 2>&1 | Tee-Object evidence/install-previous.txt
+      - name: The update with the wizard on screen, as updates-and-versions.md "Update on Windows" writes it
+        shell: pwsh
+        run: |
+          ./.github/guide-verify/win-install.ps1 -Release $env:RELEASE -DownloadOnly
+          $env:KB_UNATTENDED = '1'
+          ./.github/guide-verify/wizard.ps1 -Setup "$env:RUNNER_TEMP\$env:RELEASE-GodspeedSetup.exe" -Plan update -Evidence evidence 2>&1 | Tee-Object evidence/wizard-update.txt
+      - name: Where it ended
+        if: always()
+        shell: pwsh
+        run: |
+          & { $state = "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha State"
+              $i = Get-Content "$state\installation.json" -Raw | ConvertFrom-Json; "workspace: $($i.workspace)  kitCommit: $($i.kitCommit)"
+              'backups made before updates:'; Get-ChildItem "$state\backups" -Directory -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name)" }
+              'godspeed folders in the user folder:'; Get-ChildItem $HOME -Directory -Filter 'godspeed*' | ForEach-Object { "  $($_.FullName)" }
+              try { 'health: ' + (Invoke-WebRequest http://127.0.0.1:47831/health -UseBasicParsing -TimeoutSec 10).Content } catch { "health: $($_.Exception.Message)" }
+              Get-Content "$env:LOCALAPPDATA\Godspeed\setup-log.txt" -Tail 20 -ErrorAction SilentlyContinue } 2>&1 | Tee-Object evidence/where-it-ended.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: windows-wizard-update, path: evidence/, retention-days: 30}
+
+  docker-server:
+    if: github.event_name == 'push' || inputs.only == '' || contains(inputs.only, 'docker-server')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: The machine
+        run: |
+          mkdir -p evidence
+          { docker --version; docker compose version; df -h / /var/lib/docker 2>/dev/null; sudo ss -ltnp '( sport = :80 or sport = :443 )'; uname -m; } 2>&1 | tee evidence/machine.txt
+          avail=$(df -Pk / | awk 'NR==2 {print $4}'); if [ "$avail" -lt 10485760 ]; then sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL; df -h / | tee -a evidence/machine.txt; fi
+      - name: The one-line server installer (install-server.md step 2), from the file the short link serves (GitHub main), as an ordinary user with sudo
+        run: |
+          set +e; set -o pipefail
+          curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/godspeed-mission-control/main/docker/server/install.sh | bash 2>&1 | tee evidence/server-install.log
+          echo "exit ${PIPESTATUS[1]}" | tee -a evidence/server-install.log
+      - name: What is on the server (install-server.md What is on the server; updates-and-versions.md Your release on a server)
+        if: always()
+        run: |
+          set +e
+          { sudo ls -la /opt/godspeed-mission-control
+            sudo bash -c 'cd /opt/godspeed-mission-control && docker compose ps'
+            sudo grep image: /opt/godspeed-mission-control/compose.yaml
+            sudo sed -E 's/(SETUP_CODE=).*/\1(hidden)/' /opt/godspeed-mission-control/.env
+            sudo tail -40 /opt/godspeed-mission-control/install.log
+            docker volume ls
+            sudo bash -c 'cd /opt/godspeed-mission-control && docker compose exec -T -u hermes godspeed node /opt/godspeed/kit/notebook/bin/godspeed.mjs validate'
+            sudo bash -c 'cd /opt/godspeed-mission-control && docker compose exec -T -u hermes godspeed node /opt/godspeed/kit/notebook/bin/godspeed.mjs backup /opt/data/full-candidate/workspace/.godspeed/backups/guide-check'
+            sudo bash -c 'cd /opt/godspeed-mission-control && docker compose cp godspeed:/opt/data/full-candidate/workspace/.godspeed/backups ./backups-copy && ls -la backups-copy backups-copy/*'
+            sudo bash -c 'cd /opt/godspeed-mission-control && docker compose logs --tail 30'
+          } 2>&1 | tee evidence/server-state.txt
+      - name: Uninstall as uninstall.md writes it (down, then down -v, then the folder)
+        if: always()
+        run: |
+          set +e
+          { sudo bash -c 'cd /opt/godspeed-mission-control && docker compose down'; docker ps -a; docker volume ls
+            sudo bash -c 'cd /opt/godspeed-mission-control && docker compose down -v'; docker ps -a; docker volume ls
+            sudo rm -rf /opt/godspeed-mission-control; ls -la /opt; docker images; } 2>&1 | tee evidence/server-uninstall.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: docker-server, path: evidence/, retention-days: 30}
