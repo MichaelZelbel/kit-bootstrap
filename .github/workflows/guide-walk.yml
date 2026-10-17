@@ -1,0 +1,113 @@
+name: Guide walk, the newcomer path
+# The rewritten user guide (godspeedmissioncontrol.com/guide, 18 October 2026) walked as a newcomer
+# on fresh GitHub machines: the install pages' exact steps, then the notebook, the first goal in
+# Settings and the routines it starts. It takes the pictures the pages use. Evidence only: nothing
+# is published and the product is not changed. No AI account, no Telegram, no secrets, no install
+# count (GODSPEED_INSTALL_COUNT=no; the website download carries a user agent with "selftest").
+on:
+  push:
+    branches: ['test/guide-walk-2026-10-18']
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  RELEASE: godspeed-v2-integrated-2026-10-17-1
+  GODSPEED_INSTALL_COUNT: 'no'
+  DO_NOT_TRACK: '1'
+  PW: playwright-core@1.47.2
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Step 1, download GodspeedSetup.exe from the guide's link
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force evidence | Out-Null
+          Invoke-WebRequest https://github.com/MichaelZelbel/godspeed-mission-control/releases/latest/download/GodspeedSetup.exe -OutFile "$env:RUNNER_TEMP\GodspeedSetup.exe" -UseBasicParsing
+          $len = (Get-Item "$env:RUNNER_TEMP\GodspeedSetup.exe").Length
+          "downloaded $len bytes, sha256 $((Get-FileHash "$env:RUNNER_TEMP\GodspeedSetup.exe").Hash)" | Tee-Object evidence/download.txt
+      - name: Steps 3 to 7, Next on every page, Install, Finish (pictures of every page)
+        shell: pwsh
+        run: |
+          $env:KB_UNATTENDED = '1'
+          $start = Get-Date
+          ./.github/guide-verify/wizard.ps1 -Setup "$env:RUNNER_TEMP\GodspeedSetup.exe" -Plan next -Evidence evidence 2>&1 | Tee-Object evidence/wizard.txt
+          "the wizard from the first page to Finish: $([int]((Get-Date) - $start).TotalMinutes) min" | Tee-Object -Append evidence/wizard.txt
+          Copy-Item "$env:LOCALAPPDATA\Godspeed\setup-log.txt" evidence/ -ErrorAction SilentlyContinue
+          'Start menu entries:'; Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse -Filter *.lnk | Where-Object FullName -match 'Godspeed' | ForEach-Object { "  $($_.FullName)" }
+          'Startup folder:'; Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup" | ForEach-Object { "  $($_.Name)" }
+          'lines a reader sees in the console that the guide mentions:'; Select-String -Path evidence/setup-log.txt -Pattern 'WARNING|Menerio|Tell Michael|Hermes' | Select-Object -Last 15 | ForEach-Object { "  $($_.Line)" }
+      - name: Open your notebook, give the first goal, see the routines (a browser)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\pw" | Out-Null
+          Copy-Item .github/guide-verify/newcomer-walk.mjs "$env:RUNNER_TEMP\pw\"
+          npm i --prefix "$env:RUNNER_TEMP\pw" --no-save --silent $env:PW | Out-Null
+          $watch = Start-Process pwsh -ArgumentList '-File', '.github/guide-verify/new-windows.ps1', '-Evidence', 'evidence', '-Seconds', '300' -PassThru -RedirectStandardOutput evidence/new-windows.txt -NoNewWindow
+          $env:CHANNEL = 'msedge'; $env:EVIDENCE = "$PWD\evidence"; $env:WINDOWS = '1'
+          node "$env:RUNNER_TEMP\pw\newcomer-walk.mjs" 2>&1 | Tee-Object evidence/walk.txt
+          $watch.WaitForExit(330000) | Out-Null
+          Get-Content evidence/new-windows.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: windows, path: evidence/, retention-days: 30}
+
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Step 2, the guide's one line (with a selftest user agent so it is not counted)
+        run: |
+          set +e; set -o pipefail; mkdir -p evidence
+          start=$(date +%s)
+          curl -fsSL -A godspeed-guide-selftest https://godspeedmissioncontrol.com/install | bash 2>&1 | tee evidence/install.log
+          rc=${PIPESTATUS[1]}; echo "exit $rc after $(( ($(date +%s) - start) / 60 )) min" | tee -a evidence/install.log
+          echo '--- the last lines:'; tail -6 evidence/install.log
+          ls -la ~/.local/bin/hermes; ~/.local/bin/hermes --version 2>&1 | head -2
+          exit $rc
+      - name: Open your notebook, give the first goal, see the routines (a browser)
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw" && cp .github/guide-verify/newcomer-walk.mjs "$RUNNER_TEMP/pw/" && npm i --prefix "$RUNNER_TEMP/pw" --no-save --silent "$PW" >/dev/null
+          CHANNEL=chrome EVIDENCE="$PWD/evidence" node "$RUNNER_TEMP/pw/newcomer-walk.mjs" 2>&1 | tee evidence/walk.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: linux, path: evidence/, retention-days: 30}
+
+  mac:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Step 2, the guide's one line (Mac bash, selftest user agent)
+        run: |
+          set +e; set -o pipefail; mkdir -p evidence
+          export PATH="/bin:$PATH"
+          start=$(date +%s)
+          curl -fsSL -A godspeed-guide-selftest https://godspeedmissioncontrol.com/install | bash 2>&1 | tee evidence/install.log
+          rc=${PIPESTATUS[1]}; echo "exit $rc after $(( ($(date +%s) - start) / 60 )) min" | tee -a evidence/install.log
+          echo '--- the last 8 lines:'; tail -8 evidence/install.log
+          grep -n 'Start the notebook with:' evidence/install.log
+          ls -la ~/.local/bin/hermes; zsh -c '~/.local/bin/hermes --version' 2>&1 | head -2
+          exit $rc
+      - name: Start Godspeed with the printed line, as the Mac page says
+        run: |
+          line=$(grep 'Start the notebook with:' evidence/install.log | tail -1 | sed 's/^.*Start the notebook with: //')
+          echo "the line: $line"
+          nohup zsh -c "$line" > evidence/notebook.log 2>&1 &
+          for i in $(seq 1 36); do curl -fsS http://127.0.0.1:47831/health >/dev/null 2>&1 && { echo "answers after $((i*5)) s"; break; }; sleep 5; done
+          echo "fallback line from the page exists: $(ls ~/godspeed-v2/.godspeed/integrated-runtime/runtime/ 2>&1 | tr '\n' ' ')"
+      - name: Open your notebook, give the first goal, see the routines (a browser)
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw" && cp .github/guide-verify/newcomer-walk.mjs "$RUNNER_TEMP/pw/" && npm i --prefix "$RUNNER_TEMP/pw" --no-save --silent "$PW" >/dev/null
+          CHANNEL=chrome EVIDENCE="$PWD/evidence" node "$RUNNER_TEMP/pw/newcomer-walk.mjs" 2>&1 | tee evidence/walk.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: mac, path: evidence/, retention-days: 30}
