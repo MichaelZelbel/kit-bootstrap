@@ -417,6 +417,64 @@ jobs:
         if: always()
         with: {name: windows-wizard-update, path: evidence/, retention-days: 30}
 
+  windows-v1:
+    # A PC with the book's first edition (Installer v2.18.0), then this release: with the wizard
+    # (Next everywhere, the box for a second mission control left ticked), silently as written, and
+    # silently with /BESIDE=no (install-windows.md, Before you start, step 3 and Install without the wizard).
+    if: (github.event_name == 'push' && contains(github.event.head_commit.message, '[run all]')) || (github.event_name == 'workflow_dispatch' && (inputs.only == '' || contains(inputs.only, 'windows-v1')))
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [wizard, silent, beside-no]
+    runs-on: windows-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: The first edition, installed silently (Installer v2.18.0)
+        shell: pwsh
+        run: |
+          & { New-Item -ItemType Directory -Force evidence | Out-Null
+              Invoke-WebRequest https://github.com/MichaelZelbel/godspeed-mission-control/releases/download/v2.18.0/GodspeedSetup.exe -OutFile "$env:RUNNER_TEMP\v1-GodspeedSetup.exe" -UseBasicParsing
+              "v1 setup: " + (Get-FileHash "$env:RUNNER_TEMP\v1-GodspeedSetup.exe" -Algorithm SHA256).Hash
+              $env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')
+              $p = Start-Process "$env:RUNNER_TEMP\v1-GodspeedSetup.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=$PWD\evidence\v1-setup.log" -PassThru
+              if (-not $p.WaitForExit(3000000)) { 'v1 still running after 50 min'; Stop-Process -Id $p.Id -Force }
+              "v1 exit: $($p.ExitCode)"; Get-Content "$env:LOCALAPPDATA\Godspeed\setup-log.txt" -Tail 25 -ErrorAction SilentlyContinue
+              'godspeed folders:'; Get-ChildItem $HOME -Directory -Filter 'godspeed*' | ForEach-Object { "  $($_.FullName)" }
+              'device.env:'; (Get-Content "$HOME\.godspeed\device.env" -ErrorAction SilentlyContinue) -replace '((KEY|TOKEN|SECRET|PASS|CODE)[A-Z_]*=).*', '$1(hidden)'
+              git -C "$HOME\godspeed" log --oneline -1
+              Set-Content "$HOME\godspeed\my-v1-notes.md" 'Written in the first edition.' } 2>&1 | Tee-Object evidence/v1-install.txt
+      - name: This release over it (${{ matrix.mode }})
+        if: always()
+        shell: pwsh
+        run: |
+          ./.github/guide-verify/win-install.ps1 -Release $env:RELEASE -DownloadOnly
+          $exe = "$env:RUNNER_TEMP\$env:RELEASE-GodspeedSetup.exe"
+          switch ('${{ matrix.mode }}') {
+            'wizard'    { $env:KB_UNATTENDED = '1'; ./.github/guide-verify/wizard.ps1 -Setup $exe -Plan next -Evidence evidence 2>&1 | Tee-Object evidence/v2-over-v1.txt }
+            'silent'    { ./.github/guide-verify/silent-watch.ps1 -Setup $exe -Arguments '/VERYSILENT','/SUPPRESSMSGBOXES' -AnswerAfterSeconds 180 2>&1 | Tee-Object evidence/v2-over-v1.txt }
+            'beside-no' { ./.github/guide-verify/silent-watch.ps1 -Setup $exe -Arguments '/VERYSILENT','/SUPPRESSMSGBOXES','/BESIDE=no' -AnswerAfterSeconds 180 2>&1 | Tee-Object evidence/v2-over-v1.txt }
+          }
+      - name: Where everything is now
+        if: always()
+        shell: pwsh
+        run: |
+          & { "setup-result.txt: " + (Get-Content "$env:LOCALAPPDATA\Godspeed\setup-result.txt" -Raw -ErrorAction SilentlyContinue)
+              'installation.json:'; Get-Content "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha State\installation.json" -Raw -ErrorAction SilentlyContinue
+              'godspeed folders:'; Get-ChildItem $HOME -Directory -Filter 'godspeed*' | ForEach-Object { "  $($_.FullName)  notebook: $(Test-Path "$($_.FullName)\notebook")  FULL-ALPHA.md: $(Test-Path "$($_.FullName)\FULL-ALPHA.md")  rules: $(@(Get-ChildItem "$($_.FullName)\rules" -File -ErrorAction SilentlyContinue).Count)  skills: $(@(Get-ChildItem "$($_.FullName)\skills" -Directory -ErrorAction SilentlyContinue).Count)" }
+              'the first edition folder kept its own file: ' + (Test-Path "$HOME\godspeed\my-v1-notes.md")
+              'device.env:'; (Get-Content "$HOME\.godspeed\device.env" -ErrorAction SilentlyContinue) -replace '((KEY|TOKEN|SECRET|PASS|CODE)[A-Z_]*=).*', '$1(hidden)'
+              "GODSPEED_DIR user variable: $([Environment]::GetEnvironmentVariable('GODSPEED_DIR','User'))"
+              'scheduled tasks:'; Get-ScheduledTask | Where-Object { $_.TaskName -like '*Godspeed*' } | ForEach-Object { "  $($_.TaskName): $($_.Actions.Execute) $($_.Actions.Arguments)" }
+              try { 'health: ' + (Invoke-WebRequest http://127.0.0.1:47831/health -UseBasicParsing -TimeoutSec 10).Content } catch { "health: $($_.Exception.Message)" }
+              'Start menu:'; Get-ChildItem ([Environment]::GetFolderPath('Programs') + '\Godspeed Mission Control') -Name -ErrorAction SilentlyContinue
+              'Apps list:'; Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | ForEach-Object { $p = Get-ItemProperty $_.PSPath; if ($p.DisplayName -like '*Godspeed*') { "  $($_.PSChildName): $($p.DisplayName) $($p.DisplayVersion) at $($p.InstallLocation)" } }
+              Get-Content "$env:LOCALAPPDATA\Godspeed\setup-log.txt" -Tail 30 -ErrorAction SilentlyContinue } 2>&1 | Tee-Object evidence/where-it-ended.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: 'windows-v1-${{ matrix.mode }}', path: evidence/, retention-days: 30}
+
   docker-server:
     if: (github.event_name == 'push' && contains(github.event.head_commit.message, '[run all]')) || (github.event_name == 'workflow_dispatch' && (inputs.only == '' || contains(inputs.only, 'docker-server')))
     runs-on: ubuntu-latest

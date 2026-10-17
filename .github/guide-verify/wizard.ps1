@@ -8,6 +8,8 @@
     -Plan update  updates-and-versions.md, "Update on Windows": leave the box ticked, Next; on the
                   folder page it first clicks Next to see the "cannot sit beside itself" message,
                   then, as step 4 says for a version 2 folder: Back, untick the box, Next; Install.
+    -Plan next    Next on every page and nothing else (a PC with the first edition: the box for a
+                  second mission control stays ticked, as install-windows.md step 3 says).
     -Uninstall    afterwards the Start menu's uninstaller with its messages on screen: Yes, then OK.
 
   KB_UNATTENDED=1 (set by the caller) only keeps the setup's console window from asking its own
@@ -15,7 +17,7 @@
 #>
 param(
   [Parameter(Mandatory)][string]$Setup,
-  [ValidateSet('fresh', 'update')][string]$Plan = 'fresh',
+  [ValidateSet('fresh', 'update', 'next')][string]$Plan = 'fresh',
   [string]$Evidence = 'evidence',
   [int]$TimeoutMinutes = 90,
   [switch]$Uninstall
@@ -67,7 +69,7 @@ try {
       if ($Plan -eq 'fresh') {
         if (-not $dialogsOn[$heading]) { $lastAction = 'a Documents folder typed, then Next'; [Wiz]::SetText($edit.H, (Join-Path $env:USERPROFILE 'Documents\godspeed-v2')); "typed: $([Wiz]::Text($edit.H))" }
         else { [Wiz]::SetText($edit.H, $suggested); "folder box back to: $([Wiz]::Text($edit.H))" }
-      } else {
+      } elseif ($Plan -eq 'update') {
         if (-not $dialogsOn[$heading]) { $lastAction = 'Next on the folder page of a second mission control (expecting the refusal)' }
         else { "updates-and-versions step 4: the folder is the version 2 folder, so Back"; [Wiz]::Click($back.H); $acted = $true; $actedAt = Get-Date; $lastAction = 'Back'; continue }
       }
