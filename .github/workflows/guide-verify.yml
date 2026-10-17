@@ -268,7 +268,9 @@ jobs:
           Add-Content "$HOME\godspeed-v2\skills\next-action\SKILL.md" 'Reader customization that the installer must preserve.'
       - name: The update, silently with /BESIDE=no (install-windows.md, Install without the wizard)
         shell: pwsh
-        run: ./.github/guide-verify/win-install.ps1 -Release $env:RELEASE -Switches '/VERYSILENT','/SUPPRESSMSGBOXES','/BESIDE=no' 2>&1 | Tee-Object evidence/update.txt
+        run: |
+          . ./.github/guide-verify/refresh-env.ps1
+          ./.github/guide-verify/win-install.ps1 -Release $env:RELEASE -Switches '/VERYSILENT','/SUPPRESSMSGBOXES','/BESIDE=no' 2>&1 | Tee-Object evidence/update.txt
       - name: What the reader has after the update
         if: always()
         shell: pwsh
@@ -283,34 +285,13 @@ jobs:
             'godspeed folders in the user folder:'; Get-ChildItem $HOME -Directory -Filter 'godspeed*' | ForEach-Object { "  $($_.Name)" }
             'conflicts:'; Get-ChildItem "$HOME\godspeed-v2\conflicts" -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name)" }
           } 2>&1 | Tee-Object evidence/after-update.txt
-      - name: The Start menu's "Update my mission control", run on this version 2 PC (updates-and-versions.md, not yet verified there)
-        if: always()
-        shell: pwsh
-        run: |
-          & {
-            $state = "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha State"; $app = "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha"
-            function Snapshot { "installation.json kitCommit: " + (Get-Content "$state\installation.json" -Raw | ConvertFrom-Json).kitCommit
-              "program's manifest kitCommit: " + (Get-Content "$app\payload\candidate-manifest.json" -Raw | ConvertFrom-Json).kitCommit
-              "mission control HEAD: " + (git -C "$HOME\godspeed-v2" log --oneline -1)
-              "device.env GODSPEED_DIR: " + ((Get-Content "$HOME\.godspeed\device.env") -match '^GODSPEED_DIR=')
-              ".local\bin: " + @(Get-ChildItem "$HOME\.local\bin").Count + " files, newest " + (Get-ChildItem "$HOME\.local\bin" | Sort-Object LastWriteTime | Select-Object -Last 1 | ForEach-Object { "$($_.Name) $($_.LastWriteTime)" })
-              try { 'health: ' + (Invoke-WebRequest http://127.0.0.1:47831/health -UseBasicParsing -TimeoutSec 10).Content } catch { "health: $($_.Exception.Message)" } }
-            'BEFORE'; Snapshot
-            $lnk = Get-ChildItem ([Environment]::GetFolderPath('Programs') + '\Godspeed Mission Control') -Filter 'Update*' | Select-Object -First 1
-            $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk.FullName); "the entry runs: $($s.TargetPath) $($s.Arguments)"
-            $env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine'); $env:KB_UNATTENDED = '1'
-            Set-Content "$env:RUNNER_TEMP\empty.txt" ''
-            $p = Start-Process $s.TargetPath -ArgumentList $s.Arguments -PassThru -RedirectStandardInput "$env:RUNNER_TEMP\empty.txt" -RedirectStandardOutput "$env:RUNNER_TEMP\update-entry.out" -RedirectStandardError "$env:RUNNER_TEMP\update-entry.err"
-            if (-not $p.WaitForExit(1800000)) { 'still running after 30 minutes; stopped'; Stop-Process -Id $p.Id -Force }
-            "exit: $($p.ExitCode)"; Get-Content "$env:RUNNER_TEMP\update-entry.out" -Tail 60; Get-Content "$env:RUNNER_TEMP\update-entry.err" -Tail 20
-            'AFTER'; Snapshot
-          } 2>&1 | Tee-Object evidence/update-entry.txt
       - name: An older installer over the newer notebook (troubleshooting.md, The installer is older than your notebook)
         if: always()
         shell: pwsh
         run: |
           & {
             $app = "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha"; $state = "$app State"
+            . ./.github/guide-verify/refresh-env.ps1
             ./.github/guide-verify/win-install.ps1 -Release $env:PREVIOUS -Switches '/VERYSILENT','/SUPPRESSMSGBOXES','/BESIDE=no'
             "installation.json kitCommit after: " + (Get-Content "$state\installation.json" -Raw | ConvertFrom-Json).kitCommit
             "the program folder's manifest kitCommit after: " + (Get-Content "$app\payload\candidate-manifest.json" -Raw | ConvertFrom-Json).kitCommit
@@ -330,6 +311,48 @@ jobs:
         if: always()
         with: {name: windows-update-beside-no, path: evidence/, retention-days: 30}
 
+  windows-update-entry:
+    # The Start menu's "Update my mission control" on a PC whose mission control is version 2
+    # (updates-and-versions.md, The Update my mission control entry: not yet verified there).
+    if: (github.event_name == 'push' && contains(github.event.head_commit.message, '[run all]')) || (github.event_name == 'workflow_dispatch' && (inputs.only == '' || contains(inputs.only, 'windows-update-entry')))
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: This release, installed silently
+        shell: pwsh
+        run: ./.github/guide-verify/win-install.ps1 -Release $env:RELEASE 2>&1 | Tee-Object evidence/install.txt
+      - name: The Start menu's "Update my mission control", run on this version 2 PC (updates-and-versions.md, not yet verified there)
+        if: always()
+        shell: pwsh
+        run: |
+          & {
+            $state = "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha State"; $app = "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha"
+            function Snapshot { "installation.json kitCommit: " + (Get-Content "$state\installation.json" -Raw | ConvertFrom-Json).kitCommit
+              "program's manifest kitCommit: " + (Get-Content "$app\payload\candidate-manifest.json" -Raw | ConvertFrom-Json).kitCommit
+              "mission control HEAD: " + (git -C "$HOME\godspeed-v2" log --oneline -1)
+              "device.env GODSPEED_DIR: " + ((Get-Content "$HOME\.godspeed\device.env") -match '^GODSPEED_DIR=')
+              ".local\bin: " + @(Get-ChildItem "$HOME\.local\bin").Count + " files, newest " + (Get-ChildItem "$HOME\.local\bin" | Sort-Object LastWriteTime | Select-Object -Last 1 | ForEach-Object { "$($_.Name) $($_.LastWriteTime)" })
+              try { 'health: ' + (Invoke-WebRequest http://127.0.0.1:47831/health -UseBasicParsing -TimeoutSec 10).Content } catch { "health: $($_.Exception.Message)" } }
+            'BEFORE'; Snapshot
+            $lnk = Get-ChildItem ([Environment]::GetFolderPath('Programs') + '\Godspeed Mission Control') -Filter 'Update*' | Select-Object -First 1
+            $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk.FullName); "the entry runs: $($s.TargetPath) $($s.Arguments)"
+            . ./.github/guide-verify/refresh-env.ps1; $env:KB_UNATTENDED = '1'
+            Set-Content "$env:RUNNER_TEMP\empty.txt" ''
+            $p = Start-Process $s.TargetPath -ArgumentList $s.Arguments -PassThru -RedirectStandardInput "$env:RUNNER_TEMP\empty.txt" -RedirectStandardOutput "$env:RUNNER_TEMP\update-entry.out" -RedirectStandardError "$env:RUNNER_TEMP\update-entry.err"
+            if (-not $p.WaitForExit(1800000)) { 'still running after 30 minutes; stopped'; Stop-Process -Id $p.Id -Force }
+            "exit: $($p.ExitCode)"; Get-Content "$env:RUNNER_TEMP\update-entry.out" -Tail 60; Get-Content "$env:RUNNER_TEMP\update-entry.err" -Tail 20
+            'AFTER'; Snapshot
+          } 2>&1 | Tee-Object evidence/update-entry.txt
+      - name: Keep the logs
+        if: always()
+        shell: pwsh
+        run: Copy-Item "$env:LOCALAPPDATA\Godspeed\setup-log.txt" evidence -ErrorAction SilentlyContinue
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: windows-update-entry, path: evidence/, retention-days: 30}
+
   windows-update-silent-default:
     if: (github.event_name == 'push' && contains(github.event.head_commit.message, '[run all]')) || (github.event_name == 'workflow_dispatch' && (inputs.only == '' || contains(inputs.only, 'windows-update-silent-default')))
     runs-on: windows-latest
@@ -344,6 +367,7 @@ jobs:
         shell: pwsh
         run: |
           ./.github/guide-verify/win-install.ps1 -Release $env:RELEASE -DownloadOnly
+          . ./.github/guide-verify/refresh-env.ps1
           ./.github/guide-verify/silent-watch.ps1 -Setup "$env:RUNNER_TEMP\$env:RELEASE-GodspeedSetup.exe" -Arguments '/VERYSILENT','/SUPPRESSMSGBOXES' -AnswerAfterSeconds 180 2>&1 | Tee-Object evidence/silent-default.txt
       - name: Where it ended
         if: always()
@@ -390,6 +414,7 @@ jobs:
         shell: pwsh
         run: |
           ./.github/guide-verify/win-install.ps1 -Release $env:RELEASE -DownloadOnly
+          . ./.github/guide-verify/refresh-env.ps1
           $env:KB_UNATTENDED = '1'
           ./.github/guide-verify/wizard.ps1 -Setup "$env:RUNNER_TEMP\$env:RELEASE-GodspeedSetup.exe" -Plan update -Evidence evidence 2>&1 | Tee-Object evidence/wizard-update.txt
       - name: Where it ended

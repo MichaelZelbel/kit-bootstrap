@@ -44,17 +44,16 @@ Section 'after the uninstaller (the page: it removes the program folder and the 
 Leftovers
 
 Section 'Remove the rest on Windows, as the page writes it'
-'1. delete the state folder'
-Remove-Item -LiteralPath "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha State" -Recurse -Force -ErrorAction Continue
-'2. the scheduled tasks'
-Unregister-ScheduledTask -TaskName "Godspeed prompt archive" -Confirm:$false
-Unregister-ScheduledTask -TaskName "Godspeed notebook sync" -Confirm:$false
-'3. .godspeed and the mc-* files in .local\bin'
-Remove-Item -LiteralPath "$env:USERPROFILE\.godspeed" -Recurse -Force -ErrorAction Continue
-Get-ChildItem "$env:USERPROFILE\.local\bin" -Filter 'mc-*' -ErrorAction SilentlyContinue | Remove-Item -Force
-'4. the setup log in %LOCALAPPDATA%\Godspeed'
-Remove-Item -LiteralPath "$env:LOCALAPPDATA\Godspeed" -Recurse -Force -ErrorAction Continue
-'6. the mission control folder'
-Remove-Item -LiteralPath $mc -Recurse -Force -ErrorAction Continue
+# Each step on its own, so an error in one is shown and the next still runs.
+function Step($what, [scriptblock]$do) { "$what"; try { & $do; '   done' } catch { "   ERROR: $($_.Exception.Message)" } }
+Step '1. delete the state folder' { Remove-Item -LiteralPath "$env:LOCALAPPDATA\Godspeed Mission Control Full Alpha State" -Recurse -Force -ErrorAction Stop }
+Step '2a. Unregister-ScheduledTask -TaskName "Godspeed prompt archive" -Confirm:$false' { Unregister-ScheduledTask -TaskName "Godspeed prompt archive" -Confirm:$false -ErrorAction Stop }
+Step '2b. Unregister-ScheduledTask -TaskName "Godspeed notebook sync" -Confirm:$false' { Unregister-ScheduledTask -TaskName "Godspeed notebook sync" -Confirm:$false -ErrorAction Stop }
+Step '3a. delete %USERPROFILE%\.godspeed' { Remove-Item -LiteralPath "$env:USERPROFILE\.godspeed" -Recurse -Force -ErrorAction Stop }
+Step '3b. delete the mc-* files in %USERPROFILE%\.localin' { Get-ChildItem "$env:USERPROFILE\.localin" -Filter 'mc-*' -ErrorAction Stop | Remove-Item -Force -ErrorAction Stop }
+Step '4. the setup log folder %LOCALAPPDATA%\Godspeed' { Remove-Item -LiteralPath "$env:LOCALAPPDATA\Godspeed" -Recurse -Force -ErrorAction Stop }
+Step '6. the mission control folder' { Remove-Item -LiteralPath $mc -Recurse -Force -ErrorAction Stop }
 Section 'after every step: what is still on this PC'
 Leftovers
+
+exit 0
