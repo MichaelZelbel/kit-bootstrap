@@ -6,6 +6,8 @@ name: Guide check on fresh machines
 # product is not changed and nothing is published. No AI account, no Telegram, no secrets, and no
 # install count: GODSPEED_INSTALL_COUNT=no and DO_NOT_TRACK=1 answer that question with no.
 # Downloads come from the GitHub release, never from the website's short links.
+# A push runs every job only when its message says [run all]; otherwise start it by hand
+# (workflow_dispatch), naming the jobs in "only".
 on:
   push:
     branches: ['test/guide-2026-10-17']
@@ -28,7 +30,7 @@ env:
   PW: playwright-core@1.47.2
 jobs:
   linux-fresh:
-    if: github.event_name == 'push' || inputs.only == '' || contains(inputs.only, 'linux-fresh')
+    if: (github.event_name == 'push' && contains(github.event.head_commit.message, '[run all]')) || (github.event_name == 'workflow_dispatch' && (inputs.only == '' || contains(inputs.only, 'linux-fresh')))
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -76,7 +78,7 @@ jobs:
         with: {name: linux-fresh, path: evidence/, retention-days: 30}
 
   linux-update:
-    if: github.event_name == 'push' || inputs.only == '' || contains(inputs.only, 'linux-update')
+    if: (github.event_name == 'push' && contains(github.event.head_commit.message, '[run all]')) || (github.event_name == 'workflow_dispatch' && (inputs.only == '' || contains(inputs.only, 'linux-update')))
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -121,7 +123,7 @@ jobs:
         with: {name: linux-update, path: evidence/, retention-days: 30}
 
   mac:
-    if: github.event_name == 'push' || inputs.only == '' || contains(inputs.only, 'mac')
+    if: (github.event_name == 'push' && contains(github.event.head_commit.message, '[run all]')) || (github.event_name == 'workflow_dispatch' && (inputs.only == '' || contains(inputs.only, 'mac')))
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
@@ -185,7 +187,7 @@ jobs:
         with: {name: mac, path: evidence/, retention-days: 30}
 
   windows-fresh:
-    if: github.event_name == 'push' || inputs.only == '' || contains(inputs.only, 'windows-fresh')
+    if: (github.event_name == 'push' && contains(github.event.head_commit.message, '[run all]')) || (github.event_name == 'workflow_dispatch' && (inputs.only == '' || contains(inputs.only, 'windows-fresh')))
     runs-on: windows-latest
     timeout-minutes: 120
     steps:
@@ -204,7 +206,7 @@ jobs:
           New-Item -ItemType Directory -Force "$env:USERPROFILE\Downloads" | Out-Null
           Invoke-WebRequest "$env:DL/$env:RELEASE/GodspeedSetup.exe" -OutFile "$env:USERPROFILE\Downloads\GodspeedSetup.exe" -UseBasicParsing
           Get-FileHash "$env:USERPROFILE\Downloads\GodspeedSetup.exe" -Algorithm SHA256 | Format-List | Out-String
-          (Invoke-WebRequest "$env:DL/$env:RELEASE/SHA256SUMS" -UseBasicParsing).Content
+          Invoke-WebRequest "$env:DL/$env:RELEASE/SHA256SUMS" -OutFile SHA256SUMS -UseBasicParsing; Get-Content SHA256SUMS
           $f = Get-Item "$env:USERPROFILE\Downloads\GodspeedSetup.exe"; "size $($f.Length) bytes ($([math]::Round($f.Length/1MB,1)) MB); file version $($f.VersionInfo.FileVersion); product $($f.VersionInfo.ProductName) $($f.VersionInfo.ProductVersion)"
       - name: Install without the wizard, as install-windows.md writes it (.\GodspeedSetup.exe /VERYSILENT /SUPPRESSMSGBOXES)
         shell: powershell
@@ -259,7 +261,7 @@ jobs:
         with: {name: windows-fresh, path: evidence/, retention-days: 30}
 
   windows-update-beside-no:
-    if: github.event_name == 'push' || inputs.only == '' || contains(inputs.only, 'windows-update-beside-no')
+    if: (github.event_name == 'push' && contains(github.event.head_commit.message, '[run all]')) || (github.event_name == 'workflow_dispatch' && (inputs.only == '' || contains(inputs.only, 'windows-update-beside-no')))
     runs-on: windows-latest
     timeout-minutes: 150
     steps:
@@ -340,7 +342,7 @@ jobs:
         with: {name: windows-update-beside-no, path: evidence/, retention-days: 30}
 
   windows-update-silent-default:
-    if: github.event_name == 'push' || inputs.only == '' || contains(inputs.only, 'windows-update-silent-default')
+    if: (github.event_name == 'push' && contains(github.event.head_commit.message, '[run all]')) || (github.event_name == 'workflow_dispatch' && (inputs.only == '' || contains(inputs.only, 'windows-update-silent-default')))
     runs-on: windows-latest
     timeout-minutes: 150
     steps:
@@ -368,7 +370,7 @@ jobs:
         with: {name: windows-update-silent-default, path: evidence/, retention-days: 30}
 
   windows-wizard-fresh:
-    if: github.event_name == 'push' || inputs.only == '' || contains(inputs.only, 'windows-wizard-fresh')
+    if: (github.event_name == 'push' && contains(github.event.head_commit.message, '[run all]')) || (github.event_name == 'workflow_dispatch' && (inputs.only == '' || contains(inputs.only, 'windows-wizard-fresh')))
     runs-on: windows-latest
     timeout-minutes: 120
     steps:
@@ -386,7 +388,7 @@ jobs:
         with: {name: windows-wizard-fresh, path: evidence/, retention-days: 30}
 
   windows-wizard-update:
-    if: github.event_name == 'push' || inputs.only == '' || contains(inputs.only, 'windows-wizard-update')
+    if: (github.event_name == 'push' && contains(github.event.head_commit.message, '[run all]')) || (github.event_name == 'workflow_dispatch' && (inputs.only == '' || contains(inputs.only, 'windows-wizard-update')))
     runs-on: windows-latest
     timeout-minutes: 150
     steps:
@@ -416,7 +418,7 @@ jobs:
         with: {name: windows-wizard-update, path: evidence/, retention-days: 30}
 
   docker-server:
-    if: github.event_name == 'push' || inputs.only == '' || contains(inputs.only, 'docker-server')
+    if: (github.event_name == 'push' && contains(github.event.head_commit.message, '[run all]')) || (github.event_name == 'workflow_dispatch' && (inputs.only == '' || contains(inputs.only, 'docker-server')))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

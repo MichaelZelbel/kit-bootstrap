@@ -17,8 +17,10 @@ $Evidence = (Resolve-Path $Evidence).Path
 $base = "https://github.com/MichaelZelbel/godspeed-mission-control/releases/download/$Release"
 $exe = Join-Path $env:RUNNER_TEMP "$Release-GodspeedSetup.exe"
 if (-not (Test-Path $exe)) { Invoke-WebRequest "$base/GodspeedSetup.exe" -OutFile $exe -UseBasicParsing }
-$sums = (Invoke-WebRequest "$base/SHA256SUMS" -UseBasicParsing).Content
-$want = ($sums -split "`n" | Where-Object { $_ -match 'GodspeedSetup\.exe' }) -replace '\s.*$', ''
+# GitHub serves release files as bytes, so the list is saved and read as text.
+Invoke-WebRequest "$base/SHA256SUMS" -OutFile (Join-Path $env:RUNNER_TEMP "$Release-SHA256SUMS") -UseBasicParsing
+$sums = Get-Content (Join-Path $env:RUNNER_TEMP "$Release-SHA256SUMS") -Raw
+$want = [string](($sums -split "`n" | Where-Object { $_ -match 'GodspeedSetup\.exe' } | Select-Object -First 1) -replace '\s.*$', '')
 $have = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
 "$Release GodspeedSetup.exe: $have (SHA256SUMS says $want)"
 if ($have -ne $want.Trim()) { throw 'not the release file' }
