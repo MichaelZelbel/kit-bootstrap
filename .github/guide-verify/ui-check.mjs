@@ -20,13 +20,21 @@ const settle = async (ms = 4000) => { await page.waitForLoadState('networkidle',
 const added = (before, after) => { const seen = new Set(before.split('\n')); return after.split('\n').filter(l => l.trim() && !seen.has(l)).join('\n'); };
 async function step(name, fn) { log(`\n===== UI: ${name}`); try { await fn(); } catch (e) { log(`ERROR in "${name}": ${String(e.message).split('\n')[0]}`); } }
 async function openAll() { await page.evaluate(() => document.querySelectorAll('details').forEach(d => { d.open = true; })); await page.waitForTimeout(1000); }
+// Presses a button and reports every line that appeared on the page afterwards, sampled every
+// half second, so a message that shows for a few seconds and goes (a toast) is caught too.
 async function press(name, waitFor, ms = 60000) {
   const before = await text();
+  const seen = new Set();
+  const sample = async () => { for (const l of added(before, await text()).split('\n')) if (l.trim()) seen.add(l); };
   await page.getByRole('button', {name, exact: true}).first().click();
-  if (waitFor) await page.getByText(waitFor).first().waitFor({timeout: ms}).catch(() => log(`(no "${waitFor}" within ${ms / 1000} s)`));
-  else await page.waitForTimeout(5000);
-  await page.waitForTimeout(1500);
-  log(`after pressing "${name}", new lines on the page:\n` + added(before, await text()));
+  const until = Date.now() + (waitFor ? ms : 8000);
+  while (Date.now() < until) {
+    await sample();
+    if (waitFor && [...seen].some(l => l.includes(waitFor))) { await page.waitForTimeout(1500); await sample(); break; }
+    await page.waitForTimeout(500);
+  }
+  if (waitFor && ![...seen].some(l => l.includes(waitFor))) log(`(no "${waitFor}" within ${ms / 1000} s)`);
+  log(`after pressing "${name}", new lines on the page:\n` + [...seen].join('\n'));
 }
 
 await step('the address the Start menu opens: /', async () => {
@@ -67,7 +75,10 @@ await step('Settings, every section open', async () => {
   log('FIELDS:\n' + fields.join('\n'));
 });
 await step('Connect your assistant: Test and connect with model name and key empty', async () => {
+  log('the button is enabled:', await page.getByRole('button', {name: 'Test and connect', exact: true}).first().isEnabled());
   await press('Test and connect', null);
+  const invalid = await page.evaluate(() => [...document.querySelectorAll('input:invalid, textarea:invalid, select:invalid')].map(e => `${e.getAttribute('aria-label') || e.name || e.id || e.type}: ${e.validationMessage}`));
+  log('boxes the browser itself refuses (required fields):', invalid.join(' | ') || 'none');
 });
 await step('Connect your assistant: an http:// endpoint', async () => {
   await openAll();

@@ -164,21 +164,10 @@ jobs:
       - name: Version, folders, terminal commands (and whether zsh finds them), the notebook's own command
         if: always()
         run: bash .github/guide-verify/unix-checks.sh mac 2>&1 | tee evidence/checks.log
-      - name: Does the notebook keep running when its terminal window closes? (the window is a pseudo-terminal here, and closing it hangs it up)
+      - name: Does the notebook keep running when its terminal window closes? (install-mac-linux.md, On a Mac)
         if: always()
         run: |
-          set +e
-          { pkill -f 'integrated-runtime/start.mjs'; pkill -f supervise.mjs; sleep 3
-            curl -s -m 3 http://127.0.0.1:47831/health || echo 'stopped'
-            line=$(cat evidence/start-line.txt | sed 's/^the line: //')
-            script -q /dev/null bash -c "$line" > evidence/notebook-in-terminal.log 2>&1 &
-            term=$!
-            for i in $(seq 1 60); do curl -s -m 3 http://127.0.0.1:47831/health >/dev/null && break; sleep 3; done
-            echo "running in the terminal (pid $term):"; curl -s http://127.0.0.1:47831/health; echo
-            kill -9 $term; echo 'the terminal window is closed (its terminal process killed)'
-            sleep 10
-            curl -s -m 5 http://127.0.0.1:47831/health && echo ' <- STILL ANSWERS after the terminal closed' || echo 'NOTHING ANSWERS after the terminal closed'
-            ps aux | grep -E 'start.mjs|supervise.mjs' | grep -v grep; } 2>&1 | tee evidence/terminal-close.txt
+          bash .github/guide-verify/mac-terminal.sh "$(sed 's/^the line: //' evidence/start-line.txt)" 2>&1 | tee evidence/terminal-close.txt
       - name: Uninstall as uninstall.md writes it for a Mac, then what is left
         if: always()
         run: bash .github/guide-verify/unix-uninstall.sh mac 2>&1 | tee evidence/uninstall.log
