@@ -1,0 +1,16 @@
+{
+  "about": "Which pages of the user guide describe which paths here. Written by scripts/guide-map.mjs in the website repository (MichaelZelbel/godspeedmissioncontrol) from each page's sources, a file cited by more than 3 pages going only to its owners in docs/guide/map-owners.json there: change those and run it again, never this file by hand. .github/guide-check.mjs reads it.",
+  "guide": "https://godspeedmissioncontrol.com/guide/",
+  "since": "5f42a5b38227d048fc12b0678e0159589a283697",
+  "ignore": ["**/test/**", "**/tests/**", "**/__tests__/**", "**/fixtures/**", "**/*.test.*", "**/*.spec.*", "**/test-*", "**/test_*", "**/*_test.*", "docs/**", ".github/**", "**/retired/**", "**/vendor/**", "**/node_modules/**", "**/dist/**", "**/package-lock.json", "**/*.min.js", "**/*.gen.*"],
+  "pages": {
+    "backups-and-devices": ["windows/setup-godspeed.ps1"],
+    "first-setup": ["windows/ensure-hermes-full-alpha.ps1"],
+    "folders-and-settings": ["windows/setup-full-alpha.ps1"],
+    "get-help": ["windows/ensure-hermes-full-alpha.ps1", "windows/setup-godspeed.ps1", "windows/start-full-alpha.ps1"],
+    "install-mac-linux": ["lib.sh", "setup-godspeed.sh"],
+    "install-windows": ["README.md", "join.ps1", "windows/godspeed-setup.iss", "windows/setup-full-alpha.ps1", "windows/start-full-alpha.ps1"],
+    "troubleshooting": ["README.md", "join.ps1", "lib.sh", "setup-godspeed.sh", "windows/ensure-hermes-full-alpha.ps1", "windows/setup-godspeed.ps1", "windows/start-full-alpha.ps1", "windows/stop-full-alpha.ps1"],
+    "uninstall": ["lib.sh", "windows/godspeed-setup.iss", "windows/stop-full-alpha.ps1"]
+  }
+}
