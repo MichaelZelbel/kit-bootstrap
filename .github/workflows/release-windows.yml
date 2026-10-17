@@ -1,13 +1,13 @@
 name: Release check on a fresh Windows
-# The Godspeed Mission Control release of 16 October 2026, second update (the setup in two parts),
+# The Godspeed Mission Control release of 17 October 2026 (a first goal starts its routines),
 # before it is published: its exact GodspeedSetup.exe (committed on the product's release branch,
 # checked by SHA-256) run the way a reader who clicks Next everywhere does, on a fresh GitHub Windows
-# machine, once as a first installation and once as the update over the morning release. Then what a
-# reader has: the notebook of this release, Hermes, the recipes, Chapter 14's trackers
+# machine, once as a first installation and once as the update over the second 16 October release.
+# Then what a reader has: the notebook of this release, Hermes, the recipes, Chapter 14's trackers
 # (windows/test-release-trackers.ps1) and the Identity page, with the assistant's SOUL.md written
 # from "who it is", and a third run with the wizard on screen that reads the setup's last page
-# (windows/test-finish-page.ps1). Product e09577c is main; setup 5f42a5b is the 15 October setup
-# with the Windows keep-three change (ba7abaf) and the finish page (4ce3d49). The private
+# (windows/test-finish-page.ps1). Product ae92c39 is main 6e1e2af plus the first goal's routines
+# fix; setup b9ebf68 is the 16 October setup 5f42a5b plus only the guide reminder. The private
 # clean-install test repository could not run (GitHub refuses its jobs for billing), so this runs
 # here, in kit-bootstrap's own public CI, as full-alpha.yml does for the setup. A test branch only;
 # nothing is published.
@@ -19,11 +19,11 @@ permissions:
   contents: read
 env:
   KIT: https://github.com/MichaelZelbel/godspeed-mission-control
-  PUBLISH_COMMIT: 5a2e2ecefc727b3f651375e9f45d1c55c7bb1b6a
-  SETUP_SHA256: 68d7b0d7b437700da4a2c210084354871e28341c27600d110a4721024d1952b5
-  PRODUCT: e09577cd322124aade3960509fb7957b5d2ed37c
-  PREVIOUS_RELEASE: godspeed-v2-integrated-2026-10-16-1
-  PREVIOUS_PRODUCT: 31f434a133d33f1ea0ad5bbc7cce202fe50c9842
+  PUBLISH_COMMIT: 1a9261a2df6425ead232d0d137cb9afce3edc89a
+  SETUP_SHA256: e3bf6dc04dbd091ad721ef66144ad7aeb849d8e30e53af4a4535f3c3ba4118c7
+  PRODUCT: ae92c399c293e8cd4f34cf6dc1b025b317961f63
+  PREVIOUS_RELEASE: godspeed-v2-integrated-2026-10-16-2
+  PREVIOUS_PRODUCT: e09577cd322124aade3960509fb7957b5d2ed37c
 jobs:
   windows:
     strategy:
