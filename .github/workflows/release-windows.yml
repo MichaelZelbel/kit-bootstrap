@@ -1,13 +1,15 @@
 name: Release check on a fresh Windows
-# The Godspeed Mission Control release of 17 October 2026 (a first goal starts its routines),
-# before it is published: its exact GodspeedSetup.exe (committed on the product's release branch,
-# checked by SHA-256) run the way a reader who clicks Next everywhere does, on a fresh GitHub Windows
-# machine, once as a first installation and once as the update over the second 16 October release.
+# The Godspeed Mission Control release of 18 October 2026 (Hermes installs in a real terminal, and
+# the assistant gets its notebook beside the mail tool), before it is published: its exact
+# GodspeedSetup.exe (committed on the product's release branch, checked by SHA-256) run the way a
+# reader who clicks Next everywhere does, on a fresh GitHub Windows machine, once as a first
+# installation and once as the update over the 17 October release.
 # Then what a reader has: the notebook of this release, Hermes, the recipes, Chapter 14's trackers
 # (windows/test-release-trackers.ps1) and the Identity page, with the assistant's SOUL.md written
 # from "who it is", and a third run with the wizard on screen that reads the setup's last page
-# (windows/test-finish-page.ps1). Product ae92c39 is main 6e1e2af plus the first goal's routines
-# fix; setup b9ebf68 is the 16 October setup 5f42a5b plus only the guide reminder. The private
+# (windows/test-finish-page.ps1). Product 6996712 is main 0f4b953 plus the notebook tool beside the
+# mail tool (wire-assistant.mjs, in the Windows payload too); setup 11daa48 is the 17 October setup
+# b9ebf68 plus Hermes' installer run with --non-interactive (lib.sh, Linux and Mac only). The private
 # clean-install test repository could not run (GitHub refuses its jobs for billing), so this runs
 # here, in kit-bootstrap's own public CI, as full-alpha.yml does for the setup. A test branch only;
 # nothing is published.
@@ -19,11 +21,11 @@ permissions:
   contents: read
 env:
   KIT: https://github.com/MichaelZelbel/godspeed-mission-control
-  PUBLISH_COMMIT: 1a9261a2df6425ead232d0d137cb9afce3edc89a
-  SETUP_SHA256: e3bf6dc04dbd091ad721ef66144ad7aeb849d8e30e53af4a4535f3c3ba4118c7
-  PRODUCT: ae92c399c293e8cd4f34cf6dc1b025b317961f63
-  PREVIOUS_RELEASE: godspeed-v2-integrated-2026-10-16-2
-  PREVIOUS_PRODUCT: e09577cd322124aade3960509fb7957b5d2ed37c
+  PUBLISH_COMMIT: 54f72d3dafbc5b74fd03858e31fa2456c935a41f
+  SETUP_SHA256: 8b74f4fa038d799af05704b4270b127c05cd49dee5bdcbd3f54055f997a077a3
+  PRODUCT: 69967129e488417d8d5acb42340363239427092a
+  PREVIOUS_RELEASE: godspeed-v2-integrated-2026-10-17-1
+  PREVIOUS_PRODUCT: ae92c399c293e8cd4f34cf6dc1b025b317961f63
 jobs:
   windows:
     strategy:

@@ -1,7 +1,7 @@
 name: Release suites on Linux and a Mac
 # kit-bootstrap's own test.sh and the product's collector suite (tools/test-prompt-archive.sh) where
 # they really run, bash on a fresh Ubuntu and on a real Mac, for the release after
-# godspeed-v2-integrated-2026-10-16-2 (17 October 2026: a first goal starts its routines): the clean-install test's "suites" job, here because the
+# godspeed-v2-integrated-2026-10-17-1 (18 October 2026: Hermes installs in a real terminal, the notebook tool beside the mail tool): the clean-install test's "suites" job, here because the
 # private test repository's jobs are refused by GitHub's billing. Both suites are public already.
 # macOS has five known failures of test.sh, from bash 3.2 (three `$(case ...)`) and /var against
 # /private/var (two), since 8 October; they are listed, not hidden.
@@ -28,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          git clone -q https://github.com/MichaelZelbel/kit-bootstrap.git kb && git -C kb checkout -q b9ebf68db7032e36edd83f5e745194e1ebf6472c
+          git clone -q https://github.com/MichaelZelbel/kit-bootstrap.git kb && git -C kb checkout -q 11daa48a1f9deba2f18a23072b3ad2c259ed5918
           git -C kb log --oneline -1
           (cd kb && bash test.sh) > suite.out 2>&1; rc=$?
           grep -E 'FAIL' -A3 suite.out | head -80; tail -3 suite.out; exit $rc
@@ -41,7 +41,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          git init -q kit && git -C kit fetch -q --depth 1 https://github.com/MichaelZelbel/godspeed-mission-control ae92c399c293e8cd4f34cf6dc1b025b317961f63 && git -C kit checkout -q FETCH_HEAD
+          git init -q kit && git -C kit fetch -q --depth 1 https://github.com/MichaelZelbel/godspeed-mission-control 69967129e488417d8d5acb42340363239427092a && git -C kit checkout -q FETCH_HEAD
           git -C kit log --oneline -1
           bash kit/tools/test-prompt-archive.sh > archive.out 2>&1; rc=$?
           grep -v '^  ok' archive.out | tail -15; exit $rc
