@@ -146,7 +146,9 @@ Want 'Update my mission control reads the newest release and does not take this 
 $shown = @(Receive-Job $watch -Keep | Sort-Object -Unique)
 Stop-Job $watch -ErrorAction SilentlyContinue
 "windows the setup showed: $($shown -join '; ')"
-Want 'the silent runs showed no wizard and no message box' { @($shown | Where-Object { $_ -match '^(#32770|TWizardForm)\|' }).Count -eq 0 }
+# The setup's own windows only: a message box of the setup is titled "Setup" or names Godspeed, and
+# a GitHub machine opens windows of its own now and then (System Properties was seen once).
+Want 'the silent runs showed no wizard and no message box' { @($shown | Where-Object { $_ -match '^TWizardForm\|' -or $_ -match '^#32770\|.*(Setup|Godspeed|Uninstall)' }).Count -eq 0 }
 
 # 5. The uninstaller: the program's own files go, the reader's stay.
 $recorded = @(Get-Content (Join-Path $HOME '.godspeed\installed-commands.txt'))
