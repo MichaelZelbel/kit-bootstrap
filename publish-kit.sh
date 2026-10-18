@@ -54,13 +54,23 @@ if [ "$CHECK_ONLY" -eq 0 ]; then
   TOKEN_DIR="${4:-}"
 fi
 
-HOST="${KIT_HOST:-root@srv1328602.hstgr.cloud}"
-KEY="${KIT_SSH_KEY:-$HOME/godspeed/.secrets/claude-desktop_ed25519}"
+# WHERE THE TARBALLS GO is the publisher's own business, so it is named in the environment and not
+# here: this repository is public, and until 18 October 2026 these lines named the maintainer's
+# production server and the path of a private key on his machine.
+#   KIT_HOST         the ssh login of the download server, e.g. root@downloads.example.com
+#   KIT_BASE_URL     the web address the kits are served from, e.g. https://downloads.example.com/kits
+#   KIT_SSH_KEY      the key for that login (default: ssh's own)
+#   KIT_ARTIFACT_ROOT the folder on that server (default /srv/mc-artifacts/kits)
+HOST="${KIT_HOST:-}"
+KEY="${KIT_SSH_KEY:-}"
 ROOT="${KIT_ARTIFACT_ROOT:-/srv/mc-artifacts/kits}"
-BASE="${KIT_BASE_URL:-https://srv1328602.hstgr.cloud/godspeed/kits}"
+BASE="${KIT_BASE_URL:-}"
 
 log()  { printf "\033[1;34m[publish]\033[0m %s\n" "$*"; }
 die()  { printf "\033[1;31m[stop]\033[0m %s\n" "$*" >&2; exit 1; }
+if [ "$CHECK_ONLY" -eq 0 ]; then
+  [ -n "$HOST" ] && [ -n "$BASE" ] || die "Set KIT_HOST and KIT_BASE_URL to the download server (see the top of this file)."
+fi
 
 command -v gh >/dev/null || die "The GitHub CLI is needed to read the gist."
 
@@ -90,7 +100,8 @@ fi
 [ -f "$TARBALL" ]    || die "No tarball at $TARBALL"
 [ -f "$INSTALL_SH" ] || die "No install.sh at $INSTALL_SH"
 
-SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=no -i "$KEY")
+SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=no)
+[ -n "$KEY" ] && SSH_OPTS+=(-i "$KEY")
 FILE="$(basename "$TARBALL")"
 SHA="$(sha256sum "$TARBALL" | awk '{print $1}')"
 

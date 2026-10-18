@@ -2756,7 +2756,7 @@ t "and Windows asks it in the same words" \
 t "both platforms ask it with no as the answer" \
   "$(grep -c 'ask_yes "Send the anonymous note?" "n"' lib.sh):$(grep -c 'Read-Host "Send the anonymous note? (y/N)"' join.ps1)" "1:1"
 t "both platforms send to the same address, the website's, and never to a server of the maker's own" \
-  "$(grep -c 'https://godspeedmissioncontrol.com/signal/v1' lib.sh):$(grep -c 'https://godspeedmissioncontrol.com/signal/v1' join.ps1):$(cat lib.sh join.ps1 | grep -c 'hstgr')" "1:1:0"
+  "$(grep -c 'https://godspeedmissioncontrol.com/signal/v1' lib.sh):$(grep -c 'https://godspeedmissioncontrol.com/signal/v1' join.ps1):$(cat lib.sh join.ps1 publish-kit.sh | grep -c 'hstgr')" "1:1:0"
 t "the question names no person (it asked to 'tell Michael' until 18 October 2026)" \
   "$(cat lib.sh join.ps1 | grep -v '^ *#' | grep -c -i 'michael,\|tell michael\|told michael')" "0"
 rm -rf "$_ic"

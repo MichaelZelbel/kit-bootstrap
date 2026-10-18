@@ -4047,7 +4047,10 @@ function Invoke-BetaDetect([string]$Mine, [string]$WorksFrom) {
 }
 $a = Invoke-BetaDetect '2026-10-17T10:00:00+02:00' $dother
 Check "detect: the folder to update is the one the notebook keeps, not the one this PC works from" {
-    ($a['found'] -eq $dws) -and ($a['notebook'] -eq '1') -and ($a['worksfrom'] -eq $dother) -and ($a['installed'] -eq ('a' * 40))
+    # Compared as folders, not as spellings: a temporary folder can come back in its short 8.3 form.
+    $ok = (Test-KitSamePath $a['found'] $dws) -and ($a['notebook'] -eq '1') -and (Test-KitSamePath $a['worksfrom'] $dother) -and ($a['installed'] -eq ('a' * 40))
+    if (-not $ok) { Write-Host ("   answers: " + (($a.GetEnumerator() | Sort-Object Name | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join '; ') + "; expected found=$dws worksfrom=$dother") }
+    $ok
 }
 Check "detect: a notebook here newer than the installer's is reported" { $a['newer'] -eq '1' }
 $a = Invoke-BetaDetect '2026-10-18T09:00:00Z' $dws
