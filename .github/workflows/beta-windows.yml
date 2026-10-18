@@ -20,18 +20,18 @@ on:
     inputs:
       product_branch:
         description: The product branch whose notebook the installer carries
-        default: release/beta-2026-10-18
+        default: main
 permissions:
   contents: read
 env:
   KIT: https://github.com/MichaelZelbel/godspeed-mission-control
-  PRODUCT_BRANCH: ${{ inputs.product_branch || 'release/beta-2026-10-18' }}
+  PRODUCT_BRANCH: ${{ inputs.product_branch || 'main' }}
   # The newest published release: where the update starts from.
-  PREVIOUS_RELEASE: godspeed-v2-integrated-2026-10-18-1
-  PREVIOUS_SETUP_SHA256: 8b74f4fa038d799af05704b4270b127c05cd49dee5bdcbd3f54055f997a077a3
+  PREVIOUS_RELEASE: godspeed-v2-integrated-2026-10-19-1
+  PREVIOUS_SETUP_SHA256: 7cb66ca66830d86ad11e691e75a235cb168128868f97ca787370ba01df6dff48
   # The notebook of that release, built a second time with this branch's installer code: an
   # older installer that has the refusal, so the refusal itself can be seen.
-  OLDER_PRODUCT: 69967129e488417d8d5acb42340363239427092a
+  OLDER_PRODUCT: bc3b63d10097ed46faab8d6e4be5672201b3ad68
 jobs:
   build:
     runs-on: windows-2025
