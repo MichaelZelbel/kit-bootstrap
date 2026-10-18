@@ -41,7 +41,7 @@ if(-not $desktop -or -not(Test-Path -LiteralPath $desktop)){
   [pscustomobject]@{verified=$false;reason='Hermes is not installed for this notebook yet.'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $State 'assistant.json') -Encoding UTF8
   return
 }
-# Only new candidate configuration is written. The installed default profile is never read or changed.
+# Only new configuration for this notebook's Hermes is written. The installed default profile is never read or changed.
 $config=Join-Path $profileHome 'config.yaml'
 if(-not(Test-Path -LiteralPath $config)){
   $workspaceJson=ConvertTo-Json $Workspace -Compress
