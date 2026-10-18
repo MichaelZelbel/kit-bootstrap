@@ -1,0 +1,174 @@
+name: Windows installer on fresh machines
+# GodspeedSetup.exe built from this branch's own code and the product's release branch, then run
+# on fresh GitHub Windows machines the way a beta tester runs it (18 October 2026):
+#
+#   install   silent, as a first installation and as the update over the newest published
+#             release with nothing chosen; then an older installer refused before it touches
+#             anything, "Update my mission control" asked for a newer release, and the uninstaller
+#             (windows/test-beta-install.ps1)
+#   wizard    the same two with the wizard on screen, Next on every page, and its last page read
+#             (windows/test-finish-page.ps1)
+#   suites    windows/test-windows.ps1 under Windows PowerShell 5.1, which the installer runs, and
+#             test.sh on Ubuntu, detached from any terminal
+#
+# Nothing is published: the built installers are kept as this run's artifacts for 14 days.
+on:
+  push:
+    branches: ['release/beta-*', 'beta/windows']
+    paths: ['windows/**', 'join.ps1', 'lib.sh', 'test.sh', '.github/workflows/beta-windows.yml']
+  workflow_dispatch:
+    inputs:
+      product_branch:
+        description: The product branch whose notebook the installer carries
+        default: release/beta-2026-10-18
+permissions:
+  contents: read
+env:
+  KIT: https://github.com/MichaelZelbel/godspeed-mission-control
+  PRODUCT_BRANCH: ${{ inputs.product_branch || 'release/beta-2026-10-18' }}
+  # The newest published release: where the update starts from.
+  PREVIOUS_RELEASE: godspeed-v2-integrated-2026-10-18-1
+  PREVIOUS_SETUP_SHA256: 8b74f4fa038d799af05704b4270b127c05cd49dee5bdcbd3f54055f997a077a3
+  # The notebook of that release, built a second time with this branch's installer code: an
+  # older installer that has the refusal, so the refusal itself can be seen.
+  OLDER_PRODUCT: 69967129e488417d8d5acb42340363239427092a
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - name: The product, at the release branch and at the older notebook
+        shell: pwsh
+        run: |
+          git clone -q --depth 1 --branch $env:PRODUCT_BRANCH $env:KIT product
+          git -C product log --oneline -1
+          git init -q product-older
+          git -C product-older fetch -q --depth 1 "$env:KIT.git" $env:OLDER_PRODUCT
+          git -C product-older checkout -q FETCH_HEAD
+          git -C product-older log --oneline -1
+      - name: Their notebook pages
+        shell: pwsh
+        run: |
+          foreach ($p in 'product', 'product-older') {
+            Push-Location "$p/notebook/ui"; npm ci --no-audit --no-fund; if ($LASTEXITCODE) { exit 1 }; npm run build; if ($LASTEXITCODE) { exit 1 }; Pop-Location
+          }
+      - name: Inno Setup 6.5 or newer (RedirectionGuard)
+        shell: pwsh
+        run: choco upgrade innosetup --no-progress -y
+      - name: Build the older installer, then this one
+        shell: pwsh
+        run: |
+          ./windows/build-full-alpha.ps1 -KitCheckout "$pwd/product-older"
+          New-Item -ItemType Directory -Force built/older, built/new | Out-Null
+          Move-Item windows/dist/GodspeedSetup-Full-Alpha.exe built/older/GodspeedSetup.exe
+          Move-Item windows/dist/candidate-manifest.json built/older/candidate-manifest.json
+          ./windows/build-full-alpha.ps1 -KitCheckout "$pwd/product"
+          Move-Item windows/dist/GodspeedSetup-Full-Alpha.exe built/new/GodspeedSetup.exe
+          Move-Item windows/dist/candidate-manifest.json built/new/candidate-manifest.json
+          Get-ChildItem built -Recurse -File | ForEach-Object { "$((Get-FileHash $_.FullName).Hash.ToLower())  $($_.FullName.Substring($pwd.Path.Length + 1))" }
+          (Get-Item built/new/GodspeedSetup.exe).VersionInfo | Format-List ProductName, ProductVersion, FileVersion
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beta-windows-installers
+          path: built/
+          retention-days: 14
+
+  install:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [fresh, update]
+    runs-on: windows-2025
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: beta-windows-installers
+          path: built
+      - name: The newest published release, checked
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "$env:KIT/releases/download/$env:PREVIOUS_RELEASE/GodspeedSetup.exe" -OutFile prev.exe
+          if ((Get-FileHash prev.exe).Hash.ToLower() -ne $env:PREVIOUS_SETUP_SHA256) { 'not the release file'; exit 1 }
+      - name: Install, refuse the older one, look for an update, uninstall
+        shell: pwsh
+        run: ./windows/test-beta-install.ps1 -Mode ${{ matrix.mode }} -Setup built/new/GodspeedSetup.exe -Manifest built/new/candidate-manifest.json -Previous prev.exe -Older built/older/GodspeedSetup.exe -Evidence evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: install-${{ matrix.mode }}-evidence
+          path: evidence/
+          retention-days: 14
+
+  wizard:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [fresh, update]
+    runs-on: windows-2025
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: beta-windows-installers
+          path: built
+      - name: The newest published release first, the way a reader had it
+        if: matrix.mode == 'update'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "$env:KIT/releases/download/$env:PREVIOUS_RELEASE/GodspeedSetup.exe" -OutFile prev.exe
+          if ((Get-FileHash prev.exe).Hash.ToLower() -ne $env:PREVIOUS_SETUP_SHA256) { 'not the release file'; exit 1 }
+          $env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')
+          $p = Start-Process .\prev.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru
+          if (-not $p.WaitForExit(3600000)) { 'previous release hung'; exit 1 }
+          "previous installer exit: $($p.ExitCode)"
+      - name: The wizard on screen, Next on every page, its last page read
+        shell: pwsh
+        run: ./windows/test-finish-page.ps1 -Setup built/new/GodspeedSetup.exe -Evidence evidence ${{ matrix.mode == 'update' && '-ExpectUpdate' || '' }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wizard-${{ matrix.mode }}-evidence
+          path: evidence/
+          retention-days: 14
+
+  suites:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: The Windows suite under Windows PowerShell 5.1
+        shell: pwsh
+        run: |
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File windows/test-windows.ps1
+          if ($LASTEXITCODE) { exit 1 }
+          foreach ($t in 'test-starter-ref.ps1', 'test-full-alpha-native.ps1', 'test-full-alpha-native-errors.ps1', 'test-full-alpha-backup-root.ps1') {
+            & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "windows/$t"
+            if ($LASTEXITCODE) { "FAIL $t"; exit 1 }
+          }
+
+  bash-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: test.sh, detached from any terminal
+        run: setsid -w bash test.sh < /dev/null

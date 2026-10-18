@@ -1,10 +1,38 @@
-## File-based full alpha candidate
+## The Windows installer of Godspeed Mission Control version 2
 
-The `codex/godspeed-full-file-based` branch builds a separate Windows installer, `GodspeedSetup-Full-Alpha.exe`. It has its own application ID, workspace, state, startup and assistant profile. It does not replace the existing installer or adopt live data. Model accounts and optional connectors belong to the person trying the candidate.
+`windows/build-full-alpha.ps1 -KitCheckout <clean product checkout>` builds the `GodspeedSetup.exe`
+that the product's releases publish (as `dist\GodspeedSetup-Full-Alpha.exe`; the release renames
+it), after the product's notebook pages are built. It is `windows/godspeed-setup.iss` compiled with
+the notebook inside: the product at one exact commit, a pinned Node.js, and the file hashes of
+both. The version it shows in Windows' Apps list and in its file properties is the product's own
+(`notebook/package.json`), never an alpha.
 
-Build with `windows/build-full-alpha.ps1 -KitCheckout <clean product checkout>` after building the product notebook UI. Each payload carries the exact product and bootstrap revisions, all file hashes, source and licenses. The executable test runs only in an ephemeral Windows CI account and checks fresh installation, isolated Hermes desktop provisioning, offline records, restart, upgrade backup and uninstall retention. Its saved evidence and logs accompany the candidate artifact. First assistant provisioning requires internet access; shared Git settings, shortcuts, environment variables and system packages are not changed.
+What it does on a PC, and what it leaves alone:
 
-The older bootstrap documentation below describes the existing installation channel. Full alpha settings and paths are separate.
+- **A first install** makes the mission control in `%USERPROFILE%\godspeed-v2`, installs the
+  notebook, its own Hermes, Git and Node.js when missing, and starts the notebook at sign-in
+  without opening the browser.
+- **An update** is the same installer again, or the Start menu's **Update my mission control**,
+  which downloads the newest release's `GodspeedSetup.exe`, checks it against the release's
+  `SHA256SUMS` and runs it (`windows/update-godspeed.ps1`). A PC that has the notebook is always
+  updated in place; one PC keeps one notebook. A copy of the notebook is saved first.
+- **An older installer is refused before it touches anything** (`windows/detect-godspeed.ps1`,
+  run before the first page).
+- **The uninstaller** removes the program's own files, also those outside its folder: the helper
+  commands it recorded in `~\.godspeed\installed-commands.txt`, the daily job, the Startup entry
+  and the Hermes program (`windows/uninstall-godspeed.ps1`). The mission control folder, the
+  notebook's notes and files and the assistant's conversations stay.
+
+The words "full alpha" survive only in names existing installs depend on: the application ID,
+`%LOCALAPPDATA%\Godspeed Mission Control Full Alpha` (the program),
+`%LOCALAPPDATA%\Godspeed Mission Control Full Alpha State` (the notebook's data) and the script
+names the notebook calls. Renaming them would strand every PC that has it.
+
+`.github/workflows/beta-windows.yml` builds it from a branch and runs it on fresh GitHub Windows
+machines: silent and with the wizard on screen, as a first install and as the update over the
+newest published release, then the refusal, the update entry and the uninstaller.
+
+The bootstrap documentation below describes the shared floor and the first edition's installer.
 # kit-bootstrap
 
 The parts every one of our installers was copying by hand, kept in one place.
@@ -199,8 +227,11 @@ and the reason instead of a surprise.
 
 ## Menerio: connect it once, and every assistant has it
 
-Menerio is the author's online notebook, and it is optional. The installer asks
-about it once, with "no" as the answer unless the reader says yes.
+Menerio is an online notebook, and it is optional. Since 18 October 2026 an install or an
+update no longer asks about it: version 2 brings its own notebook, so the installer offers
+Menerio in one line as an import into that notebook (Settings, Import from Menerio). Connecting
+it is the Menerio step below, for whoever asks for it by name, with "no" as the answer unless
+they say yes.
 
 When the reader says yes, the installer stores the pasted key as `MENERIO_API_KEY`
 in the locked store inside the mission control (`secrets/mc-secrets.env.age`), makes it
@@ -219,8 +250,8 @@ one computer, so it is the line `GODSPEED_NOTEBOOK_MIRROR=1` or `=0` in
 `~/.godspeed/device.env`, and the kit's hourly runner obeys it in BOTH directions: after a
 no, nothing is sent to Menerio and nothing is fetched from it in the background.
 
-- A full install asks once for each computer. `--only menerio` asks again, with the
-  last answer as the default, so a mind can be changed.
+- The Menerio step asks once for each computer, and again with the last answer as the
+  default when it is run again, so a mind can be changed.
 - `KB_NOTEBOOK_MIRROR=yes|no` answers without asking. With no keyboard and no answer
   it is no, and nothing is written, so the question is still there for the day
   somebody is at the keyboard.
@@ -312,7 +343,8 @@ It works out which of the two jobs this PC needs by looking, and never by asking
 - **no mission control here** → asks where to put one, and whether to fetch a repository you
   already have, then makes it
 
-It also installs what is missing underneath: Git, Node.js and Claude Code.
+It also installs what is missing underneath: Git and Node.js, and the version 2 installer its
+own Hermes.
 
 Why an .exe rather than the one-line command that used to be the answer: the
 command was fine for whoever wrote it and a wall for everybody else, and
@@ -385,12 +417,19 @@ still said ALL PASS. Every skip announces itself now.
 5.1 still asks for a version of TLS that GitHub refuses. That is the shape of bug
 which reaches every reader and never the author.
 
-To test the installer itself without a wizard appearing:
+To test the installer itself without a wizard appearing, wait for the setup itself. Typed on
+its own, PowerShell gives the prompt back at once, because it never waits for a program with
+windows; `Start-Process -Wait` waits for the notebook the setup leaves running, so for ever:
 
 ```powershell
-.\dist\GodspeedSetup.exe /VERYSILENT /SUPPRESSMSGBOXES
+$p = Start-Process .\dist\GodspeedSetup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -PassThru
+$p.WaitForExit(); "exit code: $($p.ExitCode)"
 type "$env:LOCALAPPDATA\Godspeed\setup-log.txt"
 ```
+
+A silent run shows nothing and asks nothing: on a PC that has a mission control it updates it
+(`/BESIDE=yes` makes a second one instead), and anything that would have been a message box ends
+it with a non-zero exit code and a line in the setup's log.
 
 ### What joining actually does
 
