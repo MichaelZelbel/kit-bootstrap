@@ -3824,8 +3824,11 @@ Write-Host "-- the beta fixes of 18 October 2026: what a Windows beta tester met
 $BetaWin = $PSScriptRoot
 $BetaPs = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 function New-BetaGodspeed([string]$Name) {
+    # What Test-KitGodspeed looks for, made by hand: a .git folder and an AGENTS.md. Made by
+    # `git init` this came back without its .git on a GitHub machine, where the same case passes
+    # on a desk.
     $d = New-TestDir $Name
-    git -C $d init -q 2>&1 | Out-Null
+    New-Item -ItemType Directory -Force (Join-Path $d '.git') | Out-Null
     Set-Content (Join-Path $d 'AGENTS.md') '# a mission control'
     return (Resolve-Path $d).Path
 }
@@ -4049,7 +4052,10 @@ $a = Invoke-BetaDetect '2026-10-17T10:00:00+02:00' $dother
 Check "detect: the folder to update is the one the notebook keeps, not the one this PC works from" {
     # Compared as folders, not as spellings: a temporary folder can come back in its short 8.3 form.
     $ok = (Test-KitSamePath $a['found'] $dws) -and ($a['notebook'] -eq '1') -and (Test-KitSamePath $a['worksfrom'] $dother) -and ($a['installed'] -eq ('a' * 40))
-    if (-not $ok) { Write-Host ("   answers: " + (($a.GetEnumerator() | Sort-Object Name | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join '; ') + "; expected found=$dws worksfrom=$dother") }
+    if (-not $ok) {
+        Write-Host ("   answers: " + (($a.GetEnumerator() | Sort-Object Name | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join '; ') + "; expected found=$dws worksfrom=$dother")
+        Write-Host ("   .git there: " + (Test-Path (Join-Path $dws '.git')) + ", AGENTS.md there: " + (Test-Path (Join-Path $dws 'AGENTS.md')) + ", seen as a mission control here: " + (Test-KitGodspeed $dws))
+    }
     $ok
 }
 Check "detect: a notebook here newer than the installer's is reported" { $a['newer'] -eq '1' }
