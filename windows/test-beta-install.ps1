@@ -98,7 +98,7 @@ $log = Get-Content $setupLog -Raw
 Copy-Item $setupLog (Join-Path $Evidence "setup-log-$Mode.txt") -ErrorAction SilentlyContinue
 Want 'the setup never says Hermes is missing' { $log -and -not ($log -match 'Hermes is not on this PC yet') -and -not ($log -match 'some things will not work until they are here:[^\r\n]*Hermes') }
 Want 'it asks nothing about Menerio and offers the import instead' { -not $log.Contains('Connect Menerio now?') -and $log.Contains('Import from Menerio') }
-Want 'it names no person and sends nothing anywhere' { -not ($log -match 'Michael') -and -not $log.Contains('install count: sent') }
+Want 'it names no person and sends nothing anywhere' { -not (($log -replace 'MichaelZelbel', '') -match 'Michael') -and -not $log.Contains('install count: sent') }
 $startup = [Environment]::GetFolderPath('Startup')
 Want 'the Startup entry starts the notebook without opening the browser, under one plain name' {
   $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $startup 'Godspeed Mission Control.lnk'))

@@ -156,6 +156,8 @@ jobs:
       - name: The Windows suite under Windows PowerShell 5.1
         shell: pwsh
         run: |
+          # As a reader's Windows PowerShell has it, not with PowerShell 7's module path inherited.
+          $env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')
           & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File windows/test-windows.ps1
           if ($LASTEXITCODE) { exit 1 }
           foreach ($t in 'test-starter-ref.ps1', 'test-full-alpha-native.ps1', 'test-full-alpha-native-errors.ps1', 'test-full-alpha-backup-root.ps1') {
