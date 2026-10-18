@@ -110,7 +110,11 @@ Want "the Apps list shows one Godspeed Mission Control, version $($built.version
   $apps.Count -eq 1 -and $apps[0].DisplayName -eq 'Godspeed Mission Control' -and $apps[0].DisplayVersion -eq $built.version -and
     -not ($built.version -match 'alpha')
 }
-Want "the installer's file properties say the beta version" { -not ((Get-Item $Setup).VersionInfo.ProductVersion -match 'alpha') -and (Get-Item $Setup).VersionInfo.ProductName -eq 'Godspeed Mission Control' }
+# The version resource pads its texts with spaces, which the Properties window does not show.
+Want "the installer's file properties say Godspeed Mission Control $($built.version)" {
+  $v = (Get-Item $Setup).VersionInfo
+  $v.ProductVersion.Trim() -eq $built.version -and $v.ProductName.Trim() -eq 'Godspeed Mission Control' -and -not ($v.ProductVersion -match 'alpha')
+}
 Want 'the commands it put on this PC are recorded for the uninstaller' { @(Get-Content (Join-Path $HOME '.godspeed\installed-commands.txt')).Count -ge 5 }
 if ($Mode -eq 'update') {
   Want 'the update went into the mission control that was there, and made no second one' { -not (Test-Path (Join-Path $HOME 'godspeed')) -and @(Get-ChildItem $HOME -Directory -Filter 'godspeed*').Count -eq 1 }
