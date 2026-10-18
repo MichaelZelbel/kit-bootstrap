@@ -77,7 +77,7 @@ jobs:
         if: matrix.scenario == 'install'
         shell: pwsh
         run: |
-          ./bootstrap/windows/test-beta-install.ps1 -Mode '${{ matrix.mode }}' -Setup candidate/GodspeedSetup.exe -Manifest candidate/windows-manifest.json -Previous "$env:MIGRATION_FIXTURES/GodspeedSetup.exe" -Older bootstrap/windows/dist/GodspeedSetup-Full-Alpha.exe -Evidence evidence
+          ./scripts/migration/invoke-install-check.ps1 -BootstrapRoot "$pwd/bootstrap" -Mode '${{ matrix.mode }}' -Setup candidate/GodspeedSetup.exe -Manifest candidate/windows-manifest.json -Previous "$env:MIGRATION_FIXTURES/GodspeedSetup.exe" -Older bootstrap/windows/dist/GodspeedSetup-Full-Alpha.exe -Evidence evidence
       - name: Original previous installer before the update wizard
         if: matrix.scenario == 'wizard' && matrix.mode == 'update'
         shell: pwsh
