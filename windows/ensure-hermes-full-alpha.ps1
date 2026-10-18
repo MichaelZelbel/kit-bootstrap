@@ -32,13 +32,13 @@ if(-not $sourceRoot -and $Provision){
   $env:GIT_CONFIG_KEY_0='windows.appendAtomically';$env:GIT_CONFIG_VALUE_0='false'
   $env:GIT_CONFIG_KEY_1='core.longpaths';$env:GIT_CONFIG_VALUE_1='true'
   $process=Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"'+$installer+'"'),'-HermesHome',('"'+$runtimeHome+'"'),'-InstallDir',('"'+$sourceRoot+'"'),'-Commit',$source.commit,'-NonInteractive','-SkipSetup','-SkipComputerUse','-IncludeDesktop') -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput $log -RedirectStandardError (Join-Path $State 'hermes-install-error.log')
-  if($process.ExitCode -ne 0){throw 'The isolated Hermes desktop installation failed. The notebook files remain available; the installer log is in candidate state.'}
+  if($process.ExitCode -ne 0){throw ('Hermes, the program your assistant runs in, could not be installed. Your notebook and its notes are fine. What happened is in '+$log+'.')}
   $executable=Join-Path $runtimeHome 'bin\hermes.exe'
 }
 $desktop=if($sourceRoot){Join-Path $sourceRoot 'apps\desktop\release\win-unpacked\Hermes.exe'}else{$null}
 if(-not $desktop -or -not(Test-Path -LiteralPath $desktop)){
-  if($Provision){throw 'Hermes provisioning did not produce the candidate desktop. Check the saved candidate provisioning logs.'}
-  [pscustomobject]@{verified=$false;reason='Hermes desktop is not installed in the candidate runtime.'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $State 'assistant.json') -Encoding UTF8
+  if($Provision){throw ('Hermes was installed without its window, so your assistant cannot open. What happened is in '+(Join-Path $State 'hermes-install.log')+'.')}
+  [pscustomobject]@{verified=$false;reason='Hermes is not installed for this notebook yet.'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $State 'assistant.json') -Encoding UTF8
   return
 }
 # Only new candidate configuration is written. The installed default profile is never read or changed.
@@ -54,7 +54,7 @@ $env:GODSPEED_WORKSPACE=$Workspace;$env:GODSPEED_PORT=[string]$Port;$env:GODSPEE
 $config=Get-Content -LiteralPath (Join-Path $State 'installation.json') -Raw -ErrorAction SilentlyContinue|ConvertFrom-Json
 $appRoot=if($config){$config.appRoot}else{$PSScriptRoot}
 & (Join-Path $appRoot 'payload\runtime\node.exe') (Join-Path $appRoot 'payload\kit\notebook\scripts\wire-assistant.mjs') $profileHome|Out-Null
-if($LASTEXITCODE -ne 0){throw 'Candidate assistant connection settings could not be saved.'}
+if($LASTEXITCODE -ne 0){throw 'Your assistant could not be connected to the notebook.'}
 # The mail tool in this assistant's own profile, after wire-assistant gave it the notebook tool (the other
 # order would leave the notebook tool out). Connect-KitMail in join.ps1 runs before this profile exists
 # and wires only the default Hermes, so until 8 October 2026 the assistant the reader talks to had no

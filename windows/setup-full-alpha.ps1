@@ -6,30 +6,32 @@ $env:NODE_NO_WARNINGS='1'
 $AppRoot=[IO.Path]::GetFullPath($AppRoot)
 $payload=Join-Path $AppRoot 'payload'
 $manifestPath=Join-Path $payload 'candidate-manifest.json'
-if(-not(Test-Path -LiteralPath $manifestPath)){throw 'The candidate manifest is missing.'}
+if(-not(Test-Path -LiteralPath $manifestPath)){throw 'The list of the notebook program''s files is missing. Download the installer again.'}
 $manifest=Get-Content -LiteralPath $manifestPath -Raw|ConvertFrom-Json
-if($manifest.dataFormat -ne 1 -or $manifest.channel -ne 'full-alpha'){throw 'This is not a supported full alpha package.'}
+if($manifest.dataFormat -ne 1 -or $manifest.channel -ne 'full-alpha'){throw 'This installer carries a notebook this setup cannot install. Download the newest installer.'}
 foreach($file in $manifest.files){
   $target=[IO.Path]::GetFullPath((Join-Path $payload $file.path))
   if(-not $target.StartsWith($payload+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'Invalid package path.'}
-  if(-not(Test-Path -LiteralPath $target) -or (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant() -ne $file.sha256){throw "Candidate integrity check failed: $($file.path)"}
+  if(-not(Test-Path -LiteralPath $target) -or (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant() -ne $file.sha256){throw "A file of the notebook program is damaged ($($file.path)). Download the installer again."}
 }
 $state=Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
 New-Item -ItemType Directory -Force -Path $state|Out-Null
 $configFile=Join-Path $state 'installation.json'
 if(Test-Path -LiteralPath $configFile){
   $config=Get-Content -LiteralPath $configFile -Raw|ConvertFrom-Json
-  if($Workspace -and [IO.Path]::GetFullPath($Workspace) -ne $config.workspace){throw 'An upgrade cannot silently change the candidate workspace.'}
+  if($Workspace -and [IO.Path]::GetFullPath($Workspace) -ne $config.workspace){throw ('This PC''s notebook belongs to the mission control at '+$config.workspace+', and an update cannot move it to another folder.')}
 }else{
   if(-not $Workspace){$Workspace=Join-Path $env:USERPROFILE 'GodspeedMissionControl-Full-Alpha'}
   $Workspace=[IO.Path]::GetFullPath($Workspace)
-  if((Test-Path -LiteralPath $Workspace) -and (Get-ChildItem -LiteralPath $Workspace -Force|Select-Object -First 1) -and -not($OriginalStarter -and (Test-Path -LiteralPath (Join-Path $Workspace 'rules')) -and (Test-Path -LiteralPath (Join-Path $Workspace 'AGENTS.md')))){throw 'Choose an empty alpha workspace or the Godspeed folder made by the original installer.'}
+  if((Test-Path -LiteralPath $Workspace) -and (Get-ChildItem -LiteralPath $Workspace -Force|Select-Object -First 1) -and -not($OriginalStarter -and (Test-Path -LiteralPath (Join-Path $Workspace 'rules')) -and (Test-Path -LiteralPath (Join-Path $Workspace 'AGENTS.md')))){throw 'That folder already holds files. Choose an empty folder, or a mission control folder made by an earlier Godspeed setup.'}
   New-Item -ItemType Directory -Force -Path $Workspace|Out-Null
-  if($Port -lt 1024 -or $Port -gt 65535){throw 'Choose an unused candidate port above 1023.'}
+  if($Port -lt 1024 -or $Port -gt 65535){throw 'Choose an unused port above 1023 for the notebook.'}
   $config=[pscustomobject]@{channel='full-alpha';workspace=$Workspace;media=(Join-Path $state 'media');port=$Port;owner='local';appRoot=$AppRoot;dataFormat=1}
 }
-if($config.channel -ne 'full-alpha'){throw 'Refusing to modify a stable installation.'}
-# An older installer never replaces a newer notebook on this PC (6 October 2026).
+if($config.channel -ne 'full-alpha'){throw 'The notebook record on this PC is not one this setup made, so it was left alone.'}
+# An older installer never replaces a newer notebook on this PC (6 October 2026). Since 18 October
+# 2026 the wizard refuses before it touches anything (detect-godspeed.ps1); this stays for a setup
+# started some other way.
 if($config.kitCommittedAt -and $manifest.kitCommittedAt -and ([datetimeoffset]$manifest.kitCommittedAt) -lt ([datetimeoffset]$config.kitCommittedAt)){
   throw ('This installer holds an older version ('+$manifest.kitCommit.Substring(0,7)+') than the one on this PC ('+$config.kitCommit.Substring(0,7)+'). Use the newest installer.')
 }
@@ -42,11 +44,11 @@ if((Test-Path -LiteralPath (Join-Path $config.workspace 'notebook')) -or (Test-P
   $backupRoot=Get-FullAlphaBackupRoot -State $state
   $backup=Join-Path $backupRoot (Get-Date -Format 'yyyyMMdd-HHmmss-fff')
   $env:GODSPEED_WORKSPACE=$config.workspace;$env:GODSPEED_MEDIA_ROOT=$config.media
-  Invoke-FullAlphaNode -Node (Join-Path $payload 'runtime\node.exe') -Arguments @((Join-Path $payload 'kit\notebook\bin\godspeed.mjs'),'backup',$backup) -Step 'Candidate backup'
+  Invoke-FullAlphaNode -Node (Join-Path $payload 'runtime\node.exe') -Arguments @((Join-Path $payload 'kit\notebook\bin\godspeed.mjs'),'backup',$backup) -Step 'Saving a copy of your notebook before the update'
 }
 $config.appRoot=$AppRoot
 $env:GODSPEED_WORKSPACE=$config.workspace;$env:GODSPEED_MEDIA_ROOT=$config.media
-Invoke-FullAlphaNode -Node (Join-Path $payload 'runtime\node.exe') -Arguments @((Join-Path $payload 'kit\notebook\bin\godspeed.mjs'),'init') -Step 'Candidate workspace initialization'
+Invoke-FullAlphaNode -Node (Join-Path $payload 'runtime\node.exe') -Arguments @((Join-Path $payload 'kit\notebook\bin\godspeed.mjs'),'init') -Step 'Setting up the notebook'
 # The record of which workspace is this installation's, kept as soon as that workspace exists. Until
 # 6 October 2026 it was written last, so a setup that stopped at a later step left a workspace that
 # no start, stop or upgrade could find.
@@ -68,12 +70,19 @@ if(-not(Test-Path -LiteralPath (Join-Path $config.workspace '.godspeed\sync-conf
 }
 if(-not $SkipHermes){& (Join-Path $AppRoot 'ensure-hermes-full-alpha.ps1') -State $state -Workspace $config.workspace -Port $config.port -Provision|Out-Null}
 Save-FullAlphaInstallation
+# The notebook starts at sign-in, quietly. Until 18 October 2026 the entry left out -NoBrowser, so
+# every sign-in opened the notebook in the browser, and it was named "... Full Alpha", which is what
+# Windows shows under Startup apps. The old name is removed so there is only one.
 if(-not $NoStartup){
-  $shortcutPath=Join-Path ([Environment]::GetFolderPath('Startup')) 'Godspeed Mission Control Full Alpha.lnk'
+  $startup=[Environment]::GetFolderPath('Startup')
+  $oldShortcut=Join-Path $startup 'Godspeed Mission Control Full Alpha.lnk'
+  if(Test-Path -LiteralPath $oldShortcut){Remove-Item -LiteralPath $oldShortcut -Force}
+  $shortcutPath=Join-Path $startup 'Godspeed Mission Control.lnk'
   $shellObject=New-Object -ComObject WScript.Shell
   $shortcut=$shellObject.CreateShortcut($shortcutPath)
   $shortcut.TargetPath=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-  $shortcut.Arguments='-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "'+(Join-Path $AppRoot 'start-full-alpha.ps1')+'"'
+  $shortcut.Arguments='-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "'+(Join-Path $AppRoot 'start-full-alpha.ps1')+'" -NoBrowser'
+  $shortcut.Description='Starts your Godspeed Mission Control notebook when you sign in'
   $shortcut.WindowStyle=7;$shortcut.Save()
 }
 if(-not $NoStart){& (Join-Path $AppRoot 'start-full-alpha.ps1') -NoBrowser}

@@ -499,7 +499,7 @@ Check "an update says in one line that every new chat is saved from now on" {
     ($eng -match 'if \(\(Set-KitPromptSince\) -and -not \$isNew\) \{') -and
     $eng.Contains('from now on, every new chat with the AI apps on this PC is saved in your mission control')
 }
-# THE WIZARD PAGE, as Michael met it on 2026-09-21: "Your AI tools", greyed boxes reading
+# THE WIZARD PAGE, as the maintainer met it on 2026-09-21: "Your AI tools", greyed boxes reading
 # "cannot sync", and no way to act on any of them. Checked in the source, because the page
 # only exists inside the compiled .exe.
 Check "the wizard gives no tool a box it cannot tick, and names those tools in words" {
@@ -1916,7 +1916,7 @@ Check "a stand-in named by KB_AGE is never 'fixed' by installing the real one" {
 
 $JoinSrc = Get-Content (Join-Path $PSScriptRoot '..\join.ps1') -Raw
 Check "the Menerio question is asked in the new words, and no longer about 'a notebook'" {
-    $JoinSrc.Contains('Menerio is optional. Everything in this book works on plain files without it.') -and
+    $JoinSrc.Contains('Menerio is optional. Godspeed Mission Control works on plain files without it.') -and
         $JoinSrc.Contains('A free account is enough to try it: https://menerio.com/auth?tab=signup') -and
         $JoinSrc.Contains('Read-Host "Connect Menerio now? (y/N)"') -and
         -not $JoinSrc.Contains('Connect a notebook now')
@@ -2201,14 +2201,17 @@ Write-Host ""
 Write-Host "-- the install count: asked once per PC, default no, nothing sent without a yes"
 # Every case stands in for Invoke-KitInstallCountPost, the one network call, so nothing here can
 # reach the real receiver. Invoke-NotebookCase hands each case a fresh home.
-function Invoke-CountCase([scriptblock]$Body) {
-    $c0 = $env:GODSPEED_INSTALL_COUNT; $d0 = $env:DO_NOT_TRACK; $b0 = $env:KB_BRANCH
+# A test address of its own, never the real one. -NoAddress runs a case with none set, and then
+# nobody is asked and nothing is sent.
+function Invoke-CountCase([scriptblock]$Body, [switch]$NoAddress) {
+    $c0 = $env:GODSPEED_INSTALL_COUNT; $d0 = $env:DO_NOT_TRACK; $b0 = $env:KB_BRANCH; $u0 = $script:KitInstallCountUrl
     try {
         $env:GODSPEED_INSTALL_COUNT = $null; $env:DO_NOT_TRACK = $null; $env:KB_BRANCH = 'v9.9'
+        $script:KitInstallCountUrl = if ($NoAddress) { '' } else { 'https://counter.example/signal/v1' }
         $script:posted = @()
         function Invoke-KitInstallCountPost { param($Body) $script:posted += $Body }
         Invoke-NotebookCase $Body
-    } finally { $env:GODSPEED_INSTALL_COUNT = $c0; $env:DO_NOT_TRACK = $d0; $env:KB_BRANCH = $b0 }
+    } finally { $env:GODSPEED_INSTALL_COUNT = $c0; $env:DO_NOT_TRACK = $d0; $env:KB_BRANCH = $b0; $script:KitInstallCountUrl = $u0 }
 }
 function Get-CountLine([string]$HomeDir, [string]$Name) {
     $f = Join-Path $HomeDir '.godspeed\device.env'
@@ -2226,6 +2229,30 @@ Check "nobody at the keyboard means no question, nothing written, nothing sent" 
         Send-KitInstallCount -What 'installed' -Kind 'windows' -Run 'new' 6>&1 | Out-Null
         ((Get-CountLine $h 'GODSPEED_INSTALL_COUNT') -eq '') -and ($script:posted.Count -eq 0)
     }
+}
+Check "with no counter address set, even a keyboard is asked nothing, and nothing is written or sent" {
+    Invoke-CountCase -NoAddress {
+        param($h)
+        $script:asked = @()
+        function Test-KitInteractive { $true }
+        function Read-Host { param($Prompt) $script:asked += $Prompt; 'y' }
+        Select-KitInstallCount 6>&1 | Out-Null
+        Send-KitInstallCount -What 'installed' -Kind 'windows' -Run 'new' 6>&1 | Out-Null
+        ($script:asked.Count -eq 0) -and ((Get-CountLine $h 'GODSPEED_INSTALL_COUNT') -eq '') -and ($script:posted.Count -eq 0)
+    }
+}
+Check "and an earlier yes sends nothing without an address" {
+    Invoke-CountCase -NoAddress {
+        param($h)
+        $env:GODSPEED_INSTALL_COUNT = 'yes'
+        Select-KitInstallCount 6>&1 | Out-Null
+        Send-KitInstallCount -What 'installed' -Kind 'windows' -Run 'new' 6>&1 | Out-Null
+        $script:posted.Count -eq 0
+    }
+}
+Check "the library counts on the website's address, never on a server of the maintainer's own" {
+    $j = Get-Content (Join-Path $PSScriptRoot '..\join.ps1') -Raw
+    $j.Contains("else { 'https://godspeedmissioncontrol.com/signal/v1' }") -and -not $j.Contains('hstgr')
 }
 Check "Enter means no, it is written down, and a second run does not ask again" {
     Invoke-CountCase {
@@ -2308,7 +2335,8 @@ Check "so a silent install is not asked, nothing is written and nothing is sent"
 Check "a silent wizard tells the engine, and the engine sets KB_UNATTENDED" {
     $iss = Get-Content (Join-Path $PSScriptRoot 'godspeed-setup.iss') -Raw
     $src = Get-Content (Join-Path $PSScriptRoot 'setup-godspeed.ps1') -Raw
-    (@($iss -split "`n" | Where-Object { $_ -match 'setup-godspeed\.ps1.*-NoPause' -and $_ -match '\{code:GetUnattendedFlag\}' }).Count -eq 1) -and
+    # Two run lines since 18 October 2026: the one with its window, and the hidden one for /VERYSILENT.
+    (@($iss -split "`n" | Where-Object { $_ -match 'setup-godspeed\.ps1.*-NoPause' -and $_ -match '\{code:GetUnattendedFlag\}' }).Count -eq 2) -and
         ($iss -match "if WizardSilent then Result := ' -Unattended'") -and
         ($src -match '\[switch\]\$Unattended') -and
         ($src -match 'if \(\$Unattended\) \{ \$env:KB_UNATTENDED = ''1'' \}')
@@ -3287,8 +3315,8 @@ Check "beside leaves Hermes pointing where it was, and says so" {
 # refactor that drops one of them puts the collision back without failing anything above.
 $SetupSrc = Get-Content (Join-Path $PSScriptRoot 'setup-godspeed.ps1') -Raw
 Check "the installer takes -Beside" { $SetupSrc -match '\[switch\]\$Beside' }
-Check "the missing-code canary is the newest function, Show-KitGmailRetired" {
-    $SetupSrc -match "Get-Command Show-KitGmailRetired -ErrorAction SilentlyContinue"
+Check "the missing-code canary is the newest function, Test-KitOwnHermes" {
+    $SetupSrc -match "Get-Command Test-KitOwnHermes -ErrorAction SilentlyContinue"
 }
 Check "the GODSPEED_DIR user variable is written only when this mission control is the one in charge" {
     $SetupSrc -match "if \(-not \(Test-KitBeside\)\) \{[^}]*SetEnvironmentVariable\('GODSPEED_DIR'"
@@ -3323,7 +3351,7 @@ Check "the page is not shown on a PC with no mission control to sit beside" {
     $IssSrc -match "if PageID = BesidePage\.ID then\s+Result := \(FoundGodspeed = ''\)"
 }
 Check "the folder page opens when the box is ticked, and stays skipped when it is not" {
-    $IssSrc -match "Result := \(FoundGodspeed <> ''\) and \(not Beside\)"
+    ($IssSrc -match "Result := not AskingWhere;") -and ($IssSrc -match "Result := \(FoundGodspeed = ''\) or NewBeside;")
 }
 Check "a second mission control may not be the folder this PC already works from" {
     $IssSrc -match 'cannot sit beside itself'
@@ -3523,8 +3551,12 @@ Check "the wizard carries a pin, and it is a tag rather than the moving branch" 
 }
 Check "the wizard also carries its own version" { $IssSrc2 -match '#define\s+AppVersion\s+"[0-9]' }
 Check "the install run is given the pin" {
+    # Both run lines: the one with its window, and the hidden one for /VERYSILENT.
     ($IssSrc2 -split "`n" | Where-Object { $_ -match 'setup-godspeed\.ps1.*-NoPause' } |
-        Where-Object { $_ -match '-KbBranch' }).Count -eq 1
+        Where-Object { $_ -match '-KbBranch' }).Count -eq 2
+}
+Check "a /VERYSILENT run hides the window that shows the work, and every other run shows it" {
+    ($IssSrc2 -match 'Flags: waituntilterminated; Check: not IsVerySilent') -and ($IssSrc2 -match 'Flags: waituntilterminated runhidden; Check: IsVerySilent')
 }
 Check "and so is the Start Menu updater, or a reader who clicks it floats after all" {
     ($IssSrc2 -split "`n" | Where-Object { $_ -match 'setup-godspeed\.ps1' -and $_ -notmatch '-NoPause' -and $_ -match 'Parameters:' } |
@@ -3782,6 +3814,332 @@ Check "the suite left no test entry in the real login start" {
     -not (Test-Path 'HKCU:\Software\GodspeedKbTest') -and
         -not ((Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).PSObject.Properties.Value -match 'kb-test-')
 }
+
+Write-Host ""
+Write-Host "-- the beta fixes of 18 October 2026: what a Windows beta tester met first"
+# Each case is one fault the fresh-machine runs of 17 October 2026 found (the website's
+# docs/guide/unverified.md, "Found on fresh machines"). Nothing here touches the real PC: every
+# path, task name and registry key is a test one, and LOCALAPPDATA points into this run's folder
+# wherever a script writes there.
+$BetaWin = $PSScriptRoot
+$BetaPs = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+function New-BetaGodspeed([string]$Name) {
+    $d = New-TestDir $Name
+    git -C $d init -q 2>&1 | Out-Null
+    Set-Content (Join-Path $d 'AGENTS.md') '# a mission control'
+    return (Resolve-Path $d).Path
+}
+function Get-BetaAnswers([string]$File) {
+    $a = @{}
+    foreach ($line in (Get-Content -LiteralPath $File -Encoding UTF8)) {
+        $line = $line.TrimStart([char]0xFEFF)
+        $i = $line.IndexOf('=')
+        if ($i -gt 0) { $a[$line.Substring(0, $i)] = $line.Substring($i + 1) }
+    }
+    return $a
+}
+
+# 1. Hermes is reported missing only when it is.
+Check "a setup that brings its own Hermes does not call it missing, and counts nothing missing" {
+    try { $env:KB_ASSUME_TOOLS = '-'; $env:KB_OWN_HERMES = '1'
+          $env:KB_HERMES_BIN = Join-Path $Root 'no-such-hermes.exe'
+          $env:KB_OWN_HERMES_RECORD = Join-Path $Root 'no-such-assistant.json'
+          $txt = Confirm-KitHermes 3>&1 6>&1 | Out-String -Width 4096
+          ((Confirm-KitHermes 3>$null 6>$null) -eq $true) -and -not $txt.Contains('not on this PC') -and
+              -not $txt.Contains('nousresearch') -and $txt.Contains('nothing to download') }
+    finally { $env:KB_ASSUME_TOOLS = $null; $env:KB_OWN_HERMES = $null; $env:KB_HERMES_BIN = $null; $env:KB_OWN_HERMES_RECORD = $null }
+}
+Check "on an update it says the Hermes that came with Godspeed is here" {
+    try { $env:KB_ASSUME_TOOLS = '-'; $env:KB_OWN_HERMES = '1'
+          $env:KB_HERMES_BIN = Join-Path $Root 'no-such-hermes.exe'
+          $exe = Join-Path (New-TestDir 'own-hermes') 'hermes.exe'; Set-Content $exe 'x'
+          $env:KB_OWN_HERMES_RECORD = Join-Path $Root 'own-hermes\assistant.json'
+          (@{ verified = $true; executable = $exe } | ConvertTo-Json) | Set-Content $env:KB_OWN_HERMES_RECORD
+          (Confirm-KitHermes 3>&1 6>&1 | Out-String -Width 4096).Contains('the one that came with Godspeed Mission Control') }
+    finally { $env:KB_ASSUME_TOOLS = $null; $env:KB_OWN_HERMES = $null; $env:KB_HERMES_BIN = $null; $env:KB_OWN_HERMES_RECORD = $null }
+}
+Check "a Hermes the person must install themselves is still reported missing" {
+    try { $env:KB_ASSUME_TOOLS = '-'; $env:KB_HERMES_BIN = Join-Path $Root 'no-such-hermes.exe'
+          @(Install-KitPrereqs 3>$null 6>$null) -contains 'Hermes' }
+    finally { $env:KB_ASSUME_TOOLS = $null; $env:KB_HERMES_BIN = $null }
+}
+Check "the four wiring steps say nothing about a missing Hermes when the setup brings its own" {
+    try { $env:KB_OWN_HERMES = '1'; $env:KB_HERMES_BIN = Join-Path $Root 'no-such-hermes.exe'
+          $g = New-BetaGodspeed 'own-hermes-godspeed'
+          $txt = (Set-KitHermesSkillsDir -Room (Join-Path $g 'skills') 3>&1 6>&1 | Out-String -Width 4096) +
+                 (Set-KitHermesGodspeed -Godspeed $g 3>&1 6>&1 | Out-String -Width 4096) +
+                 (Set-KitHermesOneMemory 3>&1 6>&1 | Out-String -Width 4096) + (Set-KitHermesApprovals 3>&1 6>&1 | Out-String -Width 4096)
+          -not $txt.Contains('Hermes is not on this PC yet') }
+    finally { $env:KB_OWN_HERMES = $null; $env:KB_HERMES_BIN = $null }
+}
+Check "and without it they still say so" {
+    try { $env:KB_HERMES_BIN = Join-Path $Root 'no-such-hermes.exe'
+          (Set-KitHermesApprovals 3>&1 6>&1 | Out-String -Width 4096).Contains('Hermes is not on this PC yet') }
+    finally { $env:KB_HERMES_BIN = $null }
+}
+Check "the setup with the notebook tells the install code it brings its own Hermes" {
+    (Get-Content (Join-Path $BetaWin 'setup-godspeed.ps1') -Raw) -match "if \(\`$IntegratedNotebook\) \{[\s\S]{0,600}\`$env:KB_OWN_HERMES = '1'"
+}
+
+# 2. No personal names, and Menerio only as an import offered plainly.
+Check "an install at a keyboard is asked nothing about Menerio, and offered the import in one line" {
+    Invoke-NotebookCase {
+        param($h)
+        $script:asked = @()
+        function Test-KitInteractive { $true }
+        function Read-Host { param($Prompt) $script:asked += $Prompt; 'n' }
+        $k0 = $env:KB_ONLY_MENERIO; $n0 = $env:KB_NOTEBOOK
+        try { $env:KB_ONLY_MENERIO = $null; $env:KB_NOTEBOOK = $null
+              $out = Connect-KitNotebook -Godspeed (New-NotebookGodspeed 'menerio-import') 3>&1 6>&1 | Out-String -Width 4096 }
+        finally { $env:KB_ONLY_MENERIO = $k0; $env:KB_NOTEBOOK = $n0 }
+        ($script:asked.Count -eq 0) -and $out.Contains('Settings, Import from Menerio')
+    }
+}
+Check "the Menerio step still asks, in words that name no author" {
+    Invoke-NotebookCase {
+        param($h)
+        $script:asked = @()
+        function Test-KitInteractive { $true }
+        function Read-Host { param($Prompt) $script:asked += $Prompt; 'n' }
+        $k0 = $env:KB_ONLY_MENERIO
+        try { $env:KB_ONLY_MENERIO = '1'
+              $out = Connect-KitNotebook -Godspeed (New-NotebookGodspeed 'menerio-only') 3>&1 6>&1 | Out-String -Width 4096 }
+        finally { $env:KB_ONLY_MENERIO = $k0 }
+        (($script:asked -join '|') -eq 'Connect Menerio now? (y/N)') -and -not $out.Contains("author's")
+    }
+}
+Check "nothing a person reads in the install code names the maintainer (the LICENSE and the publisher credit stay)" {
+    $hits = foreach ($f in @('..\join.ps1', 'setup-godspeed.ps1', 'godspeed-setup.iss', 'setup-full-alpha.ps1', 'start-full-alpha.ps1',
+                             'stop-full-alpha.ps1', 'ensure-hermes-full-alpha.ps1', 'update-godspeed.ps1', 'uninstall-godspeed.ps1')) {
+        Select-String -LiteralPath (Join-Path $BetaWin $f) -Pattern 'Michael' -CaseSensitive |
+            Where-Object { $_.Line -notmatch 'MichaelZelbel' -and $_.Line -notmatch '^#define AppPublisher' }
+    }
+    @($hits).Count -eq 0
+}
+
+# 3. The helpers the setup wrote are recorded, so the uninstaller can remove exactly those.
+Check "the tools step records every name it wrote into .local\bin" {
+    $kit = New-TestDir 'record-kit'; New-TestKit -Path $kit
+    $home0 = $HOME
+    try {
+        $env:HOME = New-TestDir 'record-home'
+        Set-Variable -Name HOME -Value $env:HOME -Scope Global -Force
+        Install-KitGodspeedTools -Godspeed (New-TestDir 'record-godspeed') -ToolsRepo $kit 3>&1 4>&1 6>&1 | Out-Null
+        $rec = @(Get-Content (Join-Path (Get-KitHome) '.godspeed\installed-commands.txt'))
+        ($rec -contains 'prompt-harvest.js') -and ($rec -contains 'mc-prompt-harvest.cmd') -and ($rec -contains 'mc-compile-rules.cmd') -and
+            -not ($rec -contains 'README.md')
+    } finally {
+        Set-Variable -Name HOME -Value $home0 -Scope Global -Force
+        $env:HOME = $home0
+        try { [Environment]::SetEnvironmentVariable('Path', $UserPath0, 'User') } catch { }
+    }
+}
+
+# 4. The uninstaller removes the program's own files, and only those.
+function Invoke-BetaUninstall([string]$Name, [string]$FirstEditionKey) {
+    $base = New-TestDir $Name
+    $uh = Join-Path $base 'home'; $bin = Join-Path $uh '.local\bin'
+    $state = Join-Path $base 'state'; $app = Join-Path $base 'app'; $startup = Join-Path $base 'startup'; $la = Join-Path $base 'localappdata'
+    foreach ($d in $bin, (Join-Path $uh '.godspeed'), (Join-Path $state 'hermes-runtime\bin'), (Join-Path $state 'hermes-profile'),
+                   (Join-Path $state 'media'), (Join-Path $app 'payload\kit\tools'), $startup, $la) { New-Item -ItemType Directory -Force $d | Out-Null }
+    $ws = New-BetaGodspeed "$Name-mission-control"
+    (@{ channel = 'full-alpha'; workspace = $ws } | ConvertTo-Json) | Set-Content (Join-Path $state 'installation.json')
+    Set-Content (Join-Path $state 'hermes-runtime\bin\hermes.exe') 'program'
+    Set-Content (Join-Path $state 'hermes-profile\state.db') 'the conversations'
+    Set-Content (Join-Path $state 'media\photo.jpg') 'a photo'
+    foreach ($n in 'prompt-harvest.js', 'mc-due', 'due.js', 'README.md') { Set-Content (Join-Path $app "payload\kit\tools\$n") 'x' }
+    foreach ($n in 'prompt-harvest.js', 'mc-prompt-harvest.cmd', 'mc-due', 'mc-due.cmd', 'due.js', 'claude.exe', 'my-own.cmd', 'README.md') { Set-Content (Join-Path $bin $n) 'x' }
+    Set-Content (Join-Path $bin 'run-hidden.vbs') "' Run any console command with no visible window (written by the kit installer)."
+    Set-Content (Join-Path $bin 'godspeed') "#!/bin/sh`n# godspeed-cli-shim: runs the mission control command named below`nexec x"
+    Set-Content (Join-Path $bin 'godspeed.cmd') '@echo off'
+    Set-Content (Join-Path $uh '.godspeed\installed-commands.txt') @('prompt-harvest.js', 'mc-prompt-harvest.cmd')
+    Set-Content (Join-Path $uh '.godspeed\age-key.txt') 'the key to the locked secrets'
+    foreach ($n in 'Godspeed Mission Control.lnk', 'Godspeed Mission Control Full Alpha.lnk', 'Something else.lnk') { Set-Content (Join-Path $startup $n) 'x' }
+    $tasks = @("KbTestBetaOurs-$Name", "KbTestBetaOther-$Name")
+    $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument 'x' -WorkingDirectory $ws
+    Register-ScheduledTask -TaskName $tasks[0] -Action $action -Description 'kit-bootstrap test' -Force | Out-Null
+    $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument 'x' -WorkingDirectory $base
+    Register-ScheduledTask -TaskName $tasks[1] -Action $action -Description 'kit-bootstrap test' -Force | Out-Null
+    $la0 = $env:LOCALAPPDATA
+    try {
+        $env:LOCALAPPDATA = $la
+        $out = & (Join-Path $BetaWin 'uninstall-godspeed.ps1') -AppRoot $app -State $state -UserHome $uh -FirstEditionKey $FirstEditionKey `
+            -StartupFolder $startup -TaskNames $tasks -KeepUserEnvironment | Out-String -Width 4096
+    } finally { $env:LOCALAPPDATA = $la0 }
+    $r = [pscustomobject]@{
+        Out = $out; Bin = $bin; State = $state; Startup = $startup; Home = $uh; Workspace = $ws
+        Ours = [bool](Get-ScheduledTask -TaskName $tasks[0] -ErrorAction SilentlyContinue)
+        Other = [bool](Get-ScheduledTask -TaskName $tasks[1] -ErrorAction SilentlyContinue)
+    }
+    foreach ($t in $tasks) { Unregister-ScheduledTask -TaskName $t -Confirm:$false -ErrorAction SilentlyContinue }
+    return $r
+}
+$u = Invoke-BetaUninstall 'uninst' 'HKCU:\Software\GodspeedKbTest\no-first-edition'
+Check "uninstall: the helpers the setup wrote are gone, recorded or shipped by the notebook's kit" {
+    -not (Test-Path (Join-Path $u.Bin 'prompt-harvest.js')) -and -not (Test-Path (Join-Path $u.Bin 'mc-prompt-harvest.cmd')) -and
+        -not (Test-Path (Join-Path $u.Bin 'mc-due')) -and -not (Test-Path (Join-Path $u.Bin 'mc-due.cmd')) -and
+        -not (Test-Path (Join-Path $u.Bin 'due.js')) -and -not (Test-Path (Join-Path $u.Bin 'run-hidden.vbs')) -and
+        -not (Test-Path (Join-Path $u.Bin 'godspeed')) -and -not (Test-Path (Join-Path $u.Bin 'godspeed.cmd'))
+}
+Check "uninstall: another program's files in the same folder stay, so the folder stays on PATH" {
+    (Test-Path (Join-Path $u.Bin 'claude.exe')) -and (Test-Path (Join-Path $u.Bin 'my-own.cmd')) -and (Test-Path (Join-Path $u.Bin 'README.md')) -and
+        $u.Out.Contains('stays on your PATH')
+}
+Check "uninstall: the mission control, the notes, the photos, the conversations and the key all stay" {
+    (Test-Path (Join-Path $u.Workspace 'AGENTS.md')) -and (Test-Path (Join-Path $u.State 'media\photo.jpg')) -and
+        (Test-Path (Join-Path $u.State 'hermes-profile\state.db')) -and (Test-Path (Join-Path $u.State 'installation.json')) -and
+        (Test-Path (Join-Path $u.Home '.godspeed\age-key.txt'))
+}
+Check "uninstall: the Hermes program that came with the notebook is gone" {
+    -not (Test-Path (Join-Path $u.State 'hermes-runtime'))
+}
+Check "uninstall: both names of the Startup entry are gone, and nothing else in Startup" {
+    -not (Test-Path (Join-Path $u.Startup 'Godspeed Mission Control.lnk')) -and
+        -not (Test-Path (Join-Path $u.Startup 'Godspeed Mission Control Full Alpha.lnk')) -and (Test-Path (Join-Path $u.Startup 'Something else.lnk'))
+}
+Check "uninstall: the daily job of this mission control is gone, one of another folder stays" {
+    (-not $u.Ours) -and $u.Other
+}
+New-Item -Path 'HKCU:\Software\GodspeedKbTest\first-edition' -Force | Out-Null
+$u = Invoke-BetaUninstall 'uninst-v1' 'HKCU:\Software\GodspeedKbTest\first-edition'
+Check "uninstall beside the first edition: the shared helpers and jobs stay, the notebook's own Hermes goes" {
+    (Test-Path (Join-Path $u.Bin 'prompt-harvest.js')) -and $u.Ours -and -not (Test-Path (Join-Path $u.State 'hermes-runtime')) -and
+        $u.Out.Contains("first edition's setup is still on this PC")
+}
+$u = $null
+$ub = New-TestDir 'uninst-empty'
+Check "uninstall: a folder left empty leaves PATH too" {
+    $uh = Join-Path $ub 'home'; $bin = Join-Path $uh '.local\bin'; New-Item -ItemType Directory -Force $bin, (Join-Path $ub 'la') | Out-Null
+    Set-Content (Join-Path $bin 'prompt-harvest.js') 'x'
+    New-Item -ItemType Directory -Force (Join-Path $uh '.godspeed') | Out-Null
+    Set-Content (Join-Path $uh '.godspeed\installed-commands.txt') 'prompt-harvest.js'
+    $la0 = $env:LOCALAPPDATA
+    try {
+        $env:LOCALAPPDATA = Join-Path $ub 'la'
+        $out = & (Join-Path $BetaWin 'uninstall-godspeed.ps1') -AppRoot (Join-Path $ub 'app') -State (Join-Path $ub 'state') -UserHome $uh `
+            -FirstEditionKey 'HKCU:\Software\GodspeedKbTest\no-first-edition' -StartupFolder (Join-Path $ub 'startup') -TaskNames @('KbTestBetaNone') -KeepUserEnvironment | Out-String -Width 4096
+    } finally { $env:LOCALAPPDATA = $la0 }
+    # The user PATH of this account does not hold the test folder, so it is only said when it does.
+    (-not (Test-Path $bin)) -and -not $out.Contains('stays on your PATH')
+}
+Check "the uninstaller runs the removal after stopping the notebook, and says what stays" {
+    $iss = Get-Content (Join-Path $BetaWin 'godspeed-setup.iss') -Raw
+    ($iss.IndexOf('stop-full-alpha.ps1"" -Uninstall') -lt $iss.IndexOf('uninstall-godspeed.ps1""')) -and
+        $iss.Contains('RunOnceId: "RemoveProgramFiles"') -and $iss.Contains('Your mission control folder, your notebook''s notes, photos and files')
+}
+
+# 5. The wizard: which mission control, whether the notebook is here, and an older installer refused first.
+$dl = New-TestDir 'detect'
+$dws = New-BetaGodspeed 'detect-workspace'
+$dother = New-BetaGodspeed 'detect-first-edition'
+New-Item -ItemType Directory -Force (Join-Path $dl 'state') | Out-Null
+(@{ channel = 'full-alpha'; workspace = $dws; kitCommit = ('a' * 40); kitCommittedAt = '2026-10-18T10:00:00+02:00' } | ConvertTo-Json) |
+    Set-Content (Join-Path $dl 'state\installation.json') -Encoding UTF8
+function Invoke-BetaDetect([string]$Mine, [string]$WorksFrom) {
+    $outFile = Join-Path $dl ('answers-' + [guid]::NewGuid().ToString('N').Substring(0, 6) + '.txt')
+    $g0 = $env:GODSPEED_DIR
+    try {
+        $env:GODSPEED_DIR = $WorksFrom
+        & $BetaPs -NoProfile -ExecutionPolicy Bypass -File (Join-Path $BetaWin 'detect-godspeed.ps1') -Join (Join-Path $BetaWin '..\join.ps1') `
+            -Out $outFile -Mine $Mine -State (Join-Path $dl 'state') | Out-Null
+    } finally { $env:GODSPEED_DIR = $g0 }
+    return (Get-BetaAnswers $outFile)
+}
+$a = Invoke-BetaDetect '2026-10-17T10:00:00+02:00' $dother
+Check "detect: the folder to update is the one the notebook keeps, not the one this PC works from" {
+    ($a['found'] -eq $dws) -and ($a['notebook'] -eq '1') -and ($a['worksfrom'] -eq $dother) -and ($a['installed'] -eq ('a' * 40))
+}
+Check "detect: a notebook here newer than the installer's is reported" { $a['newer'] -eq '1' }
+$a = Invoke-BetaDetect '2026-10-18T09:00:00Z' $dws
+Check "detect: the same or a newer installer is not refused, and the time zone is respected" {
+    ($a['newer'] -eq '0') -and ($a['worksfrom'] -eq '')
+}
+Check "the wizard refuses an older installer before the first page, and a silent run gets no box" {
+    $iss = Get-Content (Join-Path $BetaWin 'godspeed-setup.iss') -Raw
+    ($iss -match 'function InitializeSetup\(\): Boolean;[\s\S]{0,400}if NewerInstalled then[\s\S]{0,900}SuppressibleMsgBox[\s\S]{0,400}Result := False;') -and
+        ($iss.Contains("Cmd := Cmd + ' -Mine ""{#KitCommittedAt}""';"))
+}
+Check "the box for a second mission control starts unticked, and /BESIDE=yes is what ticks it" {
+    $iss = Get-Content (Join-Path $BetaWin 'godspeed-setup.iss') -Raw
+    $iss.Contains("BesidePage.Values[0] := CompareText(ExpandConstant('{param:BESIDE|no}'), 'yes') = 0;") -and
+        -not $iss.Contains("{param:BESIDE|yes}") -and $iss.Contains('Clicking Next brings it up to date')
+}
+Check "a PC with the notebook is never offered a second one: it is updated" {
+    $iss = Get-Content (Join-Path $BetaWin 'godspeed-setup.iss') -Raw
+    $iss.Contains('Result := (FoundGodspeed = '''') or HasNotebook;') -and $iss.Contains("This PC already has Godspeed Mission Control, so I am going to UPDATE it:")
+}
+Check "no message box the wizard shows can stop a silent run waiting for a click" {
+    $iss = Get-Content (Join-Path $BetaWin 'godspeed-setup.iss') -Raw
+    -not ($iss -match '(?m)^\s*(if [^\n]*then\s+)?MsgBox\(')
+}
+Check "the Ready page says SECOND, not UPDATE, when a second mission control is made" {
+    (Get-Content (Join-Path $BetaWin 'godspeed-setup.iss') -Raw).Contains("'I am going to make a SECOND mission control:'")
+}
+
+# 6. The Startup entry starts the notebook without opening the browser.
+Check "the Startup entry passes -NoBrowser, has one plain name, and removes the old one" {
+    $s = Get-Content (Join-Path $BetaWin 'setup-full-alpha.ps1') -Raw
+    $s.Contains("start-full-alpha.ps1')+'`" -NoBrowser'") -and $s.Contains("'Godspeed Mission Control.lnk'") -and
+        $s.Contains("Remove-Item -LiteralPath `$oldShortcut")
+}
+
+# 7. Update my mission control updates the notebook.
+Check "the Start menu's update entry runs the updater, which fetches the newest installer" {
+    $iss = Get-Content (Join-Path $BetaWin 'godspeed-setup.iss') -Raw
+    $iss.Contains('{app}\update-godspeed.ps1"" -KbBranch')
+}
+$rb = New-TestDir 'release'
+$rs = Join-Path $rb 'state'; New-Item -ItemType Directory -Force $rs | Out-Null
+(@{ channel = 'full-alpha'; workspace = $dws; kitCommit = ('a' * 40); kitCommittedAt = '2026-10-18T10:00:00+02:00' } | ConvertTo-Json) |
+    Set-Content (Join-Path $rs 'installation.json') -Encoding UTF8
+function Invoke-BetaUpdateCheck([string]$Commit, [string]$At, [string]$Base) {
+    if (-not $Base) {
+        $Base = Join-Path $rb ('r-' + [guid]::NewGuid().ToString('N').Substring(0, 6)); New-Item -ItemType Directory -Force $Base | Out-Null
+        (@{ channel = 'full-alpha'; version = '2.0.0-beta.2'; kitCommit = $Commit; kitCommittedAt = $At } | ConvertTo-Json) | Set-Content (Join-Path $Base 'windows-manifest.json')
+    }
+    return (& $BetaPs -NoProfile -ExecutionPolicy Bypass -File (Join-Path $BetaWin 'update-godspeed.ps1') -ReleaseBase $Base -State $rs -CheckOnly -NoPause | Out-String -Width 4096)
+}
+Check "update: a newer release is downloaded and installed" {
+    (Invoke-BetaUpdateCheck ('b' * 40) '2026-10-20T10:00:00+02:00').Contains('CHECK: would download and install it.')
+}
+Check "update: on the newest release it brings the folder and wiring up to date instead" {
+    $o = Invoke-BetaUpdateCheck ('a' * 40) '2026-10-18T10:00:00+02:00'
+    $o.Contains('You have the newest version already.') -and $o.Contains('CHECK: would bring this PC up to date')
+}
+Check "update: a PC newer than the newest release is never taken back" {
+    $o = Invoke-BetaUpdateCheck ('c' * 40) '2026-10-01T10:00:00+02:00'
+    $o.Contains('newer than the newest release') -and -not $o.Contains('would download')
+}
+Check "update: with GitHub out of reach it says so and still brings this PC up to date" {
+    $o = Invoke-BetaUpdateCheck '' '' 'http://127.0.0.1:9/no-release'
+    $o.Contains('could not reach GitHub') -and $o.Contains('CHECK: would bring this PC up to date')
+}
+Check "update: a download is run only when it matches the release's checksums" {
+    $s = Get-Content (Join-Path $BetaWin 'update-godspeed.ps1') -Raw
+    $s.Contains("foreach (`$name in 'GodspeedSetup.exe', 'windows-manifest.json')") -and $s.Contains("does not match the release's checksum, so I did not run it")
+}
+
+# 8. What people see says Godspeed Mission Control and the beta version, never alpha.
+Check "the installer's version is the beta's, in the Apps list and the file's properties" {
+    $iss = Get-Content (Join-Path $BetaWin 'godspeed-setup.iss') -Raw
+    $iss.Contains('#define AppVersion     "2.0.0-beta.1"') -and $iss.Contains('VersionInfoVersion={#NumericVersion}') -and
+        $iss.Contains('VersionInfoProductTextVersion={#AppVersion}') -and
+        ((Get-Content (Join-Path $BetaWin 'build-full-alpha.ps1') -Raw).Contains('("/DAppVersion="+$version)'))
+}
+Check "no message the Windows scripts show says alpha or candidate" {
+    $hits = foreach ($f in Get-ChildItem $BetaWin -Filter '*.ps1' | Where-Object { $_.Name -notlike 'test-*' -and $_.Name -notlike 'build-*' }) {
+        Select-String -LiteralPath $f.FullName -Pattern "(throw|Write-Host|Write-KbOk|Write-KbWarn|Write-Warning|Say)\s*\(?\s*['""][^'""]*(alpha|candidate)" |
+            Where-Object { $_.Line -notmatch 'Full Alpha State' }
+    }
+    @($hits).Count -eq 0
+}
+Check "the state and program folders existing installs depend on are unchanged" {
+    $iss = Get-Content (Join-Path $BetaWin 'godspeed-setup.iss') -Raw
+    $iss.Contains('AppId={{9929B7B4-B588-46D2-AC79-01F7EBD7FA92}') -and
+        $iss.Contains('DefaultDirName={localappdata}\Godspeed Mission Control Full Alpha') -and
+        ((Get-Content (Join-Path $BetaWin 'setup-full-alpha.ps1') -Raw).Contains("'Godspeed Mission Control Full Alpha State'"))
+}
+Remove-Item -Recurse -Force 'HKCU:\Software\GodspeedKbTest\first-edition' -ErrorAction SilentlyContinue
 
 # THE REAL PATH, PUT BACK ONCE MORE, AND THIS TIME LAST. The restore further up was written
 # when it was the end of the file. Cases were added below it afterwards, and one of them

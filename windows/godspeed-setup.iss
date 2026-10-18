@@ -19,7 +19,21 @@
 ; =============================================================================
 
 #define AppName        "Godspeed Mission Control"
+#ifndef IntegratedNotebook
 #define AppVersion     "2.18.0"
+#define NumericVersion "2.18.0"
+#else
+; THE VERSION PEOPLE SEE, in Windows' Apps list, in the file's properties and on the wizard. Until
+; 18 October 2026 the setup with the notebook still said 2.18.0, the first edition's installer
+; number, while the product it installs is version 2. build-full-alpha.ps1 passes the product's own
+; version; these are what a build without it says. Never an "alpha".
+#ifndef AppVersion
+#define AppVersion     "2.0.0-beta.1"
+#endif
+#ifndef NumericVersion
+#define NumericVersion "2.0.0.0"
+#endif
+#endif
 ; THE PIN. The kit-bootstrap tag this .exe carries and fetches from, so a reader runs
 ; exactly the code that passed its runs. build-installer.ps1 refuses to build unless this
 ; tag exists and names the very commit being built, which is what stops it drifting from
@@ -32,7 +46,12 @@
 #define KbPin         "v2.18"
 #endif
 #define AppPublisher   "Michael Zelbel"
+#ifdef IntegratedNotebook
+; Where the Apps list's support link goes: the user guide, not this repository.
+#define AppURL         "https://godspeedmissioncontrol.com/guide/"
+#else
 #define AppURL         "https://github.com/MichaelZelbel/kit-bootstrap"
+#endif
 
 [Setup]
 #ifdef IntegratedNotebook
@@ -46,7 +65,10 @@ AppVerName={#AppName} {#AppVersion}
 AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}
-VersionInfoVersion={#AppVersion}
+VersionInfoVersion={#NumericVersion}
+VersionInfoTextVersion={#AppVersion}
+VersionInfoProductName={#AppName}
+VersionInfoProductTextVersion={#AppVersion}
 VersionInfoDescription=Sets up Godspeed Mission Control on this PC
 #ifdef IntegratedNotebook
 DefaultDirName={localappdata}\Godspeed Mission Control Full Alpha
@@ -94,14 +116,28 @@ Source: "stop-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "ensure-hermes-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "open-hermes-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "computer-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "update-godspeed.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "uninstall-godspeed.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "detect-godspeed.ps1"; DestDir: "{app}"; Flags: ignoreversion
+; Needed before the wizard starts as well: which mission control, and is the notebook here newer.
+Source: "detect-godspeed.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "vendor\*"; DestDir: "{app}\vendor"; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
 
 [Icons]
 ; So the next update is a Start Menu click and never a typed command again.
+#ifdef IntegratedNotebook
+; The notebook travels inside GodspeedSetup.exe, so updating it means the newest one, which
+; update-godspeed.ps1 fetches. Until 18 October 2026 this entry ran setup-godspeed.ps1 without the
+; notebook: it never updated the notebook and said Hermes was missing.
+Name: "{group}\Update my mission control"; Filename: "powershell.exe"; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\update-godspeed.ps1"" -KbBranch ""{#KbPin}"""; \
+    Comment: "Bring Godspeed Mission Control and its notebook up to date"
+#else
 Name: "{group}\Update my mission control"; Filename: "powershell.exe"; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-godspeed.ps1"" -KbBranch ""{#KbPin}"""; \
     Comment: "Bring this PC's mission control up to date"
+#endif
 Name: "{group}\Open my mission control folder"; Filename: "{code:GetGodspeedDir}"
 #ifdef IntegratedNotebook
 ; The notebook is a page the PC serves itself; without this the only way in was knowing its address.
@@ -113,7 +149,12 @@ Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Filename: "powershell.exe"; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-godspeed.ps1"" -NoPause -Godspeed ""{code:GetGodspeedDir}"" -RepoUrl ""{code:GetRepoUrl}"" -PromptSources ""{code:GetPromptSources}"" -Computer ""{code:GetComputerAnswer}"" -ComputerCode ""{code:GetComputerCode}"" -KbBranch ""{#KbPin}""{code:GetBesideFlag}{code:GetUnattendedFlag}{code:GetIntegratedFlag}"; \
     StatusMsg: "Setting up Godspeed Mission Control. This can take a few minutes, and a window will show what it is doing..."; \
-    Flags: waituntilterminated
+    Flags: waituntilterminated; Check: not IsVerySilent
+; /VERYSILENT shows nothing, so the window that shows the work is hidden too (until 18 October 2026
+; it opened anyway). Its record is %LOCALAPPDATA%\Godspeed\setup-log.txt as always.
+Filename: "powershell.exe"; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup-godspeed.ps1"" -NoPause -Godspeed ""{code:GetGodspeedDir}"" -RepoUrl ""{code:GetRepoUrl}"" -PromptSources ""{code:GetPromptSources}"" -Computer ""{code:GetComputerAnswer}"" -ComputerCode ""{code:GetComputerCode}"" -KbBranch ""{#KbPin}""{code:GetBesideFlag}{code:GetUnattendedFlag}{code:GetIntegratedFlag}"; \
+    Flags: waituntilterminated runhidden; Check: IsVerySilent
 Filename: "{code:GetGodspeedDir}"; Description: "Open my mission control folder"; \
     Flags: postinstall shellexec nowait unchecked
 
@@ -121,6 +162,9 @@ Filename: "{code:GetGodspeedDir}"; Description: "Open my mission control folder"
 ; The notebook kept running from a half-deleted folder, and its login entry failed at every start.
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\stop-full-alpha.ps1"" -Uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "StopNotebook"
+; The program's own files that the setup put elsewhere: the helper commands, the daily job, the
+; Startup entry and the Hermes program. Never the mission control or the notebook's data.
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\uninstall-godspeed.ps1"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveProgramFiles"
 #endif
 
 [UninstallDelete]
@@ -129,7 +173,11 @@ Type: filesandordirs; Name: "{app}"
 [Messages]
 ; Said on the last page of the uninstaller, because the one thing people fear
 ; here is losing the memory, and they should be told plainly that they have not.
+#ifdef IntegratedNotebook
+ConfirmUninstall=This removes Godspeed Mission Control's programs from this PC: the notebook program, Hermes, the commands and the daily job.%n%nYour mission control folder, your notebook's notes, photos and files, and everything your assistant has learned stay exactly where they are. Nothing you have written is deleted. If your assistant may use a browser on this computer, that stops too.%n%nRemove Godspeed Mission Control?
+#else
 ConfirmUninstall=This removes the setup program only.%n%nYour mission control folder, and everything your assistants have learned, stays exactly where it is. Nothing you have written is deleted. If your assistant may use a browser on this computer, that stops too.%n%nRemove the setup program?
+#endif
 
 [Code]
 var
@@ -152,6 +200,15 @@ var
   ComputerPaired: Boolean;
   { Set when setup-godspeed.ps1 did not report a finished run (CheckSetupResult). }
   SetupFailed: Boolean;
+  { What detect-godspeed.ps1 found before the first page, in the setup with the notebook:
+    whether this PC has the notebook already (then FoundGodspeed is the folder it keeps), the
+    mission control this PC works from when that is another one, and whether the notebook here
+    is newer than the one this installer carries. }
+  HasNotebook: Boolean;
+  WorksFrom: String;
+  InstalledCommit: String;
+  NewerInstalled: Boolean;
+  Detected: Boolean;
 
 { setup-godspeed.ps1 writes "ok" here only when its whole run finished. A [Run] entry's exit code
   is never looked at, so until 6 October 2026 a setup that stopped halfway (a version 2 notebook
@@ -211,17 +268,51 @@ begin
   Result := Pos(',' + Id + ',', ',' + Csv + ',') > 0;
 end;
 
+{ The value of a "name=value" line, or '' when the line is another name. }
+function LineValue(const Line, Name: String): String;
+begin
+  Result := '';
+  if Copy(Line, 1, Length(Name) + 1) = Name + '=' then
+    Result := Trim(Copy(Line, Length(Name) + 2, Length(Line)));
+end;
+
 { Ask the shared install code where the mission control is, rather than writing a second
   copy of that search in Pascal. Two copies of a search is how they drift. }
 function DetectGodspeed(): String;
 var
-  PsFile, OutFile, Cmd: String;
-  Code: Integer;
+  PsFile, OutFile, Cmd, Line: String;
+  Code, i: Integer;
   Lines: TArrayOfString;
 begin
   Result := '';
+  Detected := True;
   ExtractTemporaryFile('join.ps1');
   PsFile  := ExpandConstant('{tmp}\join.ps1');
+#ifdef IntegratedNotebook
+  { The setup with the notebook asks detect-godspeed.ps1, which also knows the notebook: the
+    folder it keeps is the one to update, and a notebook newer than this installer's is refused
+    before anything is touched (InitializeSetup). }
+  ExtractTemporaryFile('detect-godspeed.ps1');
+  OutFile := ExpandConstant('{tmp}\mc-detect.txt');
+  Cmd := '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{tmp}\detect-godspeed.ps1')
+       + '" -Join "' + PsFile + '" -Out "' + OutFile + '"';
+#ifdef KitCommittedAt
+  Cmd := Cmd + ' -Mine "{#KitCommittedAt}"';
+#endif
+  if Exec('powershell.exe', Cmd, '', SW_HIDE, ewWaitUntilTerminated, Code) then
+    if LoadStringsFromFile(OutFile, Lines) then
+      for i := 0 to GetArrayLength(Lines) - 1 do
+      begin
+        Line := Lines[i];
+        if (Length(Line) > 0) and (Line[1] = #$FEFF) then Delete(Line, 1, 1);
+        if LineValue(Line, 'found') <> '' then Result := LineValue(Line, 'found');
+        if Line = 'notebook=1' then HasNotebook := True;
+        if LineValue(Line, 'worksfrom') <> '' then WorksFrom := LineValue(Line, 'worksfrom');
+        if LineValue(Line, 'installed') <> '' then InstalledCommit := LineValue(Line, 'installed');
+        if Line = 'newer=1' then NewerInstalled := True;
+      end;
+  Log('Found: "' + Result + '", notebook here: ' + IntToStr(Ord(HasNotebook)) + ', works from: "' + WorksFrom + '", installed: "' + InstalledCommit + '", newer: ' + IntToStr(Ord(NewerInstalled)));
+#else
   OutFile := ExpandConstant('{tmp}\mc-found.txt');
 
   Cmd := '-NoProfile -ExecutionPolicy Bypass -Command "'
@@ -234,6 +325,30 @@ begin
       if LoadStringsFromFile(OutFile, Lines) then
         if GetArrayLength(Lines) > 0 then
           Result := Trim(Lines[0]);
+#endif
+end;
+
+{ AN OLDER INSTALLER REFUSES BEFORE IT TOUCHES ANYTHING. Until 18 October 2026 the version check
+  ran inside the setup, after the program had been replaced and the notebook stopped, so an older
+  installer left the older program running a newer notebook (found on 17 October 2026). Now it is
+  the first thing that happens: no page, no file, no stopped notebook. A silent run gets no box and
+  ends with a non-zero exit code, and setup-result.txt says why. }
+function InitializeSetup(): Boolean;
+begin
+  Result := True;
+#ifdef IntegratedNotebook
+  FoundGodspeed := DetectGodspeed();
+  if NewerInstalled then
+  begin
+    Log('Refused: the notebook on this PC (' + InstalledCommit + ') is newer than the one this installer carries. Nothing was changed.');
+    ForceDirectories(ExpandConstant('{localappdata}\Godspeed'));
+    SaveStringToFile(SetupResultFile(), 'refused: this installer is older than the Godspeed Mission Control on this PC, nothing was changed', False);
+    SuppressibleMsgBox('This PC already has a newer Godspeed Mission Control than this installer carries, so nothing was changed.' + #13#10 + #13#10
+      + 'To update, download the newest installer:' + #13#10 + 'https://github.com/MichaelZelbel/godspeed-mission-control/releases/latest',
+      mbError, MB_OK, IDOK);
+    Result := False;
+  end;
+#endif
 end;
 
 { Ask the shared install code which AI tools live on this PC and what this
@@ -307,26 +422,37 @@ var
   i: Integer;
   id, sync, name, Others, OthersText: String;
 begin
-  FoundGodspeed := DetectGodspeed();
+  if not Detected then FoundGodspeed := DetectGodspeed();
   DetectTools(RecordedSources, ToolLines);
 
-  { Shown only on a PC that already has a mission control. Unticked, so the common path stays
-    one click: a returning reader clicks Next and their mission control is brought up to date,
-    exactly as before this page existed. Ticked, the folder page opens and the run
-    leaves all five of this PC's "which mission control do I work from" settings alone. }
+  { Shown only on a PC that has a mission control and not yet the notebook. Unticked, so the
+    common path stays one click: Next brings that mission control up to date, which is what the
+    page says. Ticked, the folder page opens and the run leaves all five of this PC's "which
+    mission control do I work from" settings alone. /BESIDE=yes ticks it, also in a silent run.
+
+    Until 18 October 2026 the setup with the notebook started with the box TICKED, left from the
+    days when version 2 was a preview to try beside the first edition, while the text above the
+    box said Next brings your mission control up to date. A reader who believed the text got a
+    second mission control. A PC that has the notebook already is never asked: one PC keeps one
+    notebook, so the only thing to do there is update it (ShouldSkipPage). }
   BesidePage := CreateInputOptionPage(wpWelcome,
     'You already have a mission control',
     'This PC works from a mission control already.',
-    'Clicking Next brings that mission control up to date and re-checks how this PC is wired to it, which is what almost everybody wants.' + #13#10 + #13#10 +
-    'Tick the box instead if you want a SECOND mission control in another folder: a work mission control next to a personal one, or a clean one to try something in. This PC keeps working from the mission control it has, so its commands, its daily jobs and the folder your assistant starts in are left alone. The second mission control gets its own folders and its own history, and you use it by opening a terminal or an assistant inside it.',
+    'Your mission control is in ' + FoundGodspeed + '.' + #13#10 + #13#10 +
+#ifdef IntegratedNotebook
+    'Clicking Next brings it up to date and adds the notebook, which is what almost everybody wants. Everything already in it stays as it is.' + #13#10 + #13#10 +
+#else
+    'Clicking Next brings it up to date and re-checks how this PC is wired to it, which is what almost everybody wants.' + #13#10 + #13#10 +
+#endif
+    'Tick the box only if you want a SECOND mission control in another folder: a work mission control next to a personal one, or a clean one to try something in. This PC keeps working from the mission control it has, so its commands, its daily jobs and the folder your assistant starts in are left alone. The second mission control gets its own folders and its own history.',
     False, False);
   BesidePage.Add('Make a second mission control somewhere else, and leave this PC working from the one it has');
-  BesidePage.Values[0] := False;
-#ifdef IntegratedNotebook
-  { A preview starts ticked, so trying it never changes the mission control this PC works from.
-    /BESIDE=no brings that mission control itself up to version 2, also in a silent run. }
-  BesidePage.Values[0] := CompareText(ExpandConstant('{param:BESIDE|yes}'), 'no') <> 0;
-#endif
+  BesidePage.Values[0] := CompareText(ExpandConstant('{param:BESIDE|no}'), 'yes') = 0;
+  if HasNotebook and BesidePage.Values[0] then
+  begin
+    Log('/BESIDE=yes is ignored: this PC has the notebook already, and one PC keeps one notebook, so this run updates it.');
+    BesidePage.Values[0] := False;
+  end;
 
   GodspeedPage := CreateInputQueryPage(BesidePage.ID,
     'Where your mission control goes',
@@ -350,12 +476,12 @@ begin
     Since 2026-10-12 every NEW conversation is saved whatever is ticked, and a tick decides
     only whether that tool's OLDER conversations are brought in too. Until then an unticked
     tool was never read at all, and Teach It Once tells every reader to leave every box
-    unticked, so no reader ever had a conversation saved (Michael: "It is a bug, right? So fix
+    unticked, so no reader ever had a conversation saved (the maintainer: "It is a bug, right? So fix
     the bug."). The page says exactly that, in that order.
 
     Until 2026-09-21 this page was titled "Your AI tools", asked which tools "may
     be synced", and listed the tools it could not copy as greyed-out boxes reading
-    "cannot sync". Michael, installing it, read that as "these tools do not work
+    "cannot sync". The maintainer, installing it, read that as "these tools do not work
     with the mission control" - OpenCode among them, which the book teaches using with the
     mission control - and there was nothing he could do with a box he could not tick. So the
     page now says what it decides (copying conversations, nothing else), says
@@ -425,9 +551,29 @@ begin
 end;
 
 { Is this run making a SECOND mission control and leaving this PC working from the one it has? }
+function NewBeside: Boolean;
+begin
+  Result := (FoundGodspeed <> '') and (not HasNotebook) and BesidePage.Values[0];
+end;
+
+{ Is this run updating a mission control that is already here? }
+function IsUpdate: Boolean;
+begin
+  Result := (FoundGodspeed <> '') and (not NewBeside);
+end;
+
+{ Does this run leave the PC working from another mission control than the one it sets up? Yes
+  for a new second one, and for a notebook that already sits beside the mission control this PC
+  works from, which an update keeps exactly so. }
 function Beside: Boolean;
 begin
-  Result := (FoundGodspeed <> '') and BesidePage.Values[0];
+  Result := NewBeside or (HasNotebook and (WorksFrom <> ''));
+end;
+
+{ Is the folder page shown, asking where a new mission control goes? }
+function AskingWhere: Boolean;
+begin
+  Result := (FoundGodspeed = '') or NewBeside;
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
@@ -437,13 +583,13 @@ begin
     not a question, so it is not shown. The finish screen still names what it found. }
   if PageID = SyncPage.ID then
     Result := (ToolCount = 0);
-  { Nothing to sit beside, so nothing to ask. }
+  { Nothing to sit beside, so nothing to ask; and a PC with the notebook is only ever updated. }
   if PageID = BesidePage.ID then
-    Result := (FoundGodspeed = '');
+    Result := (FoundGodspeed = '') or HasNotebook;
   { A PC that already has a mission control is not asked where to put one, unless it just said
     it wants a second one somewhere else. }
   if PageID = GodspeedPage.ID then
-    Result := (FoundGodspeed <> '') and (not Beside);
+    Result := not AskingWhere;
   { A PC whose browser is lent already keeps it; Start, Godspeed Mission Control has the switches. }
   if PageID = ComputerPage.ID then
     Result := ComputerPaired;
@@ -460,7 +606,7 @@ procedure CurPageChanged(CurPageID: Integer);
 begin
   if CurPageID = GodspeedPage.ID then
   begin
-    if Beside then
+    if NewBeside then
       WizardForm.PageDescriptionLabel.Caption :=
         'Where the second mission control goes. This PC keeps working from ' + FoundGodspeed + '.'
     else
@@ -522,31 +668,34 @@ begin
   Result := True;
   if (CurPageID = CodePage.ID) and (Pos('godspeed1.', CodePage.Values[0]) = 0) then
   begin
-    MsgBox('That is not a connection code yet.' + #13#10 + #13#10
+    SuppressibleMsgBox('That is not a connection code yet.' + #13#10 + #13#10
       + 'In Telegram, write to your assistant: connect my computer' + #13#10
-      + 'Then copy the whole code it sends and paste it here. Or go back and untick the box.', mbError, MB_OK);
+      + 'Then copy the whole code it sends and paste it here. Or go back and untick the box.', mbError, MB_OK, IDOK);
     Result := False;
     Exit;
   end;
-  if (CurPageID = GodspeedPage.ID) and ((FoundGodspeed = '') or Beside) then
+  if (CurPageID = GodspeedPage.ID) and AskingWhere then
   begin
     if Trim(GodspeedPage.Values[0]) = '' then
       GodspeedPage.Values[0] := ExpandConstant('{%USERPROFILE}\godspeed');
     { A second mission control cannot be the first one. Compared here rather than left to
       setup-godspeed.ps1, because a message on the page beats one in a console window
-      that closes. }
-    if Beside and (CompareText(Trim(GodspeedPage.Values[0]), FoundGodspeed) = 0) then
+      that closes. Suppressible, so a silent run never waits for a click: it ends with a
+      non-zero exit code instead, and the setup log says why. }
+    if NewBeside and (CompareText(Trim(GodspeedPage.Values[0]), FoundGodspeed) = 0) then
     begin
-      MsgBox('That is the mission control this PC already works from, so it cannot sit beside itself.'
+      Log('Refused: the folder for a second mission control is the one this PC works from (' + FoundGodspeed + ').');
+      SuppressibleMsgBox('That is the mission control this PC already works from, so it cannot sit beside itself.'
         + #13#10 + #13#10 + 'Pick another folder, or go back and untick the box to bring '
-        + FoundGodspeed + ' up to date instead.', mbError, MB_OK);
+        + FoundGodspeed + ' up to date instead.', mbError, MB_OK, IDOK);
       Result := False;
       Exit;
     end;
     Why := GodspeedPathRefusal(Trim(GodspeedPage.Values[0]));
     if Why <> '' then
     begin
-      MsgBox('I will not put your mission control there.' + #13#10 + #13#10 + Why, mbError, MB_OK);
+      Log('Refused the folder ' + Trim(GodspeedPage.Values[0]) + ': ' + Why);
+      SuppressibleMsgBox('I will not put your mission control there.' + #13#10 + #13#10 + Why, mbError, MB_OK, IDOK);
       Result := False;
     end;
   end;
@@ -554,12 +703,10 @@ end;
 
 function GetGodspeedDir(Param: String): String;
 begin
-  if Beside then
+  if AskingWhere then
     Result := Trim(GodspeedPage.Values[0])
-  else if FoundGodspeed <> '' then
-    Result := FoundGodspeed
   else
-    Result := Trim(GodspeedPage.Values[0]);
+    Result := FoundGodspeed;
   if Result = '' then Result := ExpandConstant('{%USERPROFILE}\godspeed');
 end;
 
@@ -567,13 +714,15 @@ end;
   The same three lines end the Linux and Mac installer (install-native-notebook.sh). }
 function FinishedWords(): String;
 begin
-  if (FoundGodspeed <> '') and (not Beside) then
+  if IsUpdate then
     Result := 'Your mission control is up to date, in ' + GetGodspeedDir('') + '.'
   else
     Result := 'Your mission control is in ' + GetGodspeedDir('') + '.';
 #ifdef IntegratedNotebook
+  { Your AI is connected in the notebook's Settings, which also serves its routines; never by
+    installing another Hermes, which this setup has brought already. }
   Result := Result + #13#10 + #13#10 +
-    'To talk to it, open your notebook: Start menu, Open my notebook. The first time, connect your own AI account in Settings.';
+    'To talk to it, open your notebook: Start menu, Godspeed Mission Control, Open my notebook. The first time, open Settings there and connect your AI account.';
 #else
   Result := Result + #13#10 + #13#10 +
     'To talk to it, open Hermes in that folder.';
@@ -584,7 +733,7 @@ end;
 
 function GetRepoUrl(Param: String): String;
 begin
-  if Beside or (FoundGodspeed = '') then
+  if AskingWhere then
     Result := Trim(GodspeedPage.Values[1])
   else
     Result := '';
@@ -604,6 +753,17 @@ begin
 #else
   Result := '';
 #endif
+end;
+
+{ Was this run started with /VERYSILENT, the one that shows nothing at all? Inno's own
+  WizardSilent is true for /SILENT too, which still shows its progress window. }
+function IsVerySilent: Boolean;
+var
+  i: Integer;
+begin
+  Result := False;
+  for i := 1 to ParamCount do
+    if CompareText(ParamStr(i), '/VERYSILENT') = 0 then Result := True;
 end;
 
 { A silent install (/SILENT, /VERYSILENT) has nobody at the keyboard, and the console the
@@ -714,14 +874,35 @@ end;
 function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo,
   MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
 begin
-  if FoundGodspeed <> '' then
+  { Until 18 October 2026 this page said UPDATE and named the older folder whenever this PC had a
+    mission control, also when the run was about to make a second one beside it. }
+  if HasNotebook then
+  begin
+    Result := 'This PC already has Godspeed Mission Control, so I am going to UPDATE it:' + NewLine + NewLine
+            + Space + FoundGodspeed + NewLine + NewLine
+            + 'A copy of your notebook is saved first. Your notes, files and settings stay as they are.';
+    if WorksFrom <> '' then
+      Result := Result + NewLine + NewLine + 'This PC keeps working from ' + WorksFrom + ' for its commands and daily jobs, as before.';
+  end
+  else if IsUpdate then
+#ifdef IntegratedNotebook
+    Result := 'This PC already has a mission control, so I am going to UPDATE it:' + NewLine + NewLine
+            + Space + FoundGodspeed + NewLine + NewLine
+            + 'I will fetch the latest of it, add the notebook and put its commands within reach here. Everything already in it stays as it is.'
+#else
     Result := 'This PC already has a mission control, so I am going to UPDATE it:' + NewLine + NewLine
             + Space + FoundGodspeed + NewLine + NewLine
             + 'I will fetch the latest of it and put its commands within reach here.'
+#endif
   else
   begin
-    Result := 'This PC has no mission control, so I am going to INSTALL one:' + NewLine + NewLine
-            + Space + GetGodspeedDir('') + NewLine + NewLine;
+    if NewBeside then
+      Result := 'I am going to make a SECOND mission control:' + NewLine + NewLine
+              + Space + GetGodspeedDir('') + NewLine + NewLine
+              + 'This PC keeps working from ' + FoundGodspeed + ', and nothing in it changes.' + NewLine + NewLine
+    else
+      Result := 'This PC has no mission control, so I am going to INSTALL one:' + NewLine + NewLine
+              + Space + GetGodspeedDir('') + NewLine + NewLine;
     if GetRepoUrl('') <> '' then
       Result := Result + 'It will be fetched from:' + NewLine + Space + GetRepoUrl('') + NewLine + NewLine;
 #ifdef IntegratedNotebook

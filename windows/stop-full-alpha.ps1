@@ -18,7 +18,7 @@ if($saved){
   if($process -and $process.ExecutablePath -eq $saved.node -and $process.CommandLine.Contains($saved.server)){
     # Whether anything still runs decides, not taskkill's exit code. taskkill /T reports an error
     # when a process of the tree ends while it works through it, and until 7 October 2026 that
-    # read as "did not stop" with every process already gone: an update on Michael's laptop was
+    # read as "did not stop" with every process already gone: an update on the maintainer's laptop was
     # cancelled that way, with the notebook stopped and nothing installed. A process of this
     # notebook's own Node that the tree missed would keep files locked, so it goes too.
     $ours={@(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue|Where-Object {$_.ExecutablePath -eq $saved.node})}
@@ -26,13 +26,15 @@ if($saved){
     foreach($left in (& $ours)){& taskkill.exe /PID ([string]$left.ProcessId) /T /F|Out-Null}
     $until=(Get-Date).AddSeconds(15)
     while((& $ours).Count -and (Get-Date) -lt $until){Start-Sleep -Milliseconds 250}
-    if((& $ours).Count){throw 'The isolated notebook process tree did not stop.'}
+    if((& $ours).Count){throw 'The notebook did not stop. Restart the computer and try again.'}
   }
   Remove-Item -LiteralPath $pidFile
 }
 if($Uninstall){
-  $shortcut=Join-Path ([Environment]::GetFolderPath('Startup')) 'Godspeed Mission Control Full Alpha.lnk'
-  if(Test-Path -LiteralPath $shortcut){Remove-Item -LiteralPath $shortcut}
+  foreach($name in 'Godspeed Mission Control.lnk','Godspeed Mission Control Full Alpha.lnk'){
+    $shortcut=Join-Path ([Environment]::GetFolderPath('Startup')) $name
+    if(Test-Path -LiteralPath $shortcut){Remove-Item -LiteralPath $shortcut}
+  }
 }
 # Knowledge, media, settings and backups are deliberately retained for recovery.
 # A taskkill above that answered with an error must not become this script's exit code.

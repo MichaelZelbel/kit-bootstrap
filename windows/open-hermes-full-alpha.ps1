@@ -1,7 +1,7 @@
 $ErrorActionPreference='Stop'
 $state=Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
 $assistant=Get-Content -LiteralPath (Join-Path $state 'assistant.json') -Raw|ConvertFrom-Json
-if(-not $assistant.verified){throw 'Hermes desktop installation must finish before opening the candidate assistant.'}
+if(-not $assistant.verified){throw 'Hermes is not installed for this notebook yet. Run Update my mission control from the Start menu.'}
 $env:HERMES_HOME=$assistant.home
 $env:HERMES_DESKTOP_USER_DATA_DIR=Join-Path $state 'hermes-desktop-data'
 $env:HERMES_DESKTOP_APP_NAME='Godspeed Mission Control Full Alpha Assistant'

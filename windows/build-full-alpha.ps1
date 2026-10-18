@@ -8,6 +8,17 @@ foreach($checkout in @($KitCheckout,$bootstrapCheckout)){
 }
 $kitCommit=(& git -C $KitCheckout rev-parse HEAD).Trim();$bootstrapCommit=(& git -C $bootstrapCheckout rev-parse HEAD).Trim()
 $kitCommittedAt=(& git -C $KitCheckout log -1 --format=%cI $kitCommit).Trim()
+# THE VERSION PEOPLE SEE is the product's own (notebook/package.json), in Windows' Apps list, the
+# file's properties and the release manifest. Until 18 October 2026 the installer said 2.18.0 and
+# the manifest 2.0.0-alpha.1. A product that still names itself an alpha gets the beta's number
+# here, so no "alpha" reaches anybody from this installer.
+$version='2.0.0-beta.1'
+try{$productVersion=(Get-Content -LiteralPath (Join-Path $KitCheckout 'notebook\package.json') -Raw|ConvertFrom-Json).version}catch{$productVersion=$null}
+if($productVersion -and $productVersion -notmatch 'alpha'){$version=[string]$productVersion}
+elseif($productVersion){Write-Warning ('The product still says '+$productVersion+'; the installer says '+$version+'.')}
+if(-not($version -match '^(\d+)\.(\d+)\.(\d+)')){throw ('Not a version: '+$version)}
+$numericVersion=$Matches[1]+'.'+$Matches[2]+'.'+$Matches[3]+'.0'
+Write-Output ('version: '+$version)
 $payload=Join-Path $PSScriptRoot 'full-alpha-payload'
 New-Item -ItemType Directory -Force -Path $payload|Out-Null
 # Version-specific output directory prevents an older build from contaminating a new one.
@@ -37,14 +48,14 @@ if(-not $unpacked.StartsWith($payload+[IO.Path]::DirectorySeparatorChar,[StringC
 Remove-Item -LiteralPath $unpacked -Recurse -Force
 Remove-Item -LiteralPath $download
 $files=@(Get-ChildItem -LiteralPath (Join-Path $payload 'kit'),(Join-Path $payload 'runtime') -Recurse -File|ForEach-Object {[pscustomobject]@{path=$_.FullName.Substring($payload.Length+1).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}})
-$manifest=[pscustomobject]@{channel='full-alpha';version='2.0.0-alpha.1';kitCommit=$kitCommit;kitCommittedAt=$kitCommittedAt;bootstrapCommit=$bootstrapCommit;nodeVersion=$nodeVersion;nodeArchiveSha256=$checksum;dataFormat=1;files=$files}
+$manifest=[pscustomobject]@{channel='full-alpha';version=$version;kitCommit=$kitCommit;kitCommittedAt=$kitCommittedAt;bootstrapCommit=$bootstrapCommit;nodeVersion=$nodeVersion;nodeArchiveSha256=$checksum;dataFormat=1;files=$files}
 $manifest|ConvertTo-Json -Depth 10|Set-Content -LiteralPath (Join-Path $payload 'candidate-manifest.json') -Encoding UTF8
 $compiler=Get-Command iscc -ErrorAction SilentlyContinue
 if($compiler){$iscc=$compiler.Source}else{$iscc=Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'}
 if(-not(Test-Path -LiteralPath $iscc)){$iscc=Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'}
 if(-not(Test-Path -LiteralPath $iscc)){throw 'Inno Setup compiler is required.'}
 Push-Location $PSScriptRoot
-try{& $iscc /Qp ("/DPayloadRoot="+$payload) ("/DKbPin="+$bootstrapCommit) '/DIntegratedNotebook' 'godspeed-setup.iss';if($LASTEXITCODE -ne 0){throw 'Integrated compilation failed.'}}finally{Pop-Location}
+try{& $iscc /Qp ("/DPayloadRoot="+$payload) ("/DKbPin="+$bootstrapCommit) '/DIntegratedNotebook' ("/DAppVersion="+$version) ("/DNumericVersion="+$numericVersion) ("/DKitCommittedAt="+$kitCommittedAt) 'godspeed-setup.iss';if($LASTEXITCODE -ne 0){throw 'Integrated compilation failed.'}}finally{Pop-Location}
 $exe=Join-Path $PSScriptRoot 'dist\GodspeedSetup-Full-Alpha.exe'
 Get-FileHash -LiteralPath $exe -Algorithm SHA256|Format-List
 Copy-Item -LiteralPath (Join-Path $payload 'candidate-manifest.json') -Destination (Join-Path $PSScriptRoot 'dist\candidate-manifest.json') -Force

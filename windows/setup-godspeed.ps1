@@ -5,7 +5,7 @@
 # file is the work it does.
 #
 # Why it exists: until 2026-08-09 the only way onto a Windows PC was to paste a
-# long line into PowerShell. Michael's words for that were "cryptic commands",
+# long line into PowerShell. The maintainer's words for that were "cryptic commands",
 # and he was right - nobody else's software asks that. Windows people expect a
 # file they double-click, which then works out for itself whether this machine
 # needs a first install or an update. This is that, and the wizard around it is
@@ -132,6 +132,10 @@ function Set-GodspeedBundledStarterRef {
 if ($IntegratedNotebook) {
     try { Set-GodspeedBundledStarterRef -AppRoot $PSScriptRoot }
     catch { Stop-Setup ('The notebook starter could not be selected: ' + $_.Exception.Message) }
+    # This setup brings its own Hermes (ensure-hermes-full-alpha.ps1, run by setup-full-alpha.ps1
+    # below), kept beside the notebook and never on PATH. Told to the install code, so it does not
+    # report Hermes as missing (Test-KitOwnHermes in join.ps1).
+    $env:KB_OWN_HERMES = '1'
 }
 
 # -----------------------------------------------------------------------------
@@ -214,7 +218,7 @@ if (-not $Join) {
 # copy inside the .exe when it is not there. The canary moves forward with the
 # code: it is the NEWEST function this file calls, or the check passes on a copy
 # that is missing everything added since.
-if (-not (Get-Command Show-KitGmailRetired -ErrorAction SilentlyContinue)) {
+if (-not (Get-Command Test-KitOwnHermes -ErrorAction SilentlyContinue)) {
     if ($Join -ne $Bundled -and (Test-Path $Bundled)) {
         Write-Warning "the published install code is older than this installer, so I am using the copy that came with it."
         . $Bundled -AsLibrary
@@ -234,9 +238,9 @@ foreach ($fn in 'Install-KitPrereqs', 'New-KitGodspeed', 'Copy-KitStarterGodspee
                  'Test-KitBeside', 'Test-KitSamePath', 'Get-KitHeadShort',
                  'Connect-KitAssistants', 'Connect-KitMenerioOnly',
                  'Select-KitNotebookMirror', 'Request-KitPassphrase',
-                 'Show-KitGmailRetired', 'Connect-KitGmailOnly') {
+                 'Show-KitGmailRetired', 'Connect-KitGmailOnly', 'Test-KitOwnHermes', 'Add-KitInstalledCommands') {
     if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
-        Stop-Setup "the install code on this PC is incomplete ($fn is missing). Download the newest installer from https://github.com/MichaelZelbel/kit-bootstrap/releases/latest and run that."
+        Stop-Setup "the install code on this PC is incomplete ($fn is missing). Download the newest installer from https://github.com/MichaelZelbel/godspeed-mission-control/releases/latest and run that."
     }
 }
 
