@@ -2393,7 +2393,7 @@ function Select-KitNotebookMirror {
 # THE INSTALL COUNT (2026-09-30). The Windows twins of kb_install_count, kb_choose_install_count
 # and kb_install_count_send in lib.sh, where the whole story is: asked once per PC, default no,
 # and nothing leaves the PC without a yes. Same address, same fields, same words.
-$script:KitInstallCountUrl = if ($env:KB_INSTALL_COUNT_URL) { $env:KB_INSTALL_COUNT_URL } else { 'https://srv1328602.hstgr.cloud/signal/v1' }
+$script:KitInstallCountUrl = if ($env:KB_INSTALL_COUNT_URL) { $env:KB_INSTALL_COUNT_URL } else { 'https://godspeedmissioncontrol.com/signal/v1' }
 
 function Get-KitInstallCount {
     <#  '1', '0', or $null when this PC has never been asked. #>
@@ -2422,13 +2422,13 @@ function Select-KitInstallCount {
         if (-not (Test-KitInteractive)) { return }
         # THE SAME WORDS AS THE BASH TWIN, line for line. test.sh compares the two.
         Write-Host ""
-        Write-Host "One last question, and it changes nothing on this computer. Michael, who made"
-        Write-Host "this, cannot see whether anybody installs it. May this computer tell him once"
-        Write-Host "that the install worked? It sends the word 'installed', this installer's"
-        Write-Host "version, the kind of computer and a random number made just now. No name, no"
-        Write-Host "files, and the server that receives it keeps no address. On a server it sends"
-        Write-Host "one more word when your first morning brief arrives. Say no and nothing is sent."
-        $yn = Read-Host "Tell Michael this install worked? (y/N)"
+        Write-Host "One last question, and it changes nothing on this computer. It helps show"
+        Write-Host "how many installs work. May this computer send one anonymous note that the"
+        Write-Host "install worked? The note holds the word 'installed', this installer's version,"
+        Write-Host "the kind of computer and a random number made just now. No name, no files, and"
+        Write-Host "the website that counts it keeps no address. On a server it sends one more note"
+        Write-Host "when your first morning brief arrives. Say no and nothing is sent."
+        $yn = Read-Host "Send the anonymous note? (y/N)"
         $answer = if ($yn -match '^[Yy]') { '1' } else { '0' }
     }
     Set-KitDeviceEnvValue -Name 'GODSPEED_INSTALL_COUNT' -Value $answer
@@ -2471,7 +2471,7 @@ function Send-KitInstallCount {
         $body += '}'
         Invoke-KitInstallCountPost -Body $body
         Set-KitDeviceEnvValue -Name 'GODSPEED_INSTALL_COUNT_SENT' -Value $(if ($sent) { "$sent,$What" } else { $What })
-        Write-KbOk "install count: told Michael this install worked. Thank you."
+        Write-KbOk "install count: the note is sent. Thank you."
     } catch { }
 }
 

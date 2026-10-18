@@ -141,10 +141,41 @@ ensure_claude_code() {
   log "Claude Code version: ${ver:-unknown}"
 }
 
+# ~/.local/bin, where Hermes and the mc- commands live, on the PATH of every new terminal. bash reads
+# ~/.bashrc and zsh reads ~/.zshrc, and zsh is a Mac's Terminal since 2019: until 18 October 2026
+# only ~/.bashrc got the line, so a new Terminal window on a Mac found neither hermes nor one mc-
+# command. zsh gets it wherever it is the shell or has settings of its own; a Mac's login bash reads
+# ~/.bash_profile, which gets it when there is one. On a Mac with Apple's chip Homebrew lives in
+# /opt/homebrew, which its own installer only TELLS you to put on PATH, and Node.js, which every
+# mc- command runs on, lives there: so its line goes into ~/.zprofile too, where Homebrew says.
+# KB_PERSIST_OS stands in for uname in the tests.
 kb_persist_path() {
-  grep -q '\.local/bin' "$HOME/.bashrc" 2>/dev/null && return 0
-  # shellcheck disable=SC2016  # the literal string is what belongs in .bashrc
-  printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$HOME/.bashrc"
+  local os rc shell="${SHELL:-}"
+  os="${KB_PERSIST_OS:-$(uname -s 2>/dev/null)}"
+  for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.bash_profile"; do
+    if [ "$rc" = "$HOME/.zshrc" ] && [ "$os" != Darwin ] && [ ! -f "$rc" ] && [ "${shell##*/}" != zsh ]; then continue; fi
+    if [ "$rc" = "$HOME/.bash_profile" ] && { [ "$os" != Darwin ] || [ ! -f "$rc" ]; }; then continue; fi
+    grep -q '\.local/bin' "$rc" 2>/dev/null && continue
+    # shellcheck disable=SC2016  # the literal string is what belongs in the file
+    printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$rc"
+  done
+  if [ "$os" = Darwin ] && [ -x "${KB_HOMEBREW:-/opt/homebrew/bin/brew}" ] \
+     && ! grep -qs 'brew shellenv' "$HOME/.zprofile" "$HOME/.zshrc"; then
+    # shellcheck disable=SC2016
+    printf '\neval "$(%s shellenv)"\n' "${KB_HOMEBREW:-/opt/homebrew/bin/brew}" >> "$HOME/.zprofile"
+  fi
+  return 0
+}
+
+# kb_find_homebrew: a Homebrew that is installed but not on this terminal's PATH yet, which is how
+# its own installer leaves a Mac with Apple's chip until a new window opens, is used anyway.
+kb_find_homebrew() {
+  local brew
+  command -v brew >/dev/null 2>&1 && return 0
+  for brew in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+    if [ -x "$brew" ]; then eval "$("$brew" shellenv)"; return 0; fi
+  done
+  return 1
 }
 
 # --- GitHub CLI --------------------------------------------------------------
@@ -2475,6 +2506,7 @@ kb_install_claude_code() {
 kb_install_prereqs() {
   say "Checking what this computer needs"
   KB_MISSING=""
+  [ "$(kb_os)" != macos ] || kb_find_homebrew || true
   # git: a mission control IS a git folder. node: several mission control tools are node programs.
   kb_install_one git  git    git   "Git"     || true
   kb_install_one node nodejs node  "Node.js" || true
@@ -3799,7 +3831,9 @@ kb_persist_notebook_env() {
 # (mac, linux, windows, server, docker), whether this run made the mission control or updated
 # one, and a random number made here at the moment of the yes, so the two events of one install
 # can be matched and a repeat counted once. No name, no folder, no file, no account. The
-# receiver (vps/godspeed/install-signal.py in godspeed-engine) keeps no address. A send that
+# receiver is the website godspeedmissioncontrol.com (/signal/v1), which keeps no address and
+# counts the installer downloads too. Until 18 October 2026 it was a server of the maker's own,
+# and nothing a reader's computer talks to belongs on one of those. A send that
 # fails is silent, never stops an install, and is tried again on the next run.
 #
 #   GODSPEED_INSTALL_COUNT=yes|no   answers it without asking, and always wins
@@ -3815,7 +3849,7 @@ kb_persist_notebook_env() {
 # they vendor this file, so a kit's installer must never call these functions. Their downloads
 # are counted on the server that serves the tarball instead, which the buyer's machine was
 # already talking to.
-KB_INSTALL_COUNT_URL="${KB_INSTALL_COUNT_URL:-https://srv1328602.hstgr.cloud/signal/v1}"
+KB_INSTALL_COUNT_URL="${KB_INSTALL_COUNT_URL:-https://godspeedmissioncontrol.com/signal/v1}"
 
 # kb_device_env_get <NAME> -> the value of its last line in ~/.godspeed/device.env, or nothing
 kb_device_env_get() {
@@ -3850,13 +3884,13 @@ kb_choose_install_count() {
     have_tty || return 0
     # THE SAME WORDS AS THE WINDOWS TWIN, line for line. test.sh compares the two.
     kb_tell ""
-    kb_tell "One last question, and it changes nothing on this computer. Michael, who made"
-    kb_tell "this, cannot see whether anybody installs it. May this computer tell him once"
-    kb_tell "that the install worked? It sends the word 'installed', this installer's"
-    kb_tell "version, the kind of computer and a random number made just now. No name, no"
-    kb_tell "files, and the server that receives it keeps no address. On a server it sends"
-    kb_tell "one more word when your first morning brief arrives. Say no and nothing is sent."
-    if ask_yes "Tell Michael this install worked?" "n"; then answer=1; else answer=0; fi
+    kb_tell "One last question, and it changes nothing on this computer. It helps show"
+    kb_tell "how many installs work. May this computer send one anonymous note that the"
+    kb_tell "install worked? The note holds the word 'installed', this installer's version,"
+    kb_tell "the kind of computer and a random number made just now. No name, no files, and"
+    kb_tell "the website that counts it keeps no address. On a server it sends one more note"
+    kb_tell "when your first morning brief arrives. Say no and nothing is sent."
+    if ask_yes "Send the anonymous note?" "n"; then answer=1; else answer=0; fi
   fi
   kb_device_env_set GODSPEED_INSTALL_COUNT "$answer"
   if [ "$answer" = "1" ]; then
@@ -3892,7 +3926,7 @@ kb_install_count_send() {
   if curl -fsS -m 8 -o /dev/null -X POST -H 'Content-Type: application/json' \
        --data "$body" "$KB_INSTALL_COUNT_URL" >/dev/null 2>&1; then
     kb_device_env_set GODSPEED_INSTALL_COUNT_SENT "${sent:+$sent,}$event"
-    ok "install count: told Michael this install worked. Thank you."
+    ok "install count: the note is sent. Thank you."
   fi
   return 0
 }

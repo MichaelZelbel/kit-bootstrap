@@ -2236,7 +2236,7 @@ Check "Enter means no, it is written down, and a second run does not ask again" 
         Select-KitInstallCount 6>&1 | Out-Null
         Select-KitInstallCount 6>&1 | Out-Null
         Send-KitInstallCount -What 'installed' -Kind 'windows' -Run 'new' 6>&1 | Out-Null
-        (($script:asked -join '|') -eq 'Tell Michael this install worked? (y/N)') -and
+        (($script:asked -join '|') -eq 'Send the anonymous note? (y/N)') -and
             ((Get-CountLine $h 'GODSPEED_INSTALL_COUNT') -eq '0') -and ($script:posted.Count -eq 0)
     }
 }

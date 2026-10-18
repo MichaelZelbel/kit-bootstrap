@@ -2731,9 +2731,9 @@ t "and Windows asks it in the same words" \
   "$(_words join.ps1 Write-Host 'One last question' 'Say no and nothing is sent')" \
   "$(_words lib.sh kb_tell 'One last question' 'Say no and nothing is sent')"
 t "both platforms ask it with no as the answer" \
-  "$(grep -c 'ask_yes "Tell Michael this install worked?" "n"' lib.sh):$(grep -c 'Read-Host "Tell Michael this install worked? (y/N)"' join.ps1)" "1:1"
-t "both platforms send to the same address" \
-  "$(grep -c 'https://srv1328602.hstgr.cloud/signal/v1' lib.sh):$(grep -c 'https://srv1328602.hstgr.cloud/signal/v1' join.ps1)" "1:1"
+  "$(grep -c 'ask_yes "Send the anonymous note?" "n"' lib.sh):$(grep -c 'Read-Host "Send the anonymous note? (y/N)"' join.ps1)" "1:1"
+t "both platforms send to the same address, the website's, and never to a server of the maker's own" \
+  "$(grep -c 'https://godspeedmissioncontrol.com/signal/v1' lib.sh):$(grep -c 'https://godspeedmissioncontrol.com/signal/v1' join.ps1):$(cat lib.sh join.ps1 | grep -c 'hstgr')" "1:1:0"
 rm -rf "$_ic"
 
 
@@ -2817,13 +2817,35 @@ t "an update stops the helper that is running, so the new one takes its place" \
   "$(cat "$_cc/rst.result"):$(kill -0 "$_old" 2>/dev/null && echo still-running)" "refreshed:"
 _ccrun none darwin kb_wire_computer "" "" "$_cc/kit"
 t "an update on a computer that never said yes installs nothing" "$(cat "$_cc/none.result"):$([ -e "$_cc/none/app" ] && echo app)" "skipped:"
-t "both platforms ask it with no as the default and send the code to the same helper" \
-  "$(grep -c 'ask_yes "Let your assistant use a browser on this computer' setup-godspeed.sh):$(grep -c 'ComputerPage.Values\[0\] := False' windows/godspeed-setup.iss):$(grep -c '"$node" "$app/helper.js" pair "$code"' lib.sh):$(grep -c 'helper pair $clean' join.ps1)" \
-  "1:1:1:1"
+# 18 October 2026: no Godspeed server has the connection switched on, so the Mac and Linux installer
+# no longer asks; --computer yes with a code still connects it.
+t "the Mac and Linux installer no longer asks about the browser, Windows starts with no, and both send a code to the same helper" \
+  "$(grep -c 'Let your assistant use a browser' setup-godspeed.sh):$(grep -c 'kb_wire_computer "$COMPUTER" "$COMPUTER_CODE"' setup-godspeed.sh):$(grep -c 'ComputerPage.Values\[0\] := False' windows/godspeed-setup.iss):$(grep -c '"$node" "$app/helper.js" pair "$code"' lib.sh):$(grep -c 'helper pair $clean' join.ps1)" \
+  "0:1:1:1:1"
 rm -rf "$_cc"
 else
   t "node is here for the computer cases" no yes
 fi
+# THE PATH IN EVERY NEW TERMINAL (18 October 2026). Only ~/.bashrc got ~/.local/bin, and a Mac's
+# Terminal runs zsh, so a new window there found neither hermes nor an mc- command.
+_pp="$(mktemp -d)"
+printf '#!/bin/sh\n' > "$_pp/brew"; chmod +x "$_pp/brew"
+_pprun() {  # <name> <shell> <uname> <shell code first>
+  ( HOME="$_pp/$1"; mkdir -p "$HOME"; SHELL="$2"; KB_PERSIST_OS="$3"; KB_HOMEBREW="$_pp/brew"
+    eval "$4"; kb_persist_path; kb_persist_path ) >/dev/null 2>&1
+}
+_pprun mac /bin/zsh Darwin ': > "$HOME/.bash_profile"'
+t "a Mac: bash, zsh and the login bash find ~/.local/bin, and Homebrew's line goes in ~/.zprofile, each once" \
+  "$(grep -c 'local/bin' "$_pp/mac/.bashrc"):$(grep -c 'local/bin' "$_pp/mac/.zshrc"):$(grep -c 'local/bin' "$_pp/mac/.bash_profile"):$(grep -c 'shellenv' "$_pp/mac/.zprofile")" "1:1:1:1"
+_pprun lin /bin/bash Linux ''
+t "Linux with bash: ~/.bashrc only, no zsh settings made, nothing about Homebrew" \
+  "$(grep -c 'local/bin' "$_pp/lin/.bashrc"):$([ -e "$_pp/lin/.zshrc" ] && echo zshrc):$([ -e "$_pp/lin/.zprofile" ] && echo zprofile)" "1::"
+_pprun linz /usr/bin/zsh Linux ''
+t "Linux with zsh: ~/.zshrc as well" "$(grep -c 'local/bin' "$_pp/linz/.zshrc")" "1"
+_pprun had /bin/zsh Darwin 'printf "eval \"\$(/opt/homebrew/bin/brew shellenv)\"\n" > "$HOME/.zprofile"'
+t "a Homebrew line that is already there is not added again" "$(grep -c shellenv "$_pp/had/.zprofile")" "1"
+rm -rf "$_pp"
+
 t "the Windows finish page says where it is, how to start talking, and where to hear more" \
   "$(grep -c 'WizardForm.FinishedLabel.Caption := FinishedWords();' windows/godspeed-setup.iss):$(grep -c "'To talk to it, open your notebook: Start menu, Open my notebook." windows/godspeed-setup.iss):$(grep -c "'I write about what it does and what broke, free: https://michaelzelbel.substack.com/subscribe'" windows/godspeed-setup.iss):$(grep -c 'WizardForm.RunList.Top := WizardForm.FinishedLabel.Top' windows/godspeed-setup.iss)" \
   "1:1:1:1"

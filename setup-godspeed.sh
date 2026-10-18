@@ -78,7 +78,7 @@ SOURCES_SET=0
 BESIDE=0
 ONLY=""
 # Your assistant's browser on this computer (kb_wire_computer in lib.sh): yes with a connection
-# code, no, or empty (asked on a computer with a screen, else nothing). KB_COMPUTER and
+# code, no, or empty (nothing is asked; an already paired helper is brought up to date). KB_COMPUTER and
 # KB_COMPUTER_CODE give the same answers without flags.
 COMPUTER="${KB_COMPUTER:-}"
 COMPUTER_CODE="${KB_COMPUTER_CODE:-}"
@@ -317,18 +317,13 @@ kb_hermes_approvals
 # memory nothing can see is how an assistant starts telling you what used to be true.
 kb_hermes_one_memory
 
-# Your assistant's browser on this computer (computer use layer 2): asked once, default no, and
-# only on a computer with a screen; a yes needs the connection code the assistant sends. An update
-# brings a helper that is already paired up to date. An older lib.sh has no such function.
+# Your assistant's browser on this computer (computer use layer 2). Not asked any more (18 October
+# 2026): the connection needs a Godspeed server with it switched on, and no server has it on, so a
+# yes led nowhere and the reader was left holding a question about a code nobody could give them.
+# --computer yes --computer-code <code> (or KB_COMPUTER and KB_COMPUTER_CODE) still connect it, and
+# an update still brings a helper that is already paired up to date. An older lib.sh has no such
+# function.
 if command -v kb_wire_computer >/dev/null 2>&1; then
-  if [ -z "$COMPUTER" ] && ! kb_computer_paired && kb_computer_desktop && have_tty; then
-    if ask_yes "Let your assistant use a browser on this computer, for sites where you are logged in, like your orders or your bank? It gets its own Chrome window and never sees your everyday Chrome" "n"; then
-      COMPUTER=yes
-      [ -n "$COMPUTER_CODE" ] || COMPUTER_CODE="$(ask "Connection code (write to your assistant in Telegram: connect my computer)" "")"
-    else
-      COMPUTER=no
-    fi
-  fi
   kb_wire_computer "$COMPUTER" "$COMPUTER_CODE" "$STARTER_REPO"
 fi
 
