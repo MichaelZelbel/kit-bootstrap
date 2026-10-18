@@ -13,7 +13,7 @@
 # installing prerequisites, and creating a mission control from nothing. join.sh only ever
 # JOINED, and stopped with an error when there was no mission control to join. So for a day a
 # Mac reader on a fresh machine got an error and a Windows reader got a finished
-# setup. Michael saw the asymmetry and asked whether the .exe was the odd one out.
+# setup. The maintainer saw the asymmetry and asked whether the .exe was the odd one out.
 # It was not. This is the other half catching up.
 #
 # The platforms differ on purpose and that is the whole point. A terminal command

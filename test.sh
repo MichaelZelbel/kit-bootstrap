@@ -410,7 +410,7 @@ _bad="$(HOME="$_f" GODSPEED_DIR= GODSPEED= kb_find_godspeed "$_f/notagodspeed")"
 t "a hint that is not a mission control is not trusted" "$([ "$_bad" = "$_f/notagodspeed" ] && echo trusted || echo no)" "no"
 
 # "Nothing found" only means anything on a machine that genuinely has no mission control in any
-# of the usual homes. On Michael's own machines one is always there, so this case
+# of the usual homes. On the maintainer's own machines one is always there, so this case
 # skips itself rather than failing for the wrong reason.
 _empty=$(mktemp -d)
 if HOME="$_empty" GODSPEED_DIR= GODSPEED= kb_find_godspeed >/dev/null 2>&1; then
@@ -424,7 +424,7 @@ rm -rf "$_empty"
 # THE ONE THAT MATTERS. `godspeed memory search` is a wrapper that runs
 # `mc-memory-lookup` by bare name. Wiring only `godspeed` gives a command that exists
 # and then fails, which is worse than no command at all. This dispatcher belongs to
-# Michael's own engine; a reader's mission control ships none of it.
+# the maintainer's own engine; a reader's mission control ships none of it.
 printf '#!/bin/sh\necho godspeed\n'      > "$_f/godspeed/agents/mc-cli/godspeed"
 printf '#!/bin/sh\necho lookup\n'   > "$_f/godspeed/agents/mc-cli/mc-memory-lookup"
 printf 'MODEL=x\n'                  > "$_f/godspeed/agents/mc-cli/models.env"
@@ -2431,6 +2431,21 @@ t "and Windows no longer asks about 'a notebook'" \
   "$(grep -c 'Connect a notebook now' join.ps1)" "0"
 t "the answer is still no unless the reader says yes" \
   "$(grep -c 'ask_yes "Connect Menerio now?" "n"' lib.sh)" "1"
+# AN INSTALL NO LONGER ASKS (18 October 2026). Version 2 brings its own notebook, so Menerio is
+# offered as an import into it, in one line, and connected only by the Menerio step.
+_mi="$(mktemp -d)"; mkdir -p "$_mi/godspeed" "$_mi/home"
+out="$( ( HOME="$_mi/home"; kb_notebook_state() { printf none; }; have_tty() { return 0; }
+          ask_yes() { echo ASKED; return 1; }; KB_NOTEBOOK= KB_NOTEBOOK_TOKEN= KB_ONLY_MENERIO= kb_connect_notebook "$_mi/godspeed" ) 2>&1 )"
+t "an install at a keyboard is asked nothing about Menerio" "$(printf '%s' "$out" | grep -c ASKED)" "0"
+t "and is offered the import into the notebook in one line" \
+  "$(printf '%s' "$out" | grep -c 'Settings, Import from Menerio')" "1"
+out="$( ( HOME="$_mi/home"; kb_notebook_state() { printf none; }; have_tty() { return 0; }
+          ask_yes() { echo ASKED; return 1; }; KB_NOTEBOOK= KB_NOTEBOOK_TOKEN= KB_ONLY_MENERIO=1 kb_connect_notebook "$_mi/godspeed" ) 2>&1 )"
+t "the Menerio step still asks" "$(printf '%s' "$out" | grep -c ASKED)" "1"
+t "Windows offers the import in the same words, and asks only in the Menerio step" \
+  "$(grep -c 'Menerio: kept notes in Menerio before? Bring them in whenever you like: in your notebook, Settings, Import from Menerio.' lib.sh):$(grep -c 'Menerio: kept notes in Menerio before? Bring them in whenever you like: in your notebook, Settings, Import from Menerio.' join.ps1):$(grep -c "if (\$env:KB_ONLY_MENERIO -ne '1') {" join.ps1)" "1:1:1"
+t "the question names no author" "$(cat lib.sh join.ps1 | grep -c "the author's online notebook")" "0"
+rm -rf "$_mi"
 rm -rf "$_m"
 
 # ---------------------------------------------------------------------------
@@ -2689,9 +2704,12 @@ exit "${FAKE_CURL_EXIT:-0}"
 FAKE
 chmod +x "$_ic/bin/curl"
 _icrun() {  # <name> <shell code>: a fresh HOME, the fake curl first on PATH, no terminal
+  # A test address of its own (_IC_URL= runs a case with none, which is the default since
+  # 18 October 2026).
   mkdir -p "$_ic/$1"
   ( HOME="$_ic/$1"; PATH="$_ic/bin:$PATH"; FAKE_CURL_LOG="$_ic/$1/curl.log"; export FAKE_CURL_LOG
     unset GODSPEED_INSTALL_COUNT DO_NOT_TRACK
+    KB_INSTALL_COUNT_URL="${_IC_URL-https://counter.example/signal/v1}"
     have_tty() { return 1; }
     eval "$2" ) >/dev/null 2>&1
 }
@@ -2701,6 +2719,11 @@ _icsent() { if [ -f "$_ic/$1/curl.log" ]; then grep -c . "$_ic/$1/curl.log"; els
 _icrun quiet 'kb_choose_install_count; kb_install_count_send installed linux new'
 t "install count: nobody at the keyboard means no question, nothing written, nothing sent" \
   "$(_icenv quiet GODSPEED_INSTALL_COUNT):$(_icsent quiet)" ":0"
+_IC_URL= _icrun noaddr 'have_tty() { return 0; }; ask_yes() { echo ASKED >> "$HOME/asked"; return 0; }; kb_choose_install_count; kb_install_count_send installed linux new'
+t "with no counter address (the default), even a keyboard is asked nothing, and nothing is written or sent" \
+  "$([ -f "$_ic/noaddr/asked" ] && echo asked || echo not-asked):$(_icenv noaddr GODSPEED_INSTALL_COUNT):$(_icsent noaddr)" "not-asked::0"
+_IC_URL= _icrun noaddr2 'GODSPEED_INSTALL_COUNT=yes kb_choose_install_count; kb_install_count_send installed linux new'
+t "and an earlier yes sends nothing without an address" "$(_icsent noaddr2)" "0"
 _icrun yes 'GODSPEED_INSTALL_COUNT=yes kb_choose_install_count; KB_BRANCH=v9.9 kb_install_count_send installed linux new'
 t "a yes records 1 and a 32-character random id" \
   "$(_icenv yes GODSPEED_INSTALL_COUNT):$(_icenv yes GODSPEED_INSTALL_ID | tr -d '0-9a-f' | wc -c | tr -d ' '):$(_icenv yes GODSPEED_INSTALL_ID | wc -c | tr -d ' ')" "1:1:33"
@@ -2734,6 +2757,8 @@ t "both platforms ask it with no as the answer" \
   "$(grep -c 'ask_yes "Send the anonymous note?" "n"' lib.sh):$(grep -c 'Read-Host "Send the anonymous note? (y/N)"' join.ps1)" "1:1"
 t "both platforms send to the same address, the website's, and never to a server of the maker's own" \
   "$(grep -c 'https://godspeedmissioncontrol.com/signal/v1' lib.sh):$(grep -c 'https://godspeedmissioncontrol.com/signal/v1' join.ps1):$(cat lib.sh join.ps1 | grep -c 'hstgr')" "1:1:0"
+t "the question names no person (it asked to 'tell Michael' until 18 October 2026)" \
+  "$(cat lib.sh join.ps1 | grep -v '^ *#' | grep -c -i 'michael,\|tell michael\|told michael')" "0"
 rm -rf "$_ic"
 
 
@@ -2847,7 +2872,7 @@ t "a Homebrew line that is already there is not added again" "$(grep -c shellenv
 rm -rf "$_pp"
 
 t "the Windows finish page says where it is, how to start talking, and where to hear more" \
-  "$(grep -c 'WizardForm.FinishedLabel.Caption := FinishedWords();' windows/godspeed-setup.iss):$(grep -c "'To talk to it, open your notebook: Start menu, Open my notebook." windows/godspeed-setup.iss):$(grep -c "'I write about what it does and what broke, free: https://michaelzelbel.substack.com/subscribe'" windows/godspeed-setup.iss):$(grep -c 'WizardForm.RunList.Top := WizardForm.FinishedLabel.Top' windows/godspeed-setup.iss)" \
+  "$(grep -c 'WizardForm.FinishedLabel.Caption := FinishedWords();' windows/godspeed-setup.iss):$(grep -c "'To talk to it, open your notebook: Start menu, Godspeed Mission Control, Open my notebook. The first time, open Settings there and connect your AI account.'" windows/godspeed-setup.iss):$(grep -c "'I write about what it does and what broke, free: https://michaelzelbel.substack.com/subscribe'" windows/godspeed-setup.iss):$(grep -c 'WizardForm.RunList.Top := WizardForm.FinishedLabel.Top' windows/godspeed-setup.iss)" \
   "1:1:1:1"
 t "the finish page's label is fitted to those words, so the newsletter line is not cut off" \
   "$(grep -c 'WizardForm.AdjustLabelHeight(WizardForm.FinishedLabel);' windows/godspeed-setup.iss)" "1"

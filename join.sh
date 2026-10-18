@@ -11,7 +11,7 @@
 #           is this file.
 #
 # Until 2026-08-09 only CREATE existed in the kit, and JOIN existed only inside
-# Michael's private repo. So a reader who bought a second laptop had nothing at
+# the maintainer's private repo. So a reader who bought a second laptop had nothing at
 # all, and the same wiring had to be written twice. D-092 says install code lives
 # here once. This is that rule applied to the half nobody had written.
 #

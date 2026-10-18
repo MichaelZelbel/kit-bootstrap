@@ -3,7 +3,7 @@
 #
 # The Windows half of join.sh. It exists because the CREATE installer in the
 # book's kit only runs on a rented Linux server, which left every reader working
-# on a Windows laptop with no way to join their own mission control. Michael hit the same gap
+# on a Windows laptop with no way to join their own mission control. The maintainer hit the same gap
 # on 2026-08-09, one day before a business trip.
 #
 # Self-contained on purpose: a Windows reader downloads one file and runs it. It
@@ -700,6 +700,23 @@ function Add-KitUserPath([string]$bin) {
     return $true
 }
 
+function Add-KitInstalledCommands {
+    <#  The names this installer wrote into ~\.local\bin, one per line in
+        ~\.godspeed\installed-commands.txt. The uninstaller removes exactly these. The folder is
+        shared with other programs (Claude Code keeps its own program there), so "everything in it"
+        was never ours to take. Until 18 October 2026 nothing was recorded, and uninstalling left
+        about twenty helpers there and the folder on PATH. #>
+    param([string[]]$Names)
+    $Names = @($Names | Where-Object { $_ })
+    if ($Names.Count -eq 0) { return }
+    $dir = Join-Path (Get-KitHome) '.godspeed'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $f = Join-Path $dir 'installed-commands.txt'
+    $have = @()
+    if (Test-Path -LiteralPath $f) { $have = @(Get-Content -LiteralPath $f | Where-Object { $_ }) }
+    Set-Content -LiteralPath $f -Value @(@($have + $Names) | Sort-Object -Unique) -Encoding ascii
+}
+
 # The mark on every Git Bash launcher Install-KitGodspeedCli writes, so a later run knows the file
 # is its own to replace and a kit program of the same name is not.
 $script:KitCliShimMark = '# godspeed-cli-shim: runs the mission control command named below'
@@ -745,6 +762,7 @@ function Install-KitGodspeedCli {
     $node = (Get-Command node -ErrorAction SilentlyContinue).Source
     $py   = Get-KitPython
     $n = 0
+    $script:KitCliWritten = @()
     Get-ChildItem $src -File |
         Where-Object { ($_.Name -eq 'godspeed' -or $_.Name -like 'mc-*') -and $_.Extension -notin '.env', '.md' } |
         ForEach-Object {
@@ -790,8 +808,10 @@ function Install-KitGodspeedCli {
             # the check above can tell it from a kit program of the same name.
             $sh = "#!/bin/sh`n$($script:KitCliShimMark)`nexec `"$posix`" `"$target`" `"`$@`"`n"
             [System.IO.File]::WriteAllText($own, $sh, (New-Object System.Text.UTF8Encoding $false))
+            $script:KitCliWritten += @($_.Name, "$($_.Name).cmd")
             $n++
         }
+    Add-KitInstalledCommands -Names $script:KitCliWritten
 
     if (Add-KitUserPath $bin) {
         Write-KbOk "added $bin to your PATH (open a new terminal for it to take)"
@@ -890,6 +910,7 @@ function Install-KitGodspeedTools {
         New-Item -ItemType Directory -Force $bin | Out-Null
         New-Item -ItemType Directory -Force (Join-Path $HOME '.godspeed') | Out-Null
         $n = 0
+        $written = @()
         # A KIT SHIPS PRODUCTS, NOT ITS OWN TEST SUITE. Measured on a real install:
         # test-notebook-sync.sh and test-prompt-archive.sh were copied onto the reader's
         # PATH beside mc-due and mc-check-keys, so a reader could type a command that
@@ -905,6 +926,7 @@ function Install-KitGodspeedTools {
             $dest = Join-Path $bin $_.Name
             Remove-Item $dest -Force -ErrorAction SilentlyContinue
             Copy-Item $_.FullName $dest -Force
+            $written += $_.Name
             $n++
         }
         if ($n -eq 0) { return }
@@ -935,6 +957,7 @@ function Install-KitGodspeedTools {
             if (-not (Test-Path (Join-Path $bin $pair.src))) { continue }
             @('@echo off', "node `"%~dp0$($pair.src)`" %*") |
                 Set-Content -Path (Join-Path $bin ($pair.cmd + '.cmd')) -Encoding ascii
+            $written += ($pair.cmd + '.cmd')
         }
 
         # THE TWO SHELL PROGRAMS NEED A DIFFERENT LAUNCHER, AND ON WINDOWS THEY NEED A SHELL.
@@ -952,6 +975,7 @@ function Install-KitGodspeedTools {
             }
             @('@echo off', "`"$gitBash`" `"%~dp0$shellCmd`" %*") |
                 Set-Content -Path (Join-Path $bin ($shellCmd + '.cmd')) -Encoding ascii
+            $written += ($shellCmd + '.cmd')
         }
 
         # THE TWO THAT ARRIVED WITH "CONNECT MENERIO ONCE" (2026-09-20). mc-menerio-connect
@@ -996,7 +1020,7 @@ function Install-KitGodspeedTools {
             } elseif (Test-Path (Join-Path $bin 'mc-notebook-sync')) {
                 Write-Host "   commands: this copy of the kit does not have $($pair.cmd) yet, so it was skipped. Run this again after the kit is updated."
             }
-            if ($runLine) { @('@echo off', $runLine) | Set-Content -Path $cmdFile -Encoding ascii }
+            if ($runLine) { @('@echo off', $runLine) | Set-Content -Path $cmdFile -Encoding ascii; $written += ($pair.cmd + '.cmd') }
         }
 
         # The rules compiler, which a reader types by hand rather than the schedule
@@ -1011,7 +1035,9 @@ function Install-KitGodspeedTools {
         if (Test-Path $rulesJs) {
             @('@echo off', "node `"%~dp0compile-rules.js`" %*") |
                 Set-Content -Path (Join-Path $bin 'mc-compile-rules.cmd') -Encoding ascii
+            $written += 'mc-compile-rules.cmd'
         }
+        Add-KitInstalledCommands -Names $written
 
         # Where the mission control is, recorded once, so a job started by the schedule with almost
         # no environment never has to guess. The programs read this file already.
@@ -1044,7 +1070,7 @@ function Write-KitHiddenLauncher {
         WHY IT IS A FUNCTION AND NOT A COPIED BLOCK. It was a copied block, in the
         prompt archive step only, and the notebook step written eight days later missed
         it: readers on Windows would have got exactly the window this file already knew
-        how to avoid, and Michael found it flashing on his own PC on 2026-08-21. One
+        how to avoid, and the maintainer found it flashing on a PC of his own on 2026-08-21. One
         copy, used by both. #>
     param([Parameter(Mandatory)][string]$Dir)
     New-Item -ItemType Directory -Force $Dir | Out-Null
@@ -1121,7 +1147,7 @@ function Install-KitPromptHarvest {
     }
 
     # NEVER make node.exe the task's own executable: the task then flashes a terminal
-    # window at the owner every hour it fires (reported 2026-08-18, on two of Michael's
+    # window at the owner every hour it fires (reported 2026-08-18, on two of the maintainer's
     # machines). The job goes through wscript + a tiny .vbs launcher instead, which runs
     # the same command with its window hidden. The launcher is written here, next to the
     # collector, because a reader's mission control ships no such file. A task found running node
@@ -1220,8 +1246,39 @@ function Confirm-KitHermes {
         Write-KbOk "Hermes is here"
         return $true
     }
+    # The Windows setup with the notebook brings a Hermes of its own, kept beside the notebook and
+    # never on PATH, so the two checks above cannot see it. Until 18 October 2026 every such
+    # install said twice that Hermes was missing while its own Hermes was already working, and the
+    # Start menu's update entry told people to download a second one.
+    if (Test-KitOwnHermes) {
+        if (Get-KitOwnHermes) { Write-KbOk "Hermes is here (the one that came with Godspeed Mission Control)" }
+        else { Write-KbOk "Hermes: this setup installs its own after the notebook, nothing to download" }
+        return $true
+    }
     Write-KbWarn "Hermes is not on this PC yet. Download it from https://hermes-agent.nousresearch.com , run its installer, then run this installer again so it can finish the wiring."
     return $false
+}
+
+function Test-KitOwnHermes {
+    <#  Does this setup bring its own Hermes? setup-godspeed.ps1 -IntegratedNotebook says so with
+        KB_OWN_HERMES=1: its Hermes is installed by ensure-hermes-full-alpha.ps1 into the notebook's
+        state folder, and the steps below that talk to a Hermes on PATH have nothing to say then. #>
+    return ($env:KB_OWN_HERMES -eq '1')
+}
+
+function Get-KitOwnHermes {
+    <#  The program of the Hermes that came with the notebook, or $null while there is none yet.
+        assistant.json is what ensure-hermes-full-alpha.ps1 writes once that Hermes works. #>
+    $file = $env:KB_OWN_HERMES_RECORD
+    if (-not $file) {
+        if (-not $env:LOCALAPPDATA) { return $null }
+        $file = Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State\assistant.json'
+    }
+    try {
+        $a = Get-Content -LiteralPath $file -Raw -ErrorAction Stop | ConvertFrom-Json
+        if ($a.verified -and $a.executable -and (Test-Path -LiteralPath $a.executable)) { return [string]$a.executable }
+    } catch { }
+    return $null
 }
 
 function Install-KitClaudeCode {
@@ -2419,6 +2476,7 @@ function Select-KitInstallCount {
     if ($null -eq $answer -and (Test-KitDoNotTrack)) { $answer = '0' }
     if ($null -eq $answer) {
         if (Get-KitInstallCount) { return }
+        if (-not $script:KitInstallCountUrl) { return }
         if (-not (Test-KitInteractive)) { return }
         # THE SAME WORDS AS THE BASH TWIN, line for line. test.sh compares the two.
         Write-Host ""
@@ -2454,6 +2512,7 @@ function Send-KitInstallCount {
     param([Parameter(Mandatory)][string]$What, [string]$Kind = '', [string]$Run = '')
     try {
         if ((Get-KitInstallCount) -ne '1') { return }
+        if (-not $script:KitInstallCountUrl) { return }
         if (Test-KitDoNotTrack) { return }
         $id = Get-KitDeviceEnvValue 'GODSPEED_INSTALL_ID'
         if (-not $id) { return }
@@ -2700,14 +2759,23 @@ function Connect-KitNotebook {
         default {
             if (-not $Token) { $Token = $env:KB_NOTEBOOK_TOKEN }
             if (-not $Token) {
+                # AN INSTALL OR AN UPDATE NO LONGER ASKS (18 October 2026). Version 2 brings its own
+                # notebook, so asking to connect Menerio in the middle of an install asked a newcomer about
+                # a second notebook they had never heard of. Menerio is offered once, plainly, as an
+                # import into the notebook. Connecting it is still there for whoever asks for it by
+                # name: the Menerio step (-Only menerio), which sets KB_ONLY_MENERIO.
+                if ($env:KB_ONLY_MENERIO -ne '1') {
+                    Write-KbOk "Menerio: kept notes in Menerio before? Bring them in whenever you like: in your notebook, Settings, Import from Menerio."
+                    return
+                }
                 if (-not (Test-KitInteractive)) { return }   # a one-line install stays a one-line install
                 # THE SAME WORDS AS THE BASH TWIN, line for line. They drifted once: lib.sh
                 # said Menerio from 2026-09-05 while this side still asked about "a
                 # notebook", so two readers of one book were offered two differently named
                 # things. test.sh compares the two texts now.
                 Write-Host ""
-                Write-Host "Menerio is optional. Everything in this book works on plain files without it."
-                Write-Host "It is the author's online notebook. Connect it once, and every assistant that"
+                Write-Host "Menerio is optional. Godspeed Mission Control works on plain files without it."
+                Write-Host "It is an online notebook. Connect it once, and every assistant that"
                 Write-Host "opens this mission control can save notes there and find them again. Connecting sends none"
                 Write-Host "of your mission control's files anywhere. Copying them for search is a second question, asked"
                 Write-Host "after this one, and its answer is no unless you say yes."
@@ -3004,7 +3072,8 @@ function Set-KitHermesSkillsDir {
 
     $bin = if ($env:KB_HERMES_BIN) { $env:KB_HERMES_BIN } else { 'hermes' }
     if (-not (Get-Command $bin -ErrorAction SilentlyContinue)) {
-        Write-KbOk "skills: Hermes is not on this PC yet, so there is nothing to tell it. Run this again once it is."
+        # The notebook's own Hermes is told where the recipes are when it is set up.
+        if (-not (Test-KitOwnHermes)) { Write-KbOk "skills: Hermes is not on this PC yet, so there is nothing to tell it. Run this again once it is." }
         return
     }
 
@@ -3303,7 +3372,8 @@ function Set-KitHermesGodspeed {
     }
 
     if (-not (Test-KitHermesHere)) {
-        Write-KbOk "mission control: Hermes is not on this PC yet, so there is nothing to point at $abs. Run this again once it is."
+        # The notebook's own Hermes starts in the mission control by its own settings.
+        if (-not (Test-KitOwnHermes)) { Write-KbOk "mission control: Hermes is not on this PC yet, so there is nothing to point at $abs. Run this again once it is." }
         return $true
     }
     $bin = Get-KitHermesBin
@@ -3424,7 +3494,8 @@ function Set-KitHermesOneMemory {
         there. The twin of kb_hermes_one_memory in lib.sh; change both or neither. #>
 
     if (-not (Test-KitHermesHere)) {
-        Write-KbOk "memory: Hermes is not on this PC yet, so it has no second memory to switch off. Run this again once it is."
+        # The notebook's own Hermes is set up with its second memory off.
+        if (-not (Test-KitOwnHermes)) { Write-KbOk "memory: Hermes is not on this PC yet, so it has no second memory to switch off. Run this again once it is." }
         return $true
     }
     $bin = Get-KitHermesBin
@@ -3458,7 +3529,7 @@ function Set-KitHermesApprovals {
         reader something the book spends a chapter arguing against. #>
 
     if (-not (Test-KitHermesHere)) {
-        Write-KbOk "safety: Hermes is not on this PC yet, so there are no rules to give it. Run this again once it is."
+        if (-not (Test-KitOwnHermes)) { Write-KbOk "safety: Hermes is not on this PC yet, so there are no rules to give it. Run this again once it is." }
         return $true
     }
     $bin = Get-KitHermesBin
@@ -3528,7 +3599,7 @@ function Test-KitHermesApprovals {
 }
 
 # =============================================================================
-# YOUR COMPUTER LENDS ITS BROWSER (computer use layer 2, D-285 in Michael's mission control).
+# YOUR COMPUTER LENDS ITS BROWSER (computer use layer 2, decision D-285 of the maintainer's own mission control).
 #
 # One question in the wizard, unticked: "Let your assistant use a browser on this computer?"
 # A yes puts the helper (computer\ in the kit) into %LOCALAPPDATA%\Godspeed\computer\app,

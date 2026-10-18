@@ -1197,7 +1197,7 @@ EOF
 # One memory, the mission control's. Hermes keeps a small memory of its own beside it
 # (memories/MEMORY.md and USER.md, written by the assistant as you chat) and ships with it
 # switched ON. That second store is invisible to every check in the mission control, it goes
-# stale, and then the two disagree: on Michael's own server it still described the system by a
+# stale, and then the two disagree: on the maintainer's own server it still described the system by a
 # name that had been retired weeks earlier, and no file in the mission control could show it.
 #
 # So the installer switches it off and says so, with the one line that turns it back on. It
@@ -1501,7 +1501,7 @@ kb_hermes_has_provider() {
 #
 # Every installer here answers "make me a mission control from nothing". None of them
 # answered "I already have a mission control, this is a second machine", so that job was
-# written separately in Michael's own repo and had to be written AGAIN for
+# written separately in the maintainer's own repo and had to be written AGAIN for
 # readers. That is the drift this repo exists to stop, so it lives here now and
 # both callers use it.
 #
@@ -2387,7 +2387,7 @@ kb_install_prompt_harvest() {
 # this file never got: fetching what the machine is missing, and MAKING a mission control when
 # there is none. So for a day, a reader on a Mac who ran the Mac command on a
 # fresh machine got an error telling them to go and make a mission control first, while a
-# reader on Windows got a finished setup. Michael spotted the asymmetry from the
+# reader on Windows got a finished setup. The maintainer spotted the asymmetry from the
 # outside and asked whether the .exe was the odd one out. It was not: the bash
 # half was simply behind.
 #
@@ -3692,13 +3692,22 @@ kb_connect_notebook() {
     none)
       token="${KB_NOTEBOOK_TOKEN:-}"
       if [ -z "$token" ]; then
+        # AN INSTALL OR AN UPDATE NO LONGER ASKS (18 October 2026). Version 2 brings its own
+        # notebook, so asking to connect Menerio in the middle of an install asked a newcomer about a
+        # second notebook they had never heard of. Menerio is offered once, plainly, as an import
+        # into the notebook. Connecting it is still there for whoever asks for it by name: the
+        # Menerio step (--only menerio), which sets KB_ONLY_MENERIO. The twin is Connect-KitNotebook.
+        if [ "${KB_ONLY_MENERIO:-0}" != "1" ]; then
+          ok "Menerio: kept notes in Menerio before? Bring them in whenever you like: in your notebook, Settings, Import from Menerio."
+          return 0
+        fi
         have_tty || return 0        # a one-line install stays a one-line install
         # THE SAME WORDS AS THE WINDOWS TWIN, line for line. They drifted once: this side
         # said Menerio from 2026-09-05 while Windows still asked about "a notebook", so
         # two readers of one book were offered two differently named things.
         kb_tell ""
-        kb_tell "Menerio is optional. Everything in this book works on plain files without it."
-        kb_tell "It is the author's online notebook. Connect it once, and every assistant that"
+        kb_tell "Menerio is optional. Godspeed Mission Control works on plain files without it."
+        kb_tell "It is an online notebook. Connect it once, and every assistant that"
         kb_tell "opens this mission control can save notes there and find them again. Connecting sends none"
         kb_tell "of your mission control's files anywhere. Copying them for search is a second question, asked"
         kb_tell "after this one, and its answer is no unless you say yes."
@@ -3881,6 +3890,7 @@ kb_choose_install_count() {
   [ -z "$answer" ] && kb_dnt && answer=0
   if [ -z "$answer" ]; then
     [ -n "$(kb_install_count)" ] && return 0
+    [ -n "$KB_INSTALL_COUNT_URL" ] || return 0
     have_tty || return 0
     # THE SAME WORDS AS THE WINDOWS TWIN, line for line. test.sh compares the two.
     kb_tell ""
@@ -3908,6 +3918,7 @@ kb_choose_install_count() {
 kb_install_count_send() {
   local event="${1:-}" kind="${2:-}" run="${3:-}" id sent version product body
   [ "$(kb_install_count)" = "1" ] || return 0
+  [ -n "$KB_INSTALL_COUNT_URL" ] || return 0
   kb_dnt && return 0
   id="$(kb_device_env_get GODSPEED_INSTALL_ID)"
   [ -n "$id" ] && [ -n "$event" ] || return 0
@@ -3932,7 +3943,7 @@ kb_install_count_send() {
 }
 
 # =============================================================================
-# YOUR COMPUTER LENDS ITS BROWSER (computer use layer 2, D-285 in Michael's mission control).
+# YOUR COMPUTER LENDS ITS BROWSER (computer use layer 2, decision D-285 of the maintainer's own mission control).
 #
 # One question, default no: "Let your assistant use a browser on this computer?" A yes puts the
 # helper (computer/ in the kit) into the computer's own app-data folder, pairs it with the

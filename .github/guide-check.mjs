@@ -108,7 +108,7 @@ function check({ repo, mapFile }) {
     const [sha, subject = ""] = last.split("\t");
     open.push({ slug, url: pageUrl(map.guide, slug), sha, subject });
   }
-  // On Michael's machines the website sits beside this repository: a mapped page that is not
+  // On the maintainer's machines the website sits beside this repository: a mapped page that is not
   // there any more was renamed or removed.
   const site = resolve(repo, "..", "godspeedmissioncontrol", "content", "guide");
   if (existsSync(site)) {
@@ -132,7 +132,7 @@ function report(result) {
   lines.push(
     "",
     "Read each page and correct it if it no longer matches: its text is content/guide/<slug>.md in the",
-    "private website repository MichaelZelbel/godspeedmissioncontrol (on Michael's machines ../godspeedmissioncontrol).",
+    "private website repository MichaelZelbel/godspeedmissioncontrol (on the maintainer's machines ../godspeedmissioncontrol).",
   );
   const add = pushed
     ? ["Then mark them reviewed. Your newest commit is already pushed, so add an empty commit:", `  git commit --allow-empty -m "Guide pages reviewed" --trailer "Guide-Reviewed: ${slugs}"`]
