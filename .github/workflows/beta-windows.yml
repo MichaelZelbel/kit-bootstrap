@@ -28,10 +28,10 @@ env:
   PRODUCT_BRANCH: ${{ inputs.product_branch || 'main' }}
   # The newest published release: where the update starts from.
   PREVIOUS_RELEASE: godspeed-v2-integrated-2026-10-19-1
-  PREVIOUS_SETUP_SHA256: 7cb66ca66830d86ad11e691e75a235cb168128868f97ca787370ba01df6dff48
+  PREVIOUS_SETUP_SHA256: deec71b3a2a2b6d313e8dcd7be54acc2f0a10c6aba54463dafa9117520a778ec
   # The notebook of that release, built a second time with this branch's installer code: an
   # older installer that has the refusal, so the refusal itself can be seen.
-  OLDER_PRODUCT: bc3b63d10097ed46faab8d6e4be5672201b3ad68
+  OLDER_PRODUCT: a621d5f2649f3931943634b86101ba8134e672fc
 jobs:
   build:
     runs-on: windows-2025
