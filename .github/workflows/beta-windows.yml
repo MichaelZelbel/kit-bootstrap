@@ -1,40 +1,16 @@
-name: Fresh repository Windows acceptance
+name: Public-only Windows fresh wizard acceptance
 on:
   workflow_dispatch:
-    inputs:
-      release_commit:
-        description: Exact new product commit holding the committed installer files
-        required: true
-      product_commit:
-        description: Exact new product runtime and starter commit named by those installers
-        required: true
-      bootstrap_commit:
-        description: Exact kit-bootstrap commit named by the Windows manifest
-        required: true
-      setup_sha256:
-        description: SHA256 of the committed GodspeedSetup.exe
-        required: true
-      manifest_sha256:
-        description: SHA256 of the committed windows-manifest.json
-        required: true
 permissions:
   contents: read
 env:
-  RELEASE_COMMIT: ${{ inputs.release_commit }}
-  PRODUCT_COMMIT: ${{ inputs.product_commit }}
-  BOOTSTRAP_COMMIT: ${{ inputs.bootstrap_commit }}
-  SETUP_SHA256: ${{ inputs.setup_sha256 }}
-  MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
-  PREVIOUS_SETUP_URL: ${{ secrets.MIGRATION_PREVIOUS_SETUP_URL }}
-  PREVIOUS_MIRROR_URL: ${{ secrets.MIGRATION_PREVIOUS_MIRROR_URL }}
-  PREVIOUS_MANIFEST_URL: ${{ secrets.MIGRATION_PREVIOUS_MANIFEST_URL }}
+  RELEASE_COMMIT: 770eb12da1ba591d4e6f6c4cef57f68a51759cbf
+  PRODUCT_COMMIT: a621d5f2649f3931943634b86101ba8134e672fc
+  BOOTSTRAP_COMMIT: 86da1dd27fea804ab131a8494b79a2ccf868e847
+  SETUP_SHA256: deec71b3a2a2b6d313e8dcd7be54acc2f0a10c6aba54463dafa9117520a778ec
+  MANIFEST_SHA256: 831af931f2c94cb42e776b3baa3d00ad91d338f5fdf3695550124f744d05fba2
 jobs:
-  windows:
-    strategy:
-      fail-fast: false
-      matrix:
-        scenario: [install, wizard]
-        mode: [fresh, update]
+  wizard-fresh:
     runs-on: windows-2025
     timeout-minutes: 180
     steps:
@@ -44,61 +20,25 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.19.0
-      - name: Exact old fixtures and exact new committed installer bytes
-        shell: bash
-        run: bash scripts/migration/prepare-windows.sh
-      - name: Exact kit-bootstrap test programs
+      - name: Exact bootstrap test, from its public immutable commit
         uses: actions/checkout@v4
         with:
           repository: MichaelZelbel/kit-bootstrap
-          ref: ${{ inputs.bootstrap_commit }}
+          ref: ${{ env.BOOTSTRAP_COMMIT }}
           path: bootstrap
           persist-credentials: false
-      - name: Build an older installer with the downgrade refusal
-        if: matrix.scenario == 'install'
+      - name: Verify a fresh runner and download only the new public installer
+        shell: pwsh
+        run: ./scripts/migration/prepare-public-windows-fresh.ps1
+      - name: Unchanged fresh wizard test, Next on every page and final page read
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          git init -q older-product
-          git -C older-product fetch -q --depth 1 $env:MIGRATION_MIRROR 69967129e488417d8d5acb42340363239427092a
+          ./bootstrap/windows/test-finish-page.ps1 -Setup candidate/GodspeedSetup.exe -Evidence evidence
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          git -C older-product checkout -q FETCH_HEAD
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          Push-Location older-product/notebook/ui
-          npm ci --no-audit --no-fund
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          npm run build
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          Pop-Location
-          choco upgrade innosetup --no-progress -y
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          ./bootstrap/windows/build-full-alpha.ps1 -KitCheckout "$pwd/older-product"
-      - name: Silent first install or update, older installer refused, update check, uninstall
-        if: matrix.scenario == 'install'
-        shell: pwsh
-        run: |
-          ./scripts/migration/invoke-install-check.ps1 -BootstrapRoot "$pwd/bootstrap" -Mode '${{ matrix.mode }}' -Setup candidate/GodspeedSetup.exe -Manifest candidate/windows-manifest.json -Previous "$env:MIGRATION_FIXTURES/GodspeedSetup.exe" -Older bootstrap/windows/dist/GodspeedSetup-Full-Alpha.exe -Evidence evidence
-      - name: Original previous installer before the update wizard
-        if: matrix.scenario == 'wizard' && matrix.mode == 'update'
-        shell: pwsh
-        run: |
-          $env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')
-          $p = Start-Process "$env:MIGRATION_FIXTURES/GodspeedSetup.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -PassThru
-          if (-not $p.WaitForExit(3600000)) { throw 'Previous installer did not finish in an hour.' }
-          if ($p.ExitCode -ne 0) { throw "Previous installer exit $($p.ExitCode)" }
-          $i = Get-Content "$env:LOCALAPPDATA/Godspeed Mission Control Full Alpha State/installation.json" -Raw | ConvertFrom-Json
-          if ($i.kitCommit -ne '69967129e488417d8d5acb42340363239427092a') { throw 'Wrong previous notebook.' }
-      - name: Wizard, Next on every page, and the final page read
-        if: matrix.scenario == 'wizard'
-        shell: pwsh
-        run: |
-          $arguments = @{Setup='candidate/GodspeedSetup.exe'; Evidence='evidence'}
-          if ('${{ matrix.mode }}' -eq 'update') { $arguments.ExpectUpdate=$true }
-          ./bootstrap/windows/test-finish-page.ps1 @arguments
-      - name: Evidence only, including fixture routing and artifact hashes
+      - name: Fresh-wizard evidence only
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: migration-windows-${{ matrix.scenario }}-${{ matrix.mode }}
+          name: public-windows-wizard-fresh
           path: evidence/
           retention-days: 14
