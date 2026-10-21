@@ -39,12 +39,16 @@ foreach($name in 'kitCommit','kitCommittedAt'){if($manifest.$name){$config|Add-M
 if(Test-Path -LiteralPath (Join-Path $AppRoot 'stop-full-alpha.ps1')){& (Join-Path $AppRoot 'stop-full-alpha.ps1')}
 # Record and media backup precede replacement of runtime settings. Software changes never alter data format here.
 # The notebook folder was records/ until 2026-10-05; an upgrade backs up either.
+# --before-update (the product's notebook/core/update-copy.mjs): only what an update can change, never
+# work/, and in a mission control that is its own Git repository only what its commit does not already
+# hold. Until 21 October 2026 this copied every durable folder whole: on one PC 8.33 GB and sixteen
+# minutes, and with 5.4 GB free the update refused to start. Now that PC's copy is 85 MB in seconds.
 $backup=$null
 if((Test-Path -LiteralPath (Join-Path $config.workspace 'notebook')) -or (Test-Path -LiteralPath (Join-Path $config.workspace 'records'))){
   $backupRoot=Get-FullAlphaBackupRoot -State $state
   $backup=Join-Path $backupRoot (Get-Date -Format 'yyyyMMdd-HHmmss-fff')
   $env:GODSPEED_WORKSPACE=$config.workspace;$env:GODSPEED_MEDIA_ROOT=$config.media
-  Invoke-FullAlphaNode -Node (Join-Path $payload 'runtime\node.exe') -Arguments @((Join-Path $payload 'kit\notebook\bin\godspeed.mjs'),'backup',$backup) -Step 'Saving a copy of your notebook before the update'
+  Invoke-FullAlphaNode -Node (Join-Path $payload 'runtime\node.exe') -Arguments @((Join-Path $payload 'kit\notebook\bin\godspeed.mjs'),'backup',$backup,'--before-update') -Step 'Saving a copy of your notebook before the update'
 }
 $config.appRoot=$AppRoot
 $env:GODSPEED_WORKSPACE=$config.workspace;$env:GODSPEED_MEDIA_ROOT=$config.media
@@ -87,6 +91,7 @@ if(-not $NoStartup){
 }
 if(-not $NoStart){& (Join-Path $AppRoot 'start-full-alpha.ps1') -NoBrowser}
 # Every step of the update worked: start-full-alpha.ps1 throws when the notebook does not answer,
-# which ends this setup before here. So the newest three copies made before updates stay and older
-# ones go (Invoke-FullAlphaPruneUpdateCopies). Until 15 October 2026 none was ever removed.
+# which ends this setup before here. So the copy made before this update stays as the way back and
+# every older one goes, the whole copies earlier versions made too (Invoke-FullAlphaPruneUpdateCopies).
+# Until 15 October 2026 none was ever removed; until 21 October 2026 the newest three stayed.
 if($backup){Invoke-FullAlphaPruneUpdateCopies -Node (Join-Path $payload 'runtime\node.exe') -Kit (Join-Path $payload 'kit') -BackupRoot $backupRoot -Made $backup}
