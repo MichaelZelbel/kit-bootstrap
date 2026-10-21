@@ -98,7 +98,7 @@ try {
 $taskSetup=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'setup-full-alpha.ps1')
 $taskStart=($taskSetup|Select-String -SimpleMatch "start-full-alpha.ps1') -NoBrowser").LineNumber
 $taskPrune=@($taskSetup|Select-String -Pattern '^\s*[^#\s].*Invoke-FullAlphaPruneUpdateCopies')
-if($taskPrune.Count -ne 1 -or $taskPrune[0].LineNumber -le $taskStart -or $taskPrune[0].Line -notmatch '^if\(\$backup\)'){throw 'The setup removes copies somewhere other than after the notebook answered'}
+if($taskPrune.Count -ne 1 -or $taskPrune[0].LineNumber -le $taskStart -or $taskPrune[0].Line -notmatch '^if\(\$backup -and \$answered\)'){throw 'The setup removes copies somewhere other than after the notebook answered'}
 Write-Output 'The setup removes older copies only after the notebook answered, and only when it made one.'
 # And the copy it makes is the copy of what an update can change.
 $taskBackupCall=@($taskSetup|Select-String -Pattern '^\s*[^#\s].*godspeed\.mjs''\),''backup'',\$backup,''--before-update''\)')

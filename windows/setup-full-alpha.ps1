@@ -89,9 +89,14 @@ if(-not $NoStartup){
   $shortcut.Description='Starts your Godspeed Mission Control notebook when you sign in'
   $shortcut.WindowStyle=7;$shortcut.Save()
 }
-if(-not $NoStart){& (Join-Path $AppRoot 'start-full-alpha.ps1') -NoBrowser}
-# Every step of the update worked: start-full-alpha.ps1 throws when the notebook does not answer,
-# which ends this setup before here. So the copy made before this update stays as the way back and
-# every older one goes, the whole copies earlier versions made too (Invoke-FullAlphaPruneUpdateCopies).
-# Until 15 October 2026 none was ever removed; until 21 October 2026 the newest three stayed.
-if($backup){Invoke-FullAlphaPruneUpdateCopies -Node (Join-Path $payload 'runtime\node.exe') -Kit (Join-Path $payload 'kit') -BackupRoot $backupRoot -Made $backup}
+# ensure-hermes-full-alpha.ps1 above has just connected the assistant (-Wired): until 21 October 2026
+# the start did it again, which on one PC cost two more minutes of the update.
+$answered=$true
+if(-not $NoStart){$answered=(@(& (Join-Path $AppRoot 'start-full-alpha.ps1') -NoBrowser -Wired:(-not $SkipHermes) -PassThru)|Select-Object -Last 1) -eq $true}
+# Every step of the update worked: start-full-alpha.ps1 throws when the notebook did not start, which
+# ends this setup before here, and says $false when it is still starting after its wait. Once it
+# answered, the copy made before this update stays as the way back and every older one goes, the
+# whole copies earlier versions made too (Invoke-FullAlphaPruneUpdateCopies). Until 15 October 2026
+# none was ever removed; until 21 October 2026 the newest three stayed.
+if($backup -and $answered){Invoke-FullAlphaPruneUpdateCopies -Node (Join-Path $payload 'runtime\node.exe') -Kit (Join-Path $payload 'kit') -BackupRoot $backupRoot -Made $backup}
+elseif($backup){Write-Output 'Older copies made before updates are removed after the next update whose notebook answers.'}
