@@ -112,6 +112,7 @@ Source: "{#PayloadRoot}\*"; DestDir: "{app}\payload"; Flags: ignoreversion recur
 Source: "setup-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "invoke-full-alpha-node.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "start-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "open-notebook.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "stop-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "ensure-hermes-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "open-hermes-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
@@ -141,7 +142,26 @@ Name: "{group}\Update my mission control"; Filename: "powershell.exe"; \
 Name: "{group}\Open my mission control folder"; Filename: "{code:GetGodspeedDir}"
 #ifdef IntegratedNotebook
 ; The notebook is a page the PC serves itself; without this the only way in was knowing its address.
-Name: "{group}\Open my notebook"; Filename: "http://127.0.0.1:47831/"
+; Until 26 October 2026 the entry was that address alone, and it showed "This site can't be reached"
+; while the notebook was not running yet: on one laptop for eight minutes after the computer
+; started. Now it runs open-notebook.ps1, hidden: a running notebook opens at once, a starting one
+; is waited for, a stopped one is started first, and one that cannot start says so in plain words.
+; The address was an Internet shortcut (.url), and Windows' Start search does not offer those at
+; all: typing "Open my notebook" found only a web search. A shortcut to a program is offered as an
+; app, as "Update my mission control" always was.
+; The name stays exactly "Open my notebook": the book and the last page of this setup name it.
+; Its icon is the notebook's own, the one the browser shows, when the notebook carries one.
+#if FileExists(AddBackslash(PayloadRoot) + "kit\notebook\ui\dist\favicon.ico")
+Name: "{group}\Open my notebook"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\open-notebook.ps1"""; \
+    WorkingDir: "{app}"; IconFilename: "{app}\payload\kit\notebook\ui\dist\favicon.ico"; \
+    Comment: "Opens your notebook, and starts it first when it is not running"; Flags: runminimized
+#else
+Name: "{group}\Open my notebook"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\open-notebook.ps1"""; \
+    WorkingDir: "{app}"; \
+    Comment: "Opens your notebook, and starts it first when it is not running"; Flags: runminimized
+#endif
 #endif
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 
@@ -169,6 +189,14 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
+
+#ifdef IntegratedNotebook
+; The address the entry was until 26 October 2026 is an Internet shortcut, "Open my notebook.url";
+; the entry now is "Open my notebook.lnk". Without this an update would leave both in the Start
+; menu under the same name, and the old one still could not start anything.
+[InstallDelete]
+Type: files; Name: "{group}\Open my notebook.url"
+#endif
 
 [Messages]
 ; Said on the last page of the uninstaller, because the one thing people fear

@@ -160,7 +160,7 @@ jobs:
           $env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')
           & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File windows/test-windows.ps1
           if ($LASTEXITCODE) { exit 1 }
-          foreach ($t in 'test-starter-ref.ps1', 'test-full-alpha-native.ps1', 'test-full-alpha-native-errors.ps1', 'test-full-alpha-backup-root.ps1', 'test-full-alpha-start-wait.ps1') {
+          foreach ($t in 'test-starter-ref.ps1', 'test-full-alpha-native.ps1', 'test-full-alpha-native-errors.ps1', 'test-full-alpha-backup-root.ps1', 'test-full-alpha-start-wait.ps1', 'test-open-notebook.ps1') {
             & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "windows/$t"
             if ($LASTEXITCODE) { "FAIL $t"; exit 1 }
           }
