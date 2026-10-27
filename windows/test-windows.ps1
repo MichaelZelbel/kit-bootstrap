@@ -3672,7 +3672,39 @@ Check "the wizard asks about the browser with the box unticked, and passes the a
         $IssSrcC.Contains('-Computer ""{code:GetComputerAnswer}"" -ComputerCode ""{code:GetComputerCode}""')
 }
 Check "a silent install, or a PC that is paired already, is not asked and keeps what it has" {
-    $IssSrcC.Contains("if WizardSilent or ComputerPaired then Result := 'keep'") -and $IssSrcC.Contains('Result := ComputerPaired or (not ComputerPage.Values[0])')
+    $IssSrcC.Contains("if WizardSilent or ComputerPaired or IsUpdate then Result := 'keep'") -and
+        $IssSrcC.Contains('Result := ComputerPaired or IsUpdate or (not CodeCanCome) or (not ComputerPage.Values[0])')
+}
+# Product issue #79 (27 October 2026): an update of 2.0.0-beta.9 on a PC without a browser
+# connection showed the question, and a tick led to a page that demanded a code nobody could send.
+# The wizard is Pascal, so these read its source, like the checks above.
+function Get-IssFunction([string]$Name) {
+    $m = [regex]::Match($IssSrcC, '(?ms)^function ' + [regex]::Escape($Name) + '\b.*?^end;')
+    return $m.Value
+}
+Check "an update never shows the browser page or the code page, and passes keep" {
+    $skip = Get-IssFunction 'ShouldSkipPage'
+    $answer = Get-IssFunction 'GetComputerAnswer'
+    $skip.Contains('if PageID = ComputerPage.ID then') -and
+        ($skip -match 'ComputerPage\.ID then\s+Result := ComputerPaired or IsUpdate or') -and
+        ($skip -match 'CodePage\.ID then\s+Result := ComputerPaired or IsUpdate or') -and
+        ($answer -match "if WizardSilent or ComputerPaired or IsUpdate then Result := 'keep'")
+}
+Check "a new install is not asked about the browser while no code can come" {
+    $can = Get-IssFunction 'CodeCanCome'
+    $skip = Get-IssFunction 'ShouldSkipPage'
+    ($can -match 'Result := False;') -and ($skip -match 'ComputerPage\.ID then\s+Result := [^;]*\(not CodeCanCome\)') -and
+        ($skip -match 'CodePage\.ID then\s+Result := [^;]*\(not CodeCanCome\)') -and
+        # the reason is written above it, not guessed from a name or a folder
+        ($IssSrcC -match '(?s)Only the Docker server edition makes\s+codes.*?function CodeCanCome')
+}
+Check "the code page lets an empty box go on, says so, and an empty box is a no" {
+    $next = Get-IssFunction 'NextButtonClick'
+    $answer = Get-IssFunction 'GetComputerAnswer'
+    ($next -match "\(CurPageID = CodePage\.ID\) and \(Trim\(CodePage\.Values\[0\]\) <> ''\) and \(Pos\('godspeed1\.', CodePage\.Values\[0\]\) = 0\)") -and
+        $next.Contains('That is not a connection code yet.') -and
+        $IssSrcC.Contains('No code? Leave the box empty and click Next: the setup finishes without the browser.') -and
+        ($answer -match "ComputerPage\.Values\[0\] and CodeCanCome and \(Trim\(CodePage\.Values\[0\]\) <> ''\) then Result := 'yes'")
 }
 Check "the wizard never passes an empty code (it would shift every parameter after it)" {
     $IssSrcC.Contains("if Result = '' then Result := 'none';") -and $SetupSrcC.Contains("[string]`$ComputerCode = 'none'")
