@@ -57,8 +57,7 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_hermes_one_memory \
          kb_gateway_state kb_install_gateway kb_cron_has_job kb_cron_job \
          kb_hermes_signin kb_hermes_has_provider kb_room_twin \
-         kb_device_env_get kb_install_count kb_dnt kb_new_install_id \
-         kb_choose_install_count kb_install_count_send \
+         kb_device_env_get \
          kb_computer_os kb_computer_home kb_computer_node kb_computer_code_ok kb_computer_paired \
          kb_computer_desktop kb_install_computer_helper kb_computer_register_login kb_computer_menu \
          kb_computer_start kb_wire_computer kb_computer_remove; do
@@ -2692,74 +2691,21 @@ t "the first question no longer promises that the whole mission control becomes 
   "$(cat lib.sh join.ps1 | grep -c 'Your whole mission control also')" "0"
 rm -rf "$_c"
 
-# THE INSTALL COUNT (2026-09-30). Asked once per computer, default no, and nothing leaves the
-# machine without a yes. Every send goes to a fake curl that writes its arguments down, so no
-# case below can reach the real receiver.
-_ic="$(mktemp -d)"
-mkdir -p "$_ic/bin"
-cat > "$_ic/bin/curl" <<'FAKE'
-#!/bin/sh
-printf '%s\n' "$*" >> "$FAKE_CURL_LOG"
-exit "${FAKE_CURL_EXIT:-0}"
-FAKE
-chmod +x "$_ic/bin/curl"
-_icrun() {  # <name> <shell code>: a fresh HOME, the fake curl first on PATH, no terminal
-  # A test address of its own (_IC_URL= runs a case with none, which is the default since
-  # 18 October 2026).
-  mkdir -p "$_ic/$1"
-  ( HOME="$_ic/$1"; PATH="$_ic/bin:$PATH"; FAKE_CURL_LOG="$_ic/$1/curl.log"; export FAKE_CURL_LOG
-    unset GODSPEED_INSTALL_COUNT DO_NOT_TRACK
-    KB_INSTALL_COUNT_URL="${_IC_URL-https://counter.example/signal/v1}"
-    have_tty() { return 1; }
-    eval "$2" ) >/dev/null 2>&1
-}
-_icenv() { sed -n "s/^$2=//p" "$_ic/$1/.godspeed/device.env" 2>/dev/null | tail -1; }
-_icsent() { if [ -f "$_ic/$1/curl.log" ]; then grep -c . "$_ic/$1/curl.log"; else echo 0; fi; }
-
-_icrun quiet 'kb_choose_install_count; kb_install_count_send installed linux new'
-t "install count: nobody at the keyboard means no question, nothing written, nothing sent" \
-  "$(_icenv quiet GODSPEED_INSTALL_COUNT):$(_icsent quiet)" ":0"
-_IC_URL= _icrun noaddr 'have_tty() { return 0; }; ask_yes() { echo ASKED >> "$HOME/asked"; return 0; }; kb_choose_install_count; kb_install_count_send installed linux new'
-t "with no counter address (the default), even a keyboard is asked nothing, and nothing is written or sent" \
-  "$([ -f "$_ic/noaddr/asked" ] && echo asked || echo not-asked):$(_icenv noaddr GODSPEED_INSTALL_COUNT):$(_icsent noaddr)" "not-asked::0"
-_IC_URL= _icrun noaddr2 'GODSPEED_INSTALL_COUNT=yes kb_choose_install_count; kb_install_count_send installed linux new'
-t "and an earlier yes sends nothing without an address" "$(_icsent noaddr2)" "0"
-_icrun yes 'GODSPEED_INSTALL_COUNT=yes kb_choose_install_count; KB_BRANCH=v9.9 kb_install_count_send installed linux new'
-t "a yes records 1 and a 32-character random id" \
-  "$(_icenv yes GODSPEED_INSTALL_COUNT):$(_icenv yes GODSPEED_INSTALL_ID | tr -d '0-9a-f' | wc -c | tr -d ' '):$(_icenv yes GODSPEED_INSTALL_ID | wc -c | tr -d ' ')" "1:1:33"
-t "and sends exactly the agreed fields, once" \
-  "$(_icsent yes):$(grep -o '{.*}' "$_ic/yes/curl.log" | sed "s/$(_icenv yes GODSPEED_INSTALL_ID)/ID/")" \
-  '1:{"product":"mission-control","event":"installed","install":"ID","version":"v9.9","kind":"linux","run":"new"}'
-_icrun yes 'kb_install_count_send installed linux update; kb_choose_install_count'
-t "an update run never counts the same computer twice, and never asks again" \
-  "$(_icsent yes):$(_icenv yes GODSPEED_INSTALL_COUNT_SENT)" "1:installed"
-_icrun yes 'kb_install_count_send first-brief server'
-t "a second event is its own send, remembered beside the first" \
-  "$(_icsent yes):$(_icenv yes GODSPEED_INSTALL_COUNT_SENT)" "2:installed,first-brief"
-_icrun no 'GODSPEED_INSTALL_COUNT=no kb_choose_install_count; kb_install_count_send installed mac new'
-t "a no records 0 and sends nothing" "$(_icenv no GODSPEED_INSTALL_COUNT):$(_icsent no)" "0:0"
-_icrun dnt 'DO_NOT_TRACK=1 kb_choose_install_count; kb_install_count_send installed mac new'
-t "DO_NOT_TRACK=1 is a no without a question" "$(_icenv dnt GODSPEED_INSTALL_COUNT):$(_icsent dnt)" "0:0"
-_icrun dnt2 'GODSPEED_INSTALL_COUNT=yes kb_choose_install_count; DO_NOT_TRACK=1 kb_install_count_send installed mac new'
-t "and it stops a send even after an earlier yes" "$(_icsent dnt2)" "0"
-_icrun down 'GODSPEED_INSTALL_COUNT=yes kb_choose_install_count; FAKE_CURL_EXIT=7 kb_install_count_send installed mac new; echo "rc=$?" > "$HOME/rc"'
-t "a receiver that cannot be reached is not recorded as sent, and the install goes on" \
-  "$(_icenv down GODSPEED_INSTALL_COUNT_SENT):$(cat "$_ic/down/rc")" ":rc=0"
-_icrun blank 'GODSPEED_INSTALL_COUNT=yes kb_choose_install_count; KB_BRANCH= KB_PIN= kb_install_count_send installed "" ""'
-t "an empty field is left out, never sent empty (the receiver refuses an empty field)" \
-  "$(grep -c '"kind"\|"run"\|"version"' "$_ic/blank/curl.log")" "0"
-t "the question has six lines" \
-  "$(_words lib.sh kb_tell 'One last question' 'Say no and nothing is sent' | grep -c .)" "6"
-t "and Windows asks it in the same words" \
-  "$(_words join.ps1 Write-Host 'One last question' 'Say no and nothing is sent')" \
-  "$(_words lib.sh kb_tell 'One last question' 'Say no and nothing is sent')"
-t "both platforms ask it with no as the answer" \
-  "$(grep -c 'ask_yes "Send the anonymous note?" "n"' lib.sh):$(grep -c 'Read-Host "Send the anonymous note? (y/N)"' join.ps1)" "1:1"
-t "both platforms send to the same address, the website's, and never to a server of the maker's own" \
-  "$(grep -c 'https://godspeedmissioncontrol.com/signal/v1' lib.sh):$(grep -c 'https://godspeedmissioncontrol.com/signal/v1' join.ps1):$(cat lib.sh join.ps1 publish-kit.sh | grep -c 'hstgr')" "1:1:0"
-t "the question names no person (it asked to 'tell Michael' until 18 October 2026)" \
-  "$(cat lib.sh join.ps1 | grep -v '^ *#' | grep -c -i 'michael,\|tell michael\|told michael')" "0"
-rm -rf "$_ic"
+# NO INSTALL COUNT (27 October 2026). The installers asked, from 30 September, whether the
+# computer may report that the install worked. It brought nothing and is gone: no installer here
+# asks it or sends anything, and old answers in device.env are read by nothing.
+_shipped="lib.sh join.ps1 join.sh setup-godspeed.sh publish-kit.sh $(ls windows/*.ps1 windows/*.iss | grep -v '/test-')"
+t "no installer asks the question, on any platform" \
+  "$(cat $_shipped | grep -c -i -E 'anonymous note|One last question|install worked[?]')" "0"
+t "and no installer sends anything to the counter" \
+  "$(cat $_shipped | grep -c -e 'signal/v1' -e 'INSTALL_COUNT_URL' -e 'Invoke-KitInstallCountPost')" "0"
+t "nothing reads an earlier answer or DO_NOT_TRACK, so an old yes sends nothing either" \
+  "$(cat $_shipped | grep -v '^ *#' | grep -c -e 'GODSPEED_INSTALL_COUNT' -e 'GODSPEED_INSTALL_ID' -e 'DO_NOT_TRACK')" "0"
+t "the library has none of its functions" \
+  "$(for f in kb_install_count kb_choose_install_count kb_install_count_send kb_dnt kb_new_install_id; do declare -F "$f"; done)" ""
+t "the setup calls none of them" \
+  "$(cat setup-godspeed.sh windows/setup-godspeed.ps1 | grep -v '^ *#' | grep -c -e 'install_count' -e 'KitInstallCount')" "0"
+t "kb_device_env_get, which other steps read device.env with, stays" "$(declare -F kb_device_env_get)" "kb_device_env_get"
 
 
 # YOUR ASSISTANT'S BROWSER ON THIS COMPUTER (computer use layer 2). Twins of the Connect-KitComputer
