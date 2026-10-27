@@ -1935,7 +1935,7 @@ function Write-KitDueFolder {
         ''
         '**This room starts empty, and an empty one costs you nothing.** It fills the first time you tell'
         'your mission control about something with a day attached: a day you would like it done by, or a'
-        'last day before it costs you (Chapter 27). If you never do, you have an empty folder and you have'
+        'last day before it costs you. If you never do, you have an empty folder and you have'
         'lost nothing.'
         ''
         '## Why this is not a reminder'
@@ -2071,7 +2071,7 @@ function Write-KitDueFolder {
         ''
         '## Your keys are already in here'
         ''
-        'If you have `secrets/expires.txt` from Chapter 31, `mc-due` reads it and treats each key as one of'
+        'If you keep `secrets/expires.txt`, the record of your keys, `mc-due` reads it and treats each key as one of'
         'these. You never write a date in two places, and there is one thing nagging you rather than two'
         'that disagree. Moving the date in that file is still the off switch, and it is now also the proof:'
         'moving it forward is what replacing a key looks like from outside, so the reminder closes itself.'
@@ -2105,7 +2105,7 @@ function Write-KitDueFolder {
         'mc-due state               which are open, and what closed the others'
         '```'
         ''
-        'The card is `procedures/what-runs-out-and-when.md` in the kit. Chapter 27.'
+        'The card is `procedures/what-runs-out-and-when.md` in the kit. The guide: https://godspeedmissioncontrol.com/guide/deadlines'
     )
     Set-KbTextFile -Path $f -Lines $lines
     Write-KbOk "deadlines: made due\README.md, the room for everything with a last day"
@@ -2307,14 +2307,61 @@ function Connect-KitMail {
     }
 }
 
+function Get-KitMailStatus {
+    <#  What the mail tool says about this mission control's mailboxes (mc-mail status), or $null
+        when it cannot tell: no tool, no Node.js, a failed answer, or no answer within
+        $env:KB_MAIL_STATUS_MS milliseconds (default 20000). The Windows twin of kb_mail_status in
+        lib.sh, and the one place Write-KitMailNote reaches the tool, so a test can stand in for it. #>
+    param([string]$Godspeed)
+    if (-not $Godspeed -or -not (Test-Path -LiteralPath $Godspeed)) { return $null }
+    $tool = Join-Path (Get-KitHome) '.local\bin\mc-mail.js'
+    if (-not (Test-Path -LiteralPath $tool) -or -not (Test-KitCommand 'node')) { return $null }
+    $ms = 20000
+    if ($env:KB_MAIL_STATUS_MS -match '^\d+$') { $ms = [int]$env:KB_MAIL_STATUS_MS }
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = (Get-Command node -CommandType Application | Select-Object -First 1).Source
+        $psi.Arguments = '"' + $tool + '" status'
+        $psi.WorkingDirectory = $Godspeed
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $psi.RedirectStandardInput = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+        $psi.EnvironmentVariables['GODSPEED_DIR'] = $Godspeed
+        $p = [System.Diagnostics.Process]::Start($psi)
+        $p.StandardInput.Close()
+        $out = $p.StandardOutput.ReadToEndAsync()
+        $null = $p.StandardError.ReadToEndAsync()
+        if (-not $p.WaitForExit($ms)) { try { $p.Kill() } catch { }; return $null }
+        $p.WaitForExit()
+        if ($p.ExitCode -ne 0) { return $null }
+        return $out.Result
+    } catch { return $null }
+}
+
 function Write-KitMailNote {
-    <# One paragraph at the end of an install, only when the mail tool is here. #>
-    if (-not (Test-Path (Join-Path (Get-KitHome) '.local\bin\mc-mail.js'))) { return }
-    Write-Host @"
-  * Email is optional and switched off. When you want your mission control to read your Gmail and save
-    draft replies there (it sends nothing; you press Send in Gmail), ask your assistant:
-    Connect Gmail for me. Chapter 30 shows it. Chapter 29 gives the mission control its own address.
-"@
+    <#  One line at the end of an install about email, and only what is true. The Windows twin of
+        kb_mail_note in lib.sh, where the story is: the mail tool is asked first, a connected
+        mailbox is named, with none connected email is optional and the line says how to switch it
+        on, and when the tool cannot tell nothing is said about email at all. #>
+    param([string]$Godspeed)
+    $text = Get-KitMailStatus -Godspeed $Godspeed
+    if ($null -eq $text) { return }
+    $connected = @(); $none = 0
+    foreach ($line in ("$text" -split "`r?`n")) {
+        if ($line -cmatch '^([A-Za-z0-9-]+): not connected') { $none++ }
+        elseif ($line -cmatch '^([A-Za-z0-9-]+): connected \(([^)]*)\)') { $connected += $Matches[2] }
+        elseif ($line -cmatch '^([A-Za-z0-9-]+): connected') { $connected += $Matches[1] }
+    }
+    if ($connected.Count -gt 0) {
+        Write-Host "  * Email is connected: $($connected -join ', ')."
+    } elseif ($none -gt 0) {
+        Write-Host "  * Email is optional and not connected. When you want your mission control to read your Gmail"
+        Write-Host "    and save draft replies there (it sends nothing; you press Send in Gmail), ask your assistant:"
+        Write-Host "    Connect Gmail for me. How it works: https://godspeedmissioncontrol.com/guide/email"
+    }
 }
 
 # =============================================================================
@@ -2336,7 +2383,7 @@ function Show-KitGmailRetired {
     Write-Host ""
     Write-Host "The Gmail step that registered your own Google app is retired, and nothing was changed."
     Write-Host "Email stays optional. When you want your mission control to read your Gmail and save drafts, ask your"
-    Write-Host "assistant: Connect Gmail for me. Chapter 30 of the book shows what happens then."
+    Write-Host "assistant: Connect Gmail for me. How it works: https://godspeedmissioncontrol.com/guide/email"
 }
 
 function Connect-KitGmailOnly {
@@ -3837,7 +3884,7 @@ so keep doing what you already do with the folder. To change which AI tools are
 read on this PC later: run this again with -Sources, or edit
 GODSPEED_PROMPT_SOURCES in $HOME\.godspeed\device.env
 "@
-if (Get-Command Write-KitMailNote -ErrorAction SilentlyContinue) { Write-KitMailNote }
+if (Get-Command Write-KitMailNote -ErrorAction SilentlyContinue) { Write-KitMailNote -Godspeed $Godspeed }
 
 # EXPLICIT, and it has to be. This script ends with wiring that calls Hermes, and
 # `hermes approvals test` answers 3 when the leash is working, so without this line a

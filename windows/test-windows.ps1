@@ -3547,6 +3547,65 @@ Check "setup-godspeed.ps1 runs -Only gmail before it checks a single prerequisit
 Check "an install and 'Update my mission control' never ask about Gmail" {
     -not $SetupSrcG.Contains('Request-KitGmail -Godspeed')
 }
+
+Write-Host ""
+Write-Host "-- the note about email at the end of an install says only what is true (product issue #81)"
+# Get-KitMailStatus is the one call to the mail tool; these stand in for it.
+function Get-MailNote([AllowNull()][string]$Said, [switch]$CannotTell) {
+    $script:mailSaid = $Said; $script:mailCannot = [bool]$CannotTell
+    function Get-KitMailStatus { param($Godspeed) if ($script:mailCannot) { return $null } $script:mailSaid }
+    return ((Write-KitMailNote -Godspeed 'C:\anywhere' 6>&1 | Out-String) -replace "`r", '').TrimEnd("`n")
+}
+Check "a connected mailbox is named, in one line" {
+    (Get-MailNote "gmail: connected (me@example.com) via imap`ngodspeed: not connected - Optional.") -eq '  * Email is connected: me@example.com.'
+}
+Check "two connected mailboxes are both named" {
+    (Get-MailNote "gmail: connected (me@example.com) via imap`ngodspeed: connected (mc@agentmail.to) - its own address") -eq '  * Email is connected: me@example.com, mc@agentmail.to.'
+}
+Check "a desktop paired with its server names what the server reaches" {
+    (Get-MailNote "mail on your server (ai@203.0.113.7): reachable`ngodspeed: connected (mc@agentmail.to)") -eq '  * Email is connected: mc@agentmail.to.'
+}
+Check "with none connected it says email is optional, how to switch it on, and where to read more" {
+    $n = Get-MailNote "gmail: not connected - Optional.`ngodspeed: not connected - Optional."
+    $n.Contains('Email is optional and not connected') -and $n.Contains('Connect Gmail for me. How it works: https://godspeedmissioncontrol.com/guide/email')
+}
+Check "when the tool cannot tell, nothing is said about email" { (Get-MailNote -CannotTell) -eq '' }
+Check "and a state it does not know says nothing either" { (Get-MailNote 'gmail: reconnect needed (me@example.com)') -eq '' }
+Check "the status is asked in the mission control, and no answer in time counts as cannot tell" {
+    if (-not (Test-KitCommand 'node')) { Write-Host '    (node is not here; skipped)'; return $true }
+    $ms0 = $env:KB_MAIL_STATUS_MS
+    try {
+        Invoke-NotebookCase {
+            param($h)
+            $tool = Join-Path $h '.local\bin\mc-mail.js'
+            Set-Content -LiteralPath $tool -Encoding ASCII -Value @'
+const fs = require("fs");
+const how = fs.readFileSync(process.env.GODSPEED_DIR + "/how", "utf8").trim();
+if (process.argv[2] !== "status") process.exit(2);
+if (how === "slow") setTimeout(() => console.log("gmail: connected (late@example.com)"), 5000);
+else if (how === "fails") { console.log("godspeed: unreachable (mc@agentmail.to)"); process.exitCode = 1; }
+else console.log("gmail: connected (" + process.cwd().split(/[\\/]/).pop() + "@example.com)");
+'@
+            $g = New-TestDir 'mailgodspeed'
+            $env:KB_MAIL_STATUS_MS = '1500'
+            Set-Content -LiteralPath (Join-Path $g 'how') -Value 'ok' -Encoding ASCII
+            $ok = "$(Get-KitMailStatus -Godspeed $g)".Trim() -eq 'gmail: connected (mailgodspeed@example.com)'
+            Set-Content -LiteralPath (Join-Path $g 'how') -Value 'fails' -Encoding ASCII
+            $fails = $null -eq (Get-KitMailStatus -Godspeed $g)
+            Set-Content -LiteralPath (Join-Path $g 'how') -Value 'slow' -Encoding ASCII
+            $slow = $null -eq (Get-KitMailStatus -Godspeed $g)
+            $nofolder = $null -eq (Get-KitMailStatus -Godspeed '')
+            $ok -and $fails -and $slow -and $nofolder
+        }
+    } finally { $env:KB_MAIL_STATUS_MS = $ms0 }
+}
+Check "no Windows installer file shows a book chapter number, in English or German" {
+    $files = @((Join-Path $PSScriptRoot '..\join.ps1')) + @(Get-ChildItem $PSScriptRoot -File |
+        Where-Object { $_.Name -match '\.(ps1|iss)$' -and $_.Name -notlike 'test-*' } | ForEach-Object { $_.FullName })
+    $text = (($files | ForEach-Object { Get-Content -LiteralPath $_ -Raw }) -join "`n") -replace '(?s)<#.*?#>', ''
+    $shown = ($text -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+    -not ($shown -match '(?i)(chapter|kapitel) [0-9]')
+}
 Check "the Start menu entry a reader clicks is still there, and still runs the whole installer" {
     $iss = Get-Content (Join-Path $PSScriptRoot 'godspeed-setup.iss') -Raw
     $iss.Contains('Name: "{group}\Update my mission control"') -and -not ($iss -match 'Update my mission control[^\n]*\n[^\n]*-Only')

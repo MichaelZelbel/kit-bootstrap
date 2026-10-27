@@ -3020,7 +3020,7 @@ kb_seed_due_folder() {
 
 **This room starts empty, and an empty one costs you nothing.** It fills the first time you tell
 your mission control about something with a day attached: a day you would like it done by, or a
-last day before it costs you (Chapter 27). If you never do, you have an empty folder and you have
+last day before it costs you. If you never do, you have an empty folder and you have
 lost nothing.
 
 ## Why this is not a reminder
@@ -3156,7 +3156,7 @@ likeliest reason is that you did it and forgot to say so. The full list keeps sh
 
 ## Your keys are already in here
 
-If you have `secrets/expires.txt` from Chapter 31, `mc-due` reads it and treats each key as one of
+If you keep `secrets/expires.txt`, the record of your keys, `mc-due` reads it and treats each key as one of
 these. You never write a date in two places, and there is one thing nagging you rather than two
 that disagree. Moving the date in that file is still the off switch, and it is now also the proof:
 moving it forward is what replacing a key looks like from outside, so the reminder closes itself.
@@ -3190,7 +3190,7 @@ mc-due check               run the self checks, close what is provably done
 mc-due state               which are open, and what closed the others
 ```
 
-The card is `procedures/what-runs-out-and-when.md` in the kit. Chapter 27.
+The card is `procedures/what-runs-out-and-when.md` in the kit. The guide: https://godspeedmissioncontrol.com/guide/deadlines
 DUEEOF
   ok "deadlines: made due/, the room for everything with a last day"
   return 0
@@ -3340,16 +3340,53 @@ kb_wire_mail() {
   return 0
 }
 
-# kb_mail_note
-# One line at the end of an install, only when the mail tool is here: email is optional,
-# and this is how to switch it on later.
+# kb_mail_status <mission control>
+# What the mail tool says about this mission control's mailboxes (mc-mail status), or nothing and
+# a failure when it cannot tell: no tool, no Node.js, a failed answer, or no answer within
+# KB_MAIL_STATUS_MS milliseconds (default 20000). The one place the note below reaches the tool,
+# so a test can stand in for it.
+kb_mail_status() {
+  local godspeed="${1:-}" tool="$HOME/.local/bin/mc-mail.js"
+  [ -n "$godspeed" ] && [ -d "$godspeed" ] && [ -f "$tool" ] || return 1
+  command -v node >/dev/null 2>&1 || return 1
+  ( cd "$godspeed" && GODSPEED_DIR="$godspeed" node -e '
+const r = require("child_process").spawnSync(process.execPath, [process.argv[1], "status"],
+  { encoding: "utf8", timeout: Number(process.argv[2]) || 20000, stdio: ["ignore", "pipe", "ignore"] });
+if (r.error || r.status !== 0) process.exit(1);
+process.stdout.write(r.stdout || "");' "$tool" "${KB_MAIL_STATUS_MS:-20000}" 2>/dev/null )
+}
+
+# kb_mail_note <mission control>
+# One line at the end of an install about email, and only what is true. The mail tool is asked
+# first: a connected mailbox is named; with none connected, email is optional and the line says
+# how to switch it on. When the tool cannot tell, nothing is said about email at all.
+# Until 27 October 2026 this said "switched off" without asking, also on a computer whose mission
+# control had its own address connected, and it named book chapters that somebody who installed
+# from the website does not have (product issue #81). The words are the same on Windows
+# (Write-KitMailNote in join.ps1); test.sh compares them.
 kb_mail_note() {
-  [ -f "$HOME/.local/bin/mc-mail.js" ] || return 0
-  cat <<EOF
-  * Email is optional and switched off. When you want your mission control to read your Gmail and save
-    draft replies there (it sends nothing; you press Send in Gmail), ask your assistant:
-    Connect Gmail for me. Chapter 30 shows it. Chapter 29 gives the mission control its own address.
+  local out line acct rest addr connected="" none=0
+  out="$(kb_mail_status "${1:-}")" || return 0
+  while IFS= read -r line; do
+    acct="${line%%: *}"; rest="${line#*: }"
+    [ "$acct" != "$line" ] || continue
+    case "$acct" in ""|*[!A-Za-z0-9-]*) continue ;; esac
+    case "$rest" in
+      "not connected"*) none=$((none + 1)) ;;
+      "connected ("*) addr="${rest#connected (}"; connected="${connected:+$connected, }${addr%%)*}" ;;
+      "connected"*) connected="${connected:+$connected, }$acct" ;;
+    esac
+  done <<EOF
+$(printf '%s\n' "$out" | tr -d '\r')
 EOF
+  if [ -n "$connected" ]; then
+    echo "  * Email is connected: $connected."
+  elif [ "$none" -gt 0 ]; then
+    echo "  * Email is optional and not connected. When you want your mission control to read your Gmail"
+    echo "    and save draft replies there (it sends nothing; you press Send in Gmail), ask your assistant:"
+    echo "    Connect Gmail for me. How it works: https://godspeedmissioncontrol.com/guide/email"
+  fi
+  return 0
 }
 
 # =============================================================================
@@ -3386,7 +3423,7 @@ kb_gmail_retired() {
   echo ""
   echo "The Gmail step that registered your own Google app is retired, and nothing was changed."
   echo "Email stays optional. When you want your mission control to read your Gmail and save drafts, ask your"
-  echo "assistant: Connect Gmail for me. Chapter 30 of the book shows what happens then."
+  echo "assistant: Connect Gmail for me. How it works: https://godspeedmissioncontrol.com/guide/email"
 }
 
 # kb_only_gmail <mission control> [<tools-repo>]

@@ -472,7 +472,7 @@ Worth knowing:
     with the AI apps here is saved in it; to bring a tool's older chats in too,
     run the installer again and tick it.
 "@
-if (Get-Command Write-KitMailNote -ErrorAction SilentlyContinue) { Write-KitMailNote }
+if (Get-Command Write-KitMailNote -ErrorAction SilentlyContinue) { Write-KitMailNote -Godspeed $Godspeed }
 
 if ($missing.Count -gt 0) {
     Write-Host ""

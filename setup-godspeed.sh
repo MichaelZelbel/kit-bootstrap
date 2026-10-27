@@ -368,7 +368,7 @@ Worth knowing:
     with the AI apps here is saved in it; to bring a tool's older chats in too,
     run it again with --sources, or edit GODSPEED_PROMPT_SOURCES in ~/.godspeed/device.env
 EOF
-command -v kb_mail_note >/dev/null 2>&1 && kb_mail_note
+command -v kb_mail_note >/dev/null 2>&1 && kb_mail_note "$GODSPEED"
 
 if [ -n "${KB_MISSING:-}" ]; then
   warn "I could not install these, so some things will not work until they are here: $KB_MISSING"
