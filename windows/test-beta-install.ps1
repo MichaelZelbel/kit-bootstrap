@@ -1,4 +1,4 @@
-<#
+﻿<#
   GodspeedSetup.exe on a fresh GitHub Windows machine, the way a reader runs it silently, and what
   the faults that beta testers met first look like afterwards (18 October 2026):
 
@@ -172,10 +172,17 @@ Want 'and changed nothing: the same program, the same notebook, still running' {
 }
 Want 'and says why in setup-result.txt' { (Get-Content (Join-Path $env:LOCALAPPDATA 'Godspeed\setup-result.txt') -Raw) -match '^refused: this installer is older' }
 
-# 3. "Update my mission control" looks for a newer release (this build is newer than any published one).
+# 3. "Update my mission control" reads the newest release and does not take this PC back. This
+# build is never older than the newest published release: either it is newer (its notebook commit
+# is not released yet) or it is exactly it (the release was cut from that same commit, as on
+# 27 October 2026). Both answers are right, and neither downloads anything; test-windows.ps1
+# checks each answer on its own against a made-up release.
 $check = & (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -NoProfile -ExecutionPolicy Bypass -File (Join-Path $app 'update-godspeed.ps1') -CheckOnly -NoPause | Out-String
 $check
-Want 'Update my mission control reads the newest release and does not take this PC back' { $check.Contains('newer than the newest release') -and $check.Contains('CHECK: would bring this PC up to date') }
+Want 'Update my mission control reads the newest release and does not take this PC back' {
+  ($check.Contains('You have the newest version already.') -or $check.Contains('newer than the newest release')) -and
+    $check.Contains('CHECK: would bring this PC up to date') -and -not $check.Contains('would download')
+}
 
 # 4. Nothing a silent run shows.
 $shown = @(Receive-Job $watch -Keep | Sort-Object -Unique)
