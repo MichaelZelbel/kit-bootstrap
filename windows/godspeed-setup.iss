@@ -574,7 +574,8 @@ begin
     'Your browser',
     'Paste the connection code from your assistant',
     'In Telegram, write to your assistant: connect my computer' + #13#10 + #13#10
-    + 'It sends you a code. Copy it and paste it below. It works once, for half an hour.');
+    + 'It sends you a code. Copy it and paste it below. It works once, for half an hour.' + #13#10 + #13#10
+    + 'No code? Leave the box empty and click Next: the setup finishes without the browser.');
   CodePage.Add('Connection code:', False);
 end;
 
@@ -604,6 +605,22 @@ begin
   Result := (FoundGodspeed = '') or NewBeside;
 end;
 
+{ Can an assistant of this install send a connection code? Only the Docker server edition makes
+  codes (its computer/mcp.js and the relay); a server installed without Docker has neither, and
+  Godspeed on Windows alone has no assistant in Telegram at all. The setup cannot tell which one a
+  new install will work with: when this page comes, the mission control it joins is at most an
+  address of a repository that is cloned afterwards, and nothing on the PC records a server. So
+  the answer is no, and the question about the browser is not shown (product issue #79: an update
+  of 2.0.0-beta.9 demanded a code nobody could send). A PC that is paired already keeps its pairing;
+  -Computer yes -ComputerCode <code> still pairs one from the command line. }
+function CodeCanCome: Boolean;
+begin
+  Result := False;
+end;
+
+{ An update never stops at the browser: it keeps what the PC has, paired or not (-Computer keep).
+  A new install is asked only when a code can come (CodeCanCome), and the code page always lets
+  the reader go on without one (NextButtonClick). }
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
@@ -620,9 +637,9 @@ begin
     Result := not AskingWhere;
   { A PC whose browser is lent already keeps it; Start, Godspeed Mission Control has the switches. }
   if PageID = ComputerPage.ID then
-    Result := ComputerPaired;
+    Result := ComputerPaired or IsUpdate or (not CodeCanCome);
   if PageID = CodePage.ID then
-    Result := ComputerPaired or (not ComputerPage.Values[0]);
+    Result := ComputerPaired or IsUpdate or (not CodeCanCome) or (not ComputerPage.Values[0]);
 end;
 
 { Written further down, next to GetGodspeedDir, which it uses. }
@@ -694,7 +711,8 @@ var
   Why: String;
 begin
   Result := True;
-  if (CurPageID = CodePage.ID) and (Pos('godspeed1.', CodePage.Values[0]) = 0) then
+  { An empty box goes on, and the setup finishes without the browser (GetComputerAnswer). }
+  if (CurPageID = CodePage.ID) and (Trim(CodePage.Values[0]) <> '') and (Pos('godspeed1.', CodePage.Values[0]) = 0) then
   begin
     SuppressibleMsgBox('That is not a connection code yet.' + #13#10 + #13#10
       + 'In Telegram, write to your assistant: connect my computer' + #13#10
@@ -821,12 +839,14 @@ begin
   if Result = '' then Result := 'none';
 end;
 
-{ Your assistant's browser: yes, no, or keep (asked nothing: paired already, or a silent run,
-  which then only brings a paired helper up to date). Never empty, so -File reads it. }
+{ Your assistant's browser: yes, no, or keep (asked nothing: paired already, a silent run or an
+  update, which then only brings a paired helper up to date and leaves an unpaired PC unpaired).
+  A yes needs a code in the box: ticked with the box left empty is a no. Never empty, so -File
+  reads it. }
 function GetComputerAnswer(Param: String): String;
 begin
-  if WizardSilent or ComputerPaired then Result := 'keep'
-  else if ComputerPage.Values[0] then Result := 'yes'
+  if WizardSilent or ComputerPaired or IsUpdate then Result := 'keep'
+  else if ComputerPage.Values[0] and CodeCanCome and (Trim(CodePage.Values[0]) <> '') then Result := 'yes'
   else Result := 'no';
 end;
 

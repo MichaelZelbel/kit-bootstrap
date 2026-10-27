@@ -2198,139 +2198,28 @@ Check "the first question no longer promises that the whole mission control beco
 }
 
 Write-Host ""
-Write-Host "-- the install count: asked once per PC, default no, nothing sent without a yes"
-# Every case stands in for Invoke-KitInstallCountPost, the one network call, so nothing here can
-# reach the real receiver. Invoke-NotebookCase hands each case a fresh home.
-# A test address of its own, never the real one. -NoAddress runs a case with none set, and then
-# nobody is asked and nothing is sent.
-function Invoke-CountCase([scriptblock]$Body, [switch]$NoAddress) {
-    $c0 = $env:GODSPEED_INSTALL_COUNT; $d0 = $env:DO_NOT_TRACK; $b0 = $env:KB_BRANCH; $u0 = $script:KitInstallCountUrl
-    try {
-        $env:GODSPEED_INSTALL_COUNT = $null; $env:DO_NOT_TRACK = $null; $env:KB_BRANCH = 'v9.9'
-        $script:KitInstallCountUrl = if ($NoAddress) { '' } else { 'https://counter.example/signal/v1' }
-        $script:posted = @()
-        function Invoke-KitInstallCountPost { param($Body) $script:posted += $Body }
-        Invoke-NotebookCase $Body
-    } finally { $env:GODSPEED_INSTALL_COUNT = $c0; $env:DO_NOT_TRACK = $d0; $env:KB_BRANCH = $b0; $script:KitInstallCountUrl = $u0 }
+Write-Host "-- no install count: the question at the end of the install is gone (27 October 2026)"
+foreach ($fn in 'Get-KitInstallCount', 'Select-KitInstallCount', 'Send-KitInstallCount', 'Invoke-KitInstallCountPost', 'Test-KitDoNotTrack') {
+    Check "$fn is gone" { -not (Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
 }
-function Get-CountLine([string]$HomeDir, [string]$Name) {
-    $f = Join-Path $HomeDir '.godspeed\device.env'
-    if (-not (Test-Path $f)) { return '' }
-    return (@(Get-Content $f | Where-Object { $_ -match "^$Name=" } | ForEach-Object { $_.Substring($Name.Length + 1) }) -join ',')
+# What the setup carries: join.ps1 and every script beside this one that is not a test.
+$shipped = @((Join-Path $PSScriptRoot '..\join.ps1')) + @(Get-ChildItem $PSScriptRoot -File |
+    Where-Object { $_.Name -match '\.(ps1|iss)$' -and $_.Name -notlike 'test-*' } | ForEach-Object { $_.FullName })
+$shippedText = ($shipped | ForEach-Object { Get-Content $_ -Raw }) -join "`n"
+Check "no Windows installer file asks it or sends anything" {
+    -not ($shippedText -match '(?i)anonymous note|One last question|install worked\?|signal/v1|INSTALL_COUNT_URL')
 }
-foreach ($fn in 'Get-KitInstallCount', 'Select-KitInstallCount', 'Send-KitInstallCount', 'Invoke-KitInstallCountPost') {
-    Check "$fn is defined" { [bool](Get-Command $fn -ErrorAction SilentlyContinue) }.GetNewClosure()
-}
-Check "nobody at the keyboard means no question, nothing written, nothing sent" {
-    Invoke-CountCase {
-        param($h)
-        function Test-KitInteractive { $false }
-        Select-KitInstallCount 6>&1 | Out-Null
-        Send-KitInstallCount -What 'installed' -Kind 'windows' -Run 'new' 6>&1 | Out-Null
-        ((Get-CountLine $h 'GODSPEED_INSTALL_COUNT') -eq '') -and ($script:posted.Count -eq 0)
-    }
-}
-Check "with no counter address set, even a keyboard is asked nothing, and nothing is written or sent" {
-    Invoke-CountCase -NoAddress {
-        param($h)
-        $script:asked = @()
-        function Test-KitInteractive { $true }
-        function Read-Host { param($Prompt) $script:asked += $Prompt; 'y' }
-        Select-KitInstallCount 6>&1 | Out-Null
-        Send-KitInstallCount -What 'installed' -Kind 'windows' -Run 'new' 6>&1 | Out-Null
-        ($script:asked.Count -eq 0) -and ((Get-CountLine $h 'GODSPEED_INSTALL_COUNT') -eq '') -and ($script:posted.Count -eq 0)
-    }
-}
-Check "and an earlier yes sends nothing without an address" {
-    Invoke-CountCase -NoAddress {
-        param($h)
-        $env:GODSPEED_INSTALL_COUNT = 'yes'
-        Select-KitInstallCount 6>&1 | Out-Null
-        Send-KitInstallCount -What 'installed' -Kind 'windows' -Run 'new' 6>&1 | Out-Null
-        $script:posted.Count -eq 0
-    }
-}
-Check "the library counts on the website's address, never on a server of the maintainer's own" {
-    $j = Get-Content (Join-Path $PSScriptRoot '..\join.ps1') -Raw
-    $j.Contains("else { 'https://godspeedmissioncontrol.com/signal/v1' }") -and -not $j.Contains('hstgr')
-}
-Check "Enter means no, it is written down, and a second run does not ask again" {
-    Invoke-CountCase {
-        param($h)
-        $script:asked = @()
-        function Test-KitInteractive { $true }
-        function Read-Host { param($Prompt) $script:asked += $Prompt; '' }
-        Select-KitInstallCount 6>&1 | Out-Null
-        Select-KitInstallCount 6>&1 | Out-Null
-        Send-KitInstallCount -What 'installed' -Kind 'windows' -Run 'new' 6>&1 | Out-Null
-        (($script:asked -join '|') -eq 'Send the anonymous note? (y/N)') -and
-            ((Get-CountLine $h 'GODSPEED_INSTALL_COUNT') -eq '0') -and ($script:posted.Count -eq 0)
-    }
-}
-Check "a yes records an id and sends exactly the agreed fields, once, even on an update run" {
-    Invoke-CountCase {
-        param($h)
-        function Test-KitInteractive { $true }
-        function Read-Host { param($Prompt) 'y' }
-        Select-KitInstallCount 6>&1 | Out-Null
-        Send-KitInstallCount -What 'installed' -Kind 'windows' -Run 'new' 6>&1 | Out-Null
-        Send-KitInstallCount -What 'installed' -Kind 'windows' -Run 'update' 6>&1 | Out-Null
-        $id = Get-CountLine $h 'GODSPEED_INSTALL_ID'
-        ($id -match '^[0-9a-f]{32}$') -and ($script:posted.Count -eq 1) -and
-            ($script:posted[0] -eq ('{"product":"mission-control","event":"installed","install":"' + $id + '","version":"v9.9","kind":"windows","run":"new"}')) -and
-            ((Get-CountLine $h 'GODSPEED_INSTALL_COUNT_SENT') -eq 'installed')
-    }
-}
-Check "DO_NOT_TRACK is a no without a question, and stops a send after an earlier yes" {
-    Invoke-CountCase {
-        param($h)
-        $env:DO_NOT_TRACK = '1'
-        function Test-KitInteractive { $true }
-        function Read-Host { param($Prompt) throw 'asked' }
-        Select-KitInstallCount 6>&1 | Out-Null
-        $no = (Get-CountLine $h 'GODSPEED_INSTALL_COUNT') -eq '0'
-        Set-KitDeviceEnvValue -Name 'GODSPEED_INSTALL_COUNT' -Value '1'
-        Set-KitDeviceEnvValue -Name 'GODSPEED_INSTALL_ID' -Value ('a' * 32)
-        Send-KitInstallCount -What 'installed' -Kind 'windows' 6>&1 | Out-Null
-        $no -and ($script:posted.Count -eq 0)
-    }
-}
-Check "a receiver that cannot be reached is not recorded as sent, and nothing is thrown" {
-    Invoke-CountCase {
-        param($h)
-        $env:GODSPEED_INSTALL_COUNT = 'yes'
-        Select-KitInstallCount 6>&1 | Out-Null
-        function Invoke-KitInstallCountPost { param($Body) throw 'unreachable' }
-        Send-KitInstallCount -What 'installed' -Kind 'windows' 6>&1 | Out-Null
-        (Get-CountLine $h 'GODSPEED_INSTALL_COUNT_SENT') -eq ''
-    }
-}
-Check "the Windows installer asks it before Done and says it is a Windows install" {
-    $src = Get-Content (Join-Path $PSScriptRoot 'setup-godspeed.ps1') -Raw
-    $src.Contains("Send-KitInstallCount -What 'installed' -Kind 'windows'") -and
-        ($src.IndexOf('Select-KitInstallCount') -lt $src.IndexOf('Write-KbSay "Done"'))
+Check "nothing reads an earlier answer or DO_NOT_TRACK, so an old yes sends nothing either" {
+    $code = ($shippedText -split "`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+    -not ($code -match 'GODSPEED_INSTALL_COUNT|GODSPEED_INSTALL_ID|DO_NOT_TRACK')
 }
 # THE SILENT INSTALL. Found by the kit's windows-installer workflow on 2026-09-30, the first time
 # a v2.16 .exe ran on a fresh machine: /VERYSILENT installed everything, then the console the
-# wizard opens printed the question and waited for ever, because that console is interactive
-# whether or not anybody reads it. Every case above stands in for Test-KitInteractive, so none
-# of them could see it; these use the real one.
+# wizard opens printed a question and waited for ever, because that console is interactive
+# whether or not anybody reads it. The setup's other questions still rely on this.
 Check "KB_UNATTENDED=1 means nobody is at the keyboard, even in a console" {
     $u0 = $env:KB_UNATTENDED
     try { $env:KB_UNATTENDED = '1'; -not (Test-KitInteractive) } finally { $env:KB_UNATTENDED = $u0 }
-}
-Check "so a silent install is not asked, nothing is written and nothing is sent" {
-    $u0 = $env:KB_UNATTENDED
-    try {
-        $env:KB_UNATTENDED = '1'
-        Invoke-CountCase {
-            param($h)
-            function Read-Host { param($Prompt) throw 'asked' }
-            Select-KitInstallCount 6>&1 | Out-Null
-            Send-KitInstallCount -What 'installed' -Kind 'windows' -Run 'new' 6>&1 | Out-Null
-            ((Get-CountLine $h 'GODSPEED_INSTALL_COUNT') -eq '') -and ($script:posted.Count -eq 0)
-        }
-    } finally { $env:KB_UNATTENDED = $u0 }
 }
 Check "a silent wizard tells the engine, and the engine sets KB_UNATTENDED" {
     $iss = Get-Content (Join-Path $PSScriptRoot 'godspeed-setup.iss') -Raw
@@ -3658,6 +3547,65 @@ Check "setup-godspeed.ps1 runs -Only gmail before it checks a single prerequisit
 Check "an install and 'Update my mission control' never ask about Gmail" {
     -not $SetupSrcG.Contains('Request-KitGmail -Godspeed')
 }
+
+Write-Host ""
+Write-Host "-- the note about email at the end of an install says only what is true (product issue #81)"
+# Get-KitMailStatus is the one call to the mail tool; these stand in for it.
+function Get-MailNote([AllowNull()][string]$Said, [switch]$CannotTell) {
+    $script:mailSaid = $Said; $script:mailCannot = [bool]$CannotTell
+    function Get-KitMailStatus { param($Godspeed) if ($script:mailCannot) { return $null } $script:mailSaid }
+    return ((Write-KitMailNote -Godspeed 'C:\anywhere' 6>&1 | Out-String) -replace "`r", '').TrimEnd("`n")
+}
+Check "a connected mailbox is named, in one line" {
+    (Get-MailNote "gmail: connected (me@example.com) via imap`ngodspeed: not connected - Optional.") -eq '  * Email is connected: me@example.com.'
+}
+Check "two connected mailboxes are both named" {
+    (Get-MailNote "gmail: connected (me@example.com) via imap`ngodspeed: connected (mc@agentmail.to) - its own address") -eq '  * Email is connected: me@example.com, mc@agentmail.to.'
+}
+Check "a desktop paired with its server names what the server reaches" {
+    (Get-MailNote "mail on your server (ai@203.0.113.7): reachable`ngodspeed: connected (mc@agentmail.to)") -eq '  * Email is connected: mc@agentmail.to.'
+}
+Check "with none connected it says email is optional, how to switch it on, and where to read more" {
+    $n = Get-MailNote "gmail: not connected - Optional.`ngodspeed: not connected - Optional."
+    $n.Contains('Email is optional and not connected') -and $n.Contains('Connect Gmail for me. How it works: https://godspeedmissioncontrol.com/guide/email')
+}
+Check "when the tool cannot tell, nothing is said about email" { (Get-MailNote -CannotTell) -eq '' }
+Check "and a state it does not know says nothing either" { (Get-MailNote 'gmail: reconnect needed (me@example.com)') -eq '' }
+Check "the status is asked in the mission control, and no answer in time counts as cannot tell" {
+    if (-not (Test-KitCommand 'node')) { Write-Host '    (node is not here; skipped)'; return $true }
+    $ms0 = $env:KB_MAIL_STATUS_MS
+    try {
+        Invoke-NotebookCase {
+            param($h)
+            $tool = Join-Path $h '.local\bin\mc-mail.js'
+            Set-Content -LiteralPath $tool -Encoding ASCII -Value @'
+const fs = require("fs");
+const how = fs.readFileSync(process.env.GODSPEED_DIR + "/how", "utf8").trim();
+if (process.argv[2] !== "status") process.exit(2);
+if (how === "slow") setTimeout(() => console.log("gmail: connected (late@example.com)"), 5000);
+else if (how === "fails") { console.log("godspeed: unreachable (mc@agentmail.to)"); process.exitCode = 1; }
+else console.log("gmail: connected (" + process.cwd().split(/[\\/]/).pop() + "@example.com)");
+'@
+            $g = New-TestDir 'mailgodspeed'
+            $env:KB_MAIL_STATUS_MS = '1500'
+            Set-Content -LiteralPath (Join-Path $g 'how') -Value 'ok' -Encoding ASCII
+            $ok = "$(Get-KitMailStatus -Godspeed $g)".Trim() -eq 'gmail: connected (mailgodspeed@example.com)'
+            Set-Content -LiteralPath (Join-Path $g 'how') -Value 'fails' -Encoding ASCII
+            $fails = $null -eq (Get-KitMailStatus -Godspeed $g)
+            Set-Content -LiteralPath (Join-Path $g 'how') -Value 'slow' -Encoding ASCII
+            $slow = $null -eq (Get-KitMailStatus -Godspeed $g)
+            $nofolder = $null -eq (Get-KitMailStatus -Godspeed '')
+            $ok -and $fails -and $slow -and $nofolder
+        }
+    } finally { $env:KB_MAIL_STATUS_MS = $ms0 }
+}
+Check "no Windows installer file shows a book chapter number, in English or German" {
+    $files = @((Join-Path $PSScriptRoot '..\join.ps1')) + @(Get-ChildItem $PSScriptRoot -File |
+        Where-Object { $_.Name -match '\.(ps1|iss)$' -and $_.Name -notlike 'test-*' } | ForEach-Object { $_.FullName })
+    $text = (($files | ForEach-Object { Get-Content -LiteralPath $_ -Raw }) -join "`n") -replace '(?s)<#.*?#>', ''
+    $shown = ($text -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+    -not ($shown -match '(?i)(chapter|kapitel) [0-9]')
+}
 Check "the Start menu entry a reader clicks is still there, and still runs the whole installer" {
     $iss = Get-Content (Join-Path $PSScriptRoot 'godspeed-setup.iss') -Raw
     $iss.Contains('Name: "{group}\Update my mission control"') -and -not ($iss -match 'Update my mission control[^\n]*\n[^\n]*-Only')
@@ -3724,7 +3672,39 @@ Check "the wizard asks about the browser with the box unticked, and passes the a
         $IssSrcC.Contains('-Computer ""{code:GetComputerAnswer}"" -ComputerCode ""{code:GetComputerCode}""')
 }
 Check "a silent install, or a PC that is paired already, is not asked and keeps what it has" {
-    $IssSrcC.Contains("if WizardSilent or ComputerPaired then Result := 'keep'") -and $IssSrcC.Contains('Result := ComputerPaired or (not ComputerPage.Values[0])')
+    $IssSrcC.Contains("if WizardSilent or ComputerPaired or IsUpdate then Result := 'keep'") -and
+        $IssSrcC.Contains('Result := ComputerPaired or IsUpdate or (not CodeCanCome) or (not ComputerPage.Values[0])')
+}
+# Product issue #79 (27 October 2026): an update of 2.0.0-beta.9 on a PC without a browser
+# connection showed the question, and a tick led to a page that demanded a code nobody could send.
+# The wizard is Pascal, so these read its source, like the checks above.
+function Get-IssFunction([string]$Name) {
+    $m = [regex]::Match($IssSrcC, '(?ms)^function ' + [regex]::Escape($Name) + '\b.*?^end;')
+    return $m.Value
+}
+Check "an update never shows the browser page or the code page, and passes keep" {
+    $skip = Get-IssFunction 'ShouldSkipPage'
+    $answer = Get-IssFunction 'GetComputerAnswer'
+    $skip.Contains('if PageID = ComputerPage.ID then') -and
+        ($skip -match 'ComputerPage\.ID then\s+Result := ComputerPaired or IsUpdate or') -and
+        ($skip -match 'CodePage\.ID then\s+Result := ComputerPaired or IsUpdate or') -and
+        ($answer -match "if WizardSilent or ComputerPaired or IsUpdate then Result := 'keep'")
+}
+Check "a new install is not asked about the browser while no code can come" {
+    $can = Get-IssFunction 'CodeCanCome'
+    $skip = Get-IssFunction 'ShouldSkipPage'
+    ($can -match 'Result := False;') -and ($skip -match 'ComputerPage\.ID then\s+Result := [^;]*\(not CodeCanCome\)') -and
+        ($skip -match 'CodePage\.ID then\s+Result := [^;]*\(not CodeCanCome\)') -and
+        # the reason is written above it, not guessed from a name or a folder
+        ($IssSrcC -match '(?s)Only the Docker server edition makes\s+codes.*?function CodeCanCome')
+}
+Check "the code page lets an empty box go on, says so, and an empty box is a no" {
+    $next = Get-IssFunction 'NextButtonClick'
+    $answer = Get-IssFunction 'GetComputerAnswer'
+    ($next -match "\(CurPageID = CodePage\.ID\) and \(Trim\(CodePage\.Values\[0\]\) <> ''\) and \(Pos\('godspeed1\.', CodePage\.Values\[0\]\) = 0\)") -and
+        $next.Contains('That is not a connection code yet.') -and
+        $IssSrcC.Contains('No code? Leave the box empty and click Next: the setup finishes without the browser.') -and
+        ($answer -match "ComputerPage\.Values\[0\] and CodeCanCome and \(Trim\(CodePage\.Values\[0\]\) <> ''\) then Result := 'yes'")
 }
 Check "the wizard never passes an empty code (it would shift every parameter after it)" {
     $IssSrcC.Contains("if Result = '' then Result := 'none';") -and $SetupSrcC.Contains("[string]`$ComputerCode = 'none'")

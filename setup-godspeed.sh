@@ -327,16 +327,6 @@ if command -v kb_wire_computer >/dev/null 2>&1; then
   kb_wire_computer "$COMPUTER" "$COMPUTER_CODE" "$STARTER_REPO"
 fi
 
-# The install count, asked once per computer, default no (THE INSTALL COUNT in lib.sh). The
-# server installer runs this file for its folder and asks the question itself, with its own
-# kind of install, so it sets KB_INSTALL_COUNT_SKIP and nothing here is asked or sent twice.
-if [ -z "${KB_INSTALL_COUNT_SKIP:-}" ] && command -v kb_choose_install_count >/dev/null 2>&1; then
-  kb_choose_install_count
-  case "$(uname -s 2>/dev/null)" in Darwin) KB_KIND=mac ;; *) KB_KIND=linux ;; esac
-  if [ "$IS_NEW" -eq 1 ]; then kb_install_count_send installed "$KB_KIND" new
-  else kb_install_count_send installed "$KB_KIND" update; fi
-fi
-
 # -----------------------------------------------------------------------------
 # 5. What just happened, in words.
 # -----------------------------------------------------------------------------
@@ -378,7 +368,7 @@ Worth knowing:
     with the AI apps here is saved in it; to bring a tool's older chats in too,
     run it again with --sources, or edit GODSPEED_PROMPT_SOURCES in ~/.godspeed/device.env
 EOF
-command -v kb_mail_note >/dev/null 2>&1 && kb_mail_note
+command -v kb_mail_note >/dev/null 2>&1 && kb_mail_note "$GODSPEED"
 
 if [ -n "${KB_MISSING:-}" ]; then
   warn "I could not install these, so some things will not work until they are here: $KB_MISSING"

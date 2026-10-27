@@ -169,7 +169,7 @@ if ($IntegratedNotebook) {
 # for by the copy of join.ps1 inside the .exe, which is now the same code as the pin rather
 # than a fallback for a machine with no network.
 if (-not $KbBranch) { $KbBranch = if ($env:KB_BRANCH) { $env:KB_BRANCH } else { 'v2' } }
-$env:KB_BRANCH = $KbBranch   # the install count reports it as this installer's version
+$env:KB_BRANCH = $KbBranch   # the same pin in the environment, as the bash twin carries it
 if ($Unattended) { $env:KB_UNATTENDED = '1' }   # Test-KitInteractive in join.ps1 reads it
 
 # WHAT THE CALLER ASKED FOR, KEPT SAFE ACROSS THE LIBRARY LOAD.
@@ -440,14 +440,6 @@ if (Get-Command Connect-KitComputer -ErrorAction SilentlyContinue) {
     Connect-KitComputer -Answer $computerAnswer -Code $computerCode -ToolsRepo $StarterRepo | Out-Null
 }
 
-# The install count, asked once per PC, default no (THE INSTALL COUNT in lib.sh; the twins
-# are in join.ps1). An older join.ps1 from the cache has no such function, and then nothing
-# is asked and nothing is sent.
-if (Get-Command Select-KitInstallCount -ErrorAction SilentlyContinue) {
-    Select-KitInstallCount
-    Send-KitInstallCount -What 'installed' -Kind 'windows' -Run $(if ($isNew) { 'new' } else { 'update' })
-}
-
 # -----------------------------------------------------------------------------
 # 5. What just happened, in words.
 # -----------------------------------------------------------------------------
@@ -480,7 +472,7 @@ Worth knowing:
     with the AI apps here is saved in it; to bring a tool's older chats in too,
     run the installer again and tick it.
 "@
-if (Get-Command Write-KitMailNote -ErrorAction SilentlyContinue) { Write-KitMailNote }
+if (Get-Command Write-KitMailNote -ErrorAction SilentlyContinue) { Write-KitMailNote -Godspeed $Godspeed }
 
 if ($missing.Count -gt 0) {
     Write-Host ""

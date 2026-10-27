@@ -151,4 +151,4 @@ so keep doing what you already do with the folder. To change which AI tools are
 read on this machine later: run this again with --sources, or edit
 GODSPEED_PROMPT_SOURCES in ~/.godspeed/device.env
 EOF
-command -v kb_mail_note >/dev/null 2>&1 && kb_mail_note
+command -v kb_mail_note >/dev/null 2>&1 && kb_mail_note "$GODSPEED"

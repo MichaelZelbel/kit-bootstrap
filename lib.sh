@@ -3020,7 +3020,7 @@ kb_seed_due_folder() {
 
 **This room starts empty, and an empty one costs you nothing.** It fills the first time you tell
 your mission control about something with a day attached: a day you would like it done by, or a
-last day before it costs you (Chapter 27). If you never do, you have an empty folder and you have
+last day before it costs you. If you never do, you have an empty folder and you have
 lost nothing.
 
 ## Why this is not a reminder
@@ -3156,7 +3156,7 @@ likeliest reason is that you did it and forgot to say so. The full list keeps sh
 
 ## Your keys are already in here
 
-If you have `secrets/expires.txt` from Chapter 31, `mc-due` reads it and treats each key as one of
+If you keep `secrets/expires.txt`, the record of your keys, `mc-due` reads it and treats each key as one of
 these. You never write a date in two places, and there is one thing nagging you rather than two
 that disagree. Moving the date in that file is still the off switch, and it is now also the proof:
 moving it forward is what replacing a key looks like from outside, so the reminder closes itself.
@@ -3190,7 +3190,7 @@ mc-due check               run the self checks, close what is provably done
 mc-due state               which are open, and what closed the others
 ```
 
-The card is `procedures/what-runs-out-and-when.md` in the kit. Chapter 27.
+The card is `procedures/what-runs-out-and-when.md` in the kit. The guide: https://godspeedmissioncontrol.com/guide/deadlines
 DUEEOF
   ok "deadlines: made due/, the room for everything with a last day"
   return 0
@@ -3340,16 +3340,53 @@ kb_wire_mail() {
   return 0
 }
 
-# kb_mail_note
-# One line at the end of an install, only when the mail tool is here: email is optional,
-# and this is how to switch it on later.
+# kb_mail_status <mission control>
+# What the mail tool says about this mission control's mailboxes (mc-mail status), or nothing and
+# a failure when it cannot tell: no tool, no Node.js, a failed answer, or no answer within
+# KB_MAIL_STATUS_MS milliseconds (default 20000). The one place the note below reaches the tool,
+# so a test can stand in for it.
+kb_mail_status() {
+  local godspeed="${1:-}" tool="$HOME/.local/bin/mc-mail.js"
+  [ -n "$godspeed" ] && [ -d "$godspeed" ] && [ -f "$tool" ] || return 1
+  command -v node >/dev/null 2>&1 || return 1
+  ( cd "$godspeed" && GODSPEED_DIR="$godspeed" node -e '
+const r = require("child_process").spawnSync(process.execPath, [process.argv[1], "status"],
+  { encoding: "utf8", timeout: Number(process.argv[2]) || 20000, stdio: ["ignore", "pipe", "ignore"] });
+if (r.error || r.status !== 0) process.exit(1);
+process.stdout.write(r.stdout || "");' "$tool" "${KB_MAIL_STATUS_MS:-20000}" 2>/dev/null )
+}
+
+# kb_mail_note <mission control>
+# One line at the end of an install about email, and only what is true. The mail tool is asked
+# first: a connected mailbox is named; with none connected, email is optional and the line says
+# how to switch it on. When the tool cannot tell, nothing is said about email at all.
+# Until 27 October 2026 this said "switched off" without asking, also on a computer whose mission
+# control had its own address connected, and it named book chapters that somebody who installed
+# from the website does not have (product issue #81). The words are the same on Windows
+# (Write-KitMailNote in join.ps1); test.sh compares them.
 kb_mail_note() {
-  [ -f "$HOME/.local/bin/mc-mail.js" ] || return 0
-  cat <<EOF
-  * Email is optional and switched off. When you want your mission control to read your Gmail and save
-    draft replies there (it sends nothing; you press Send in Gmail), ask your assistant:
-    Connect Gmail for me. Chapter 30 shows it. Chapter 29 gives the mission control its own address.
+  local out line acct rest addr connected="" none=0
+  out="$(kb_mail_status "${1:-}")" || return 0
+  while IFS= read -r line; do
+    acct="${line%%: *}"; rest="${line#*: }"
+    [ "$acct" != "$line" ] || continue
+    case "$acct" in ""|*[!A-Za-z0-9-]*) continue ;; esac
+    case "$rest" in
+      "not connected"*) none=$((none + 1)) ;;
+      "connected ("*) addr="${rest#connected (}"; connected="${connected:+$connected, }${addr%%)*}" ;;
+      "connected"*) connected="${connected:+$connected, }$acct" ;;
+    esac
+  done <<EOF
+$(printf '%s\n' "$out" | tr -d '\r')
 EOF
+  if [ -n "$connected" ]; then
+    echo "  * Email is connected: $connected."
+  elif [ "$none" -gt 0 ]; then
+    echo "  * Email is optional and not connected. When you want your mission control to read your Gmail"
+    echo "    and save draft replies there (it sends nothing; you press Send in Gmail), ask your assistant:"
+    echo "    Connect Gmail for me. How it works: https://godspeedmissioncontrol.com/guide/email"
+  fi
+  return 0
 }
 
 # =============================================================================
@@ -3386,7 +3423,7 @@ kb_gmail_retired() {
   echo ""
   echo "The Gmail step that registered your own Google app is retired, and nothing was changed."
   echo "Email stays optional. When you want your mission control to read your Gmail and save drafts, ask your"
-  echo "assistant: Connect Gmail for me. Chapter 30 of the book shows what happens then."
+  echo "assistant: Connect Gmail for me. How it works: https://godspeedmissioncontrol.com/guide/email"
 }
 
 # kb_only_gmail <mission control> [<tools-repo>]
@@ -3446,6 +3483,11 @@ kb_device_env_set() {
   else
     printf '%s=%s\n' "$name" "$value" >> "$f"
   fi
+}
+
+# kb_device_env_get <NAME> -> the value of its last line in ~/.godspeed/device.env, or nothing
+kb_device_env_get() {
+  sed -n "s/^[[:space:]]*$1=//p" "$HOME/.godspeed/device.env" 2>/dev/null | tail -1 | tr -d ' \r'
 }
 
 # kb_notebook_mirror -> 1 | 0 | (nothing: this computer has never been asked)
@@ -3825,122 +3867,11 @@ kb_persist_notebook_env() {
   done
 }
 
-# =============================================================================
-# THE INSTALL COUNT (2026-09-30)
-# =============================================================================
-# Until now nobody could tell whether anybody installs Mission Control. The installers sent
-# nothing anywhere, so a reader whose install worked and one who gave up halfway looked the
-# same from outside: invisible. So the installer asks, ONCE PER COMPUTER, whether it may say
-# that the install worked. The default is no. With nobody at the keyboard the answer is no and
-# nothing is written, so the question is still there on the day somebody is.
-#
-# WHAT IS SENT, AND NOTHING ELSE. A few short fields to one address: the product, the event
-# ("installed" when an install finishes; "first-brief" once a server's first morning brief was
-# delivered, sent by the kit's mc-install-count), this installer's version, the kind of install
-# (mac, linux, windows, server, docker), whether this run made the mission control or updated
-# one, and a random number made here at the moment of the yes, so the two events of one install
-# can be matched and a repeat counted once. No name, no folder, no file, no account. The
-# receiver is the website godspeedmissioncontrol.com (/signal/v1), which keeps no address and
-# counts the installer downloads too. Until 18 October 2026 it was a server of the maker's own,
-# and nothing a reader's computer talks to belongs on one of those. A send that
-# fails is silent, never stops an install, and is tried again on the next run.
-#
-#   GODSPEED_INSTALL_COUNT=yes|no   answers it without asking, and always wins
-#   DO_NOT_TRACK=1                  a no, never asked (the consoledonottrack.com convention)
-#   a line already in device.env    is the answer, and nobody is asked again
-#
-# Recorded in ~/.godspeed/device.env: GODSPEED_INSTALL_COUNT=1|0, GODSPEED_INSTALL_ID, and
-# GODSPEED_INSTALL_COUNT_SENT, the events already sent, so an update never counts twice.
-# The Windows twins are Get-KitInstallCount, Select-KitInstallCount and Send-KitInstallCount in
-# join.ps1, which ask in the same words (test.sh compares them).
-#
-# THE PAID KITS DO NOT CALL THIS. They promise their buyers no telemetry and no callback, and
-# they vendor this file, so a kit's installer must never call these functions. Their downloads
-# are counted on the server that serves the tarball instead, which the buyer's machine was
-# already talking to.
-KB_INSTALL_COUNT_URL="${KB_INSTALL_COUNT_URL:-https://godspeedmissioncontrol.com/signal/v1}"
-
-# kb_device_env_get <NAME> -> the value of its last line in ~/.godspeed/device.env, or nothing
-kb_device_env_get() {
-  sed -n "s/^[[:space:]]*$1=//p" "$HOME/.godspeed/device.env" 2>/dev/null | tail -1 | tr -d ' \r'
-}
-
-# kb_install_count -> 1 | 0 | (nothing: this computer has never been asked)
-kb_install_count() {
-  case "$(kb_device_env_get GODSPEED_INSTALL_COUNT)" in 1) printf 1 ;; 0) printf 0 ;; esac
-}
-
-kb_dnt() { case "${DO_NOT_TRACK:-}" in ""|0|false|no) return 1 ;; *) return 0 ;; esac; }
-
-kb_new_install_id() {
-  local id=""
-  id="$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
-  [ -n "$id" ] || id="$(openssl rand -hex 16 2>/dev/null)"
-  printf '%s' "$id"
-}
-
-# kb_choose_install_count
-# The question. Asked last, after the install did its work, so a no costs the reader nothing.
-kb_choose_install_count() {
-  local answer=""
-  case "${GODSPEED_INSTALL_COUNT:-}" in
-    [Yy]*|1) answer=1 ;;
-    [Nn]*|0) answer=0 ;;
-  esac
-  [ -z "$answer" ] && kb_dnt && answer=0
-  if [ -z "$answer" ]; then
-    [ -n "$(kb_install_count)" ] && return 0
-    [ -n "$KB_INSTALL_COUNT_URL" ] || return 0
-    have_tty || return 0
-    # THE SAME WORDS AS THE WINDOWS TWIN, line for line. test.sh compares the two.
-    kb_tell ""
-    kb_tell "One last question, and it changes nothing on this computer. It helps show"
-    kb_tell "how many installs work. May this computer send one anonymous note that the"
-    kb_tell "install worked? The note holds the word 'installed', this installer's version,"
-    kb_tell "the kind of computer and a random number made just now. No name, no files, and"
-    kb_tell "the website that counts it keeps no address. On a server it sends one more note"
-    kb_tell "when your first morning brief arrives. Say no and nothing is sent."
-    if ask_yes "Send the anonymous note?" "n"; then answer=1; else answer=0; fi
-  fi
-  kb_device_env_set GODSPEED_INSTALL_COUNT "$answer"
-  if [ "$answer" = "1" ]; then
-    [ -n "$(kb_device_env_get GODSPEED_INSTALL_ID)" ] || kb_device_env_set GODSPEED_INSTALL_ID "$(kb_new_install_id)"
-    ok "install count: yes, thank you. To take it back, set GODSPEED_INSTALL_COUNT=0 in ~/.godspeed/device.env"
-  else
-    ok "install count: no. Nothing is sent, and this computer is not asked again."
-  fi
-  return 0
-}
-
-# kb_install_count_send <event> <kind> [new|update]
-# One event, once per computer, and only after a yes. Always returns 0: counting never breaks
-# an install. KB_PRODUCT names the product (default mission-control).
-kb_install_count_send() {
-  local event="${1:-}" kind="${2:-}" run="${3:-}" id sent version product body
-  [ "$(kb_install_count)" = "1" ] || return 0
-  [ -n "$KB_INSTALL_COUNT_URL" ] || return 0
-  kb_dnt && return 0
-  id="$(kb_device_env_get GODSPEED_INSTALL_ID)"
-  [ -n "$id" ] && [ -n "$event" ] || return 0
-  sent="$(kb_device_env_get GODSPEED_INSTALL_COUNT_SENT)"
-  case ",$sent," in *",$event,"*) return 0 ;; esac
-  command -v curl >/dev/null 2>&1 || return 0
-  product="$(printf '%s' "${KB_PRODUCT:-mission-control}" | tr -cd 'a-z0-9-')"
-  version="$(printf '%s' "${KB_BRANCH:-${KB_PIN:-}}" | tr -cd 'A-Za-z0-9._+-' | cut -c1-32)"
-  kind="$(printf '%s' "$kind" | tr -cd 'a-z0-9-')"
-  case "$run" in new|update) ;; *) run="" ;; esac
-  body="{\"product\":\"$product\",\"event\":\"$event\",\"install\":\"$id\""
-  [ -n "$version" ] && body="$body,\"version\":\"$version\""
-  [ -n "$kind" ] && body="$body,\"kind\":\"$kind\""
-  [ -n "$run" ] && body="$body,\"run\":\"$run\""
-  body="$body}"
-  if curl -fsS -m 8 -o /dev/null -X POST -H 'Content-Type: application/json' \
-       --data "$body" "$KB_INSTALL_COUNT_URL" >/dev/null 2>&1; then
-    kb_device_env_set GODSPEED_INSTALL_COUNT_SENT "${sent:+$sent,}$event"
-    ok "install count: the note is sent. Thank you."
-  fi
-  return 0
-}
+# No install count (27 October 2026). From 30 September the installers ended with one opt-in
+# question, whether the computer may report that the install worked. It brought nothing, and the
+# maintainer took it out: no installer asks it or sends anything. The website still counts the
+# installer downloads. Old device.env lines (GODSPEED_INSTALL_COUNT, GODSPEED_INSTALL_ID,
+# GODSPEED_INSTALL_COUNT_SENT) are read by nothing; DO_NOT_TRACK has nothing left to stop.
 
 # =============================================================================
 # YOUR COMPUTER LENDS ITS BROWSER (computer use layer 2, decision D-285 of the maintainer's own mission control).

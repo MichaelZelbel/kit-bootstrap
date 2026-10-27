@@ -1935,7 +1935,7 @@ function Write-KitDueFolder {
         ''
         '**This room starts empty, and an empty one costs you nothing.** It fills the first time you tell'
         'your mission control about something with a day attached: a day you would like it done by, or a'
-        'last day before it costs you (Chapter 27). If you never do, you have an empty folder and you have'
+        'last day before it costs you. If you never do, you have an empty folder and you have'
         'lost nothing.'
         ''
         '## Why this is not a reminder'
@@ -2071,7 +2071,7 @@ function Write-KitDueFolder {
         ''
         '## Your keys are already in here'
         ''
-        'If you have `secrets/expires.txt` from Chapter 31, `mc-due` reads it and treats each key as one of'
+        'If you keep `secrets/expires.txt`, the record of your keys, `mc-due` reads it and treats each key as one of'
         'these. You never write a date in two places, and there is one thing nagging you rather than two'
         'that disagree. Moving the date in that file is still the off switch, and it is now also the proof:'
         'moving it forward is what replacing a key looks like from outside, so the reminder closes itself.'
@@ -2105,7 +2105,7 @@ function Write-KitDueFolder {
         'mc-due state               which are open, and what closed the others'
         '```'
         ''
-        'The card is `procedures/what-runs-out-and-when.md` in the kit. Chapter 27.'
+        'The card is `procedures/what-runs-out-and-when.md` in the kit. The guide: https://godspeedmissioncontrol.com/guide/deadlines'
     )
     Set-KbTextFile -Path $f -Lines $lines
     Write-KbOk "deadlines: made due\README.md, the room for everything with a last day"
@@ -2307,14 +2307,61 @@ function Connect-KitMail {
     }
 }
 
+function Get-KitMailStatus {
+    <#  What the mail tool says about this mission control's mailboxes (mc-mail status), or $null
+        when it cannot tell: no tool, no Node.js, a failed answer, or no answer within
+        $env:KB_MAIL_STATUS_MS milliseconds (default 20000). The Windows twin of kb_mail_status in
+        lib.sh, and the one place Write-KitMailNote reaches the tool, so a test can stand in for it. #>
+    param([string]$Godspeed)
+    if (-not $Godspeed -or -not (Test-Path -LiteralPath $Godspeed)) { return $null }
+    $tool = Join-Path (Get-KitHome) '.local\bin\mc-mail.js'
+    if (-not (Test-Path -LiteralPath $tool) -or -not (Test-KitCommand 'node')) { return $null }
+    $ms = 20000
+    if ($env:KB_MAIL_STATUS_MS -match '^\d+$') { $ms = [int]$env:KB_MAIL_STATUS_MS }
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = (Get-Command node -CommandType Application | Select-Object -First 1).Source
+        $psi.Arguments = '"' + $tool + '" status'
+        $psi.WorkingDirectory = $Godspeed
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $psi.RedirectStandardInput = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+        $psi.EnvironmentVariables['GODSPEED_DIR'] = $Godspeed
+        $p = [System.Diagnostics.Process]::Start($psi)
+        $p.StandardInput.Close()
+        $out = $p.StandardOutput.ReadToEndAsync()
+        $null = $p.StandardError.ReadToEndAsync()
+        if (-not $p.WaitForExit($ms)) { try { $p.Kill() } catch { }; return $null }
+        $p.WaitForExit()
+        if ($p.ExitCode -ne 0) { return $null }
+        return $out.Result
+    } catch { return $null }
+}
+
 function Write-KitMailNote {
-    <# One paragraph at the end of an install, only when the mail tool is here. #>
-    if (-not (Test-Path (Join-Path (Get-KitHome) '.local\bin\mc-mail.js'))) { return }
-    Write-Host @"
-  * Email is optional and switched off. When you want your mission control to read your Gmail and save
-    draft replies there (it sends nothing; you press Send in Gmail), ask your assistant:
-    Connect Gmail for me. Chapter 30 shows it. Chapter 29 gives the mission control its own address.
-"@
+    <#  One line at the end of an install about email, and only what is true. The Windows twin of
+        kb_mail_note in lib.sh, where the story is: the mail tool is asked first, a connected
+        mailbox is named, with none connected email is optional and the line says how to switch it
+        on, and when the tool cannot tell nothing is said about email at all. #>
+    param([string]$Godspeed)
+    $text = Get-KitMailStatus -Godspeed $Godspeed
+    if ($null -eq $text) { return }
+    $connected = @(); $none = 0
+    foreach ($line in ("$text" -split "`r?`n")) {
+        if ($line -cmatch '^([A-Za-z0-9-]+): not connected') { $none++ }
+        elseif ($line -cmatch '^([A-Za-z0-9-]+): connected \(([^)]*)\)') { $connected += $Matches[2] }
+        elseif ($line -cmatch '^([A-Za-z0-9-]+): connected') { $connected += $Matches[1] }
+    }
+    if ($connected.Count -gt 0) {
+        Write-Host "  * Email is connected: $($connected -join ', ')."
+    } elseif ($none -gt 0) {
+        Write-Host "  * Email is optional and not connected. When you want your mission control to read your Gmail"
+        Write-Host "    and save draft replies there (it sends nothing; you press Send in Gmail), ask your assistant:"
+        Write-Host "    Connect Gmail for me. How it works: https://godspeedmissioncontrol.com/guide/email"
+    }
 }
 
 # =============================================================================
@@ -2336,7 +2383,7 @@ function Show-KitGmailRetired {
     Write-Host ""
     Write-Host "The Gmail step that registered your own Google app is retired, and nothing was changed."
     Write-Host "Email stays optional. When you want your mission control to read your Gmail and save drafts, ask your"
-    Write-Host "assistant: Connect Gmail for me. Chapter 30 of the book shows what happens then."
+    Write-Host "assistant: Connect Gmail for me. How it works: https://godspeedmissioncontrol.com/guide/email"
 }
 
 function Connect-KitGmailOnly {
@@ -2445,93 +2492,6 @@ function Select-KitNotebookMirror {
     } else {
         Write-KbOk "notebook: nothing is copied in either direction. Your mission control's files stay on this computer, and nothing is sent to Menerio or fetched from it in the background. Your assistant still saves and finds notes there when you ask it to."
     }
-}
-
-# THE INSTALL COUNT (2026-09-30). The Windows twins of kb_install_count, kb_choose_install_count
-# and kb_install_count_send in lib.sh, where the whole story is: asked once per PC, default no,
-# and nothing leaves the PC without a yes. Same address, same fields, same words.
-$script:KitInstallCountUrl = if ($env:KB_INSTALL_COUNT_URL) { $env:KB_INSTALL_COUNT_URL } else { 'https://godspeedmissioncontrol.com/signal/v1' }
-
-function Get-KitInstallCount {
-    <#  '1', '0', or $null when this PC has never been asked. #>
-    $v = Get-KitDeviceEnvValue 'GODSPEED_INSTALL_COUNT'
-    if ($v -eq '1' -or $v -eq '0') { return $v }
-    return $null
-}
-
-function Test-KitDoNotTrack {
-    return ($env:DO_NOT_TRACK -and $env:DO_NOT_TRACK -notmatch '^(0|false|no)$')
-}
-
-function Select-KitInstallCount {
-    <#  The question. Asked last, after the install did its work.
-
-          GODSPEED_INSTALL_COUNT=yes|no  answers it without asking, and always wins
-          DO_NOT_TRACK=1                 a no, never asked
-          a line already in device.env   is the answer, and nobody is asked again
-          no keyboard and no answer      no, and nothing is written #>
-    $answer = $null
-    if ($env:GODSPEED_INSTALL_COUNT -match '^([Yy]|1$)') { $answer = '1' }
-    elseif ($env:GODSPEED_INSTALL_COUNT -match '^([Nn]|0$)') { $answer = '0' }
-    if ($null -eq $answer -and (Test-KitDoNotTrack)) { $answer = '0' }
-    if ($null -eq $answer) {
-        if (Get-KitInstallCount) { return }
-        if (-not $script:KitInstallCountUrl) { return }
-        if (-not (Test-KitInteractive)) { return }
-        # THE SAME WORDS AS THE BASH TWIN, line for line. test.sh compares the two.
-        Write-Host ""
-        Write-Host "One last question, and it changes nothing on this computer. It helps show"
-        Write-Host "how many installs work. May this computer send one anonymous note that the"
-        Write-Host "install worked? The note holds the word 'installed', this installer's version,"
-        Write-Host "the kind of computer and a random number made just now. No name, no files, and"
-        Write-Host "the website that counts it keeps no address. On a server it sends one more note"
-        Write-Host "when your first morning brief arrives. Say no and nothing is sent."
-        $yn = Read-Host "Send the anonymous note? (y/N)"
-        $answer = if ($yn -match '^[Yy]') { '1' } else { '0' }
-    }
-    Set-KitDeviceEnvValue -Name 'GODSPEED_INSTALL_COUNT' -Value $answer
-    if ($answer -eq '1') {
-        if (-not (Get-KitDeviceEnvValue 'GODSPEED_INSTALL_ID')) {
-            Set-KitDeviceEnvValue -Name 'GODSPEED_INSTALL_ID' -Value ([guid]::NewGuid().ToString('N'))
-        }
-        Write-KbOk "install count: yes, thank you. To take it back, set GODSPEED_INSTALL_COUNT=0 in $HOME\.godspeed\device.env"
-    } else {
-        Write-KbOk "install count: no. Nothing is sent, and this computer is not asked again."
-    }
-}
-
-function Invoke-KitInstallCountPost {
-    <#  The one network call, alone in its own function so the tests can stand in for it. #>
-    param([Parameter(Mandatory)][string]$Body)
-    Invoke-RestMethod -Method Post -Uri $script:KitInstallCountUrl -ContentType 'application/json' `
-        -Body $Body -TimeoutSec 8 -UseBasicParsing -ErrorAction Stop | Out-Null
-}
-
-function Send-KitInstallCount {
-    <#  One event, once per PC, and only after a yes. Never throws: counting never breaks an install. #>
-    param([Parameter(Mandatory)][string]$What, [string]$Kind = '', [string]$Run = '')
-    try {
-        if ((Get-KitInstallCount) -ne '1') { return }
-        if (-not $script:KitInstallCountUrl) { return }
-        if (Test-KitDoNotTrack) { return }
-        $id = Get-KitDeviceEnvValue 'GODSPEED_INSTALL_ID'
-        if (-not $id) { return }
-        $sent = Get-KitDeviceEnvValue 'GODSPEED_INSTALL_COUNT_SENT'
-        if (",$sent," -like "*,$What,*") { return }
-        $product = ($(if ($env:KB_PRODUCT) { $env:KB_PRODUCT } else { 'mission-control' })) -replace '[^a-z0-9-]', ''
-        $version = ("$env:KB_BRANCH" -replace '[^A-Za-z0-9._+-]', '')
-        if ($version.Length -gt 32) { $version = $version.Substring(0, 32) }
-        $Kind = $Kind -replace '[^a-z0-9-]', ''
-        if ($Run -notmatch '^(new|update)$') { $Run = '' }
-        $body = '{"product":"' + $product + '","event":"' + $What + '","install":"' + $id + '"'
-        if ($version) { $body += ',"version":"' + $version + '"' }
-        if ($Kind) { $body += ',"kind":"' + $Kind + '"' }
-        if ($Run) { $body += ',"run":"' + $Run + '"' }
-        $body += '}'
-        Invoke-KitInstallCountPost -Body $body
-        Set-KitDeviceEnvValue -Name 'GODSPEED_INSTALL_COUNT_SENT' -Value $(if ($sent) { "$sent,$What" } else { $What })
-        Write-KbOk "install count: the note is sent. Thank you."
-    } catch { }
 }
 
 function Request-KitPassphrase {
@@ -3924,7 +3884,7 @@ so keep doing what you already do with the folder. To change which AI tools are
 read on this PC later: run this again with -Sources, or edit
 GODSPEED_PROMPT_SOURCES in $HOME\.godspeed\device.env
 "@
-if (Get-Command Write-KitMailNote -ErrorAction SilentlyContinue) { Write-KitMailNote }
+if (Get-Command Write-KitMailNote -ErrorAction SilentlyContinue) { Write-KitMailNote -Godspeed $Godspeed }
 
 # EXPLICIT, and it has to be. This script ends with wiring that calls Hermes, and
 # `hermes approvals test` answers 3 when the leash is working, so without this line a
