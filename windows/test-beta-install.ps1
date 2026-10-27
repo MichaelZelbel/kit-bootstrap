@@ -1,4 +1,4 @@
-<#
+﻿<#
   GodspeedSetup.exe on a fresh GitHub Windows machine, the way a reader runs it silently, and what
   the faults that beta testers met first look like afterwards (18 October 2026):
 
@@ -8,7 +8,8 @@
 
   and on both: the run waits until it is done (the documented command), nothing asks or shows a
   box, Hermes is never called missing, nothing names a person or asks about Menerio, the Startup
-  entry starts the notebook without the browser, the Apps list shows Godspeed Mission Control and
+  entry starts the notebook without the browser, "Open my notebook" opens it and is in the Start
+  menu once (the update removes the old address entry), the Apps list shows Godspeed Mission Control and
   the beta version, an older installer is refused before it touches anything, "Update my mission
   control" looks for a newer release, and the uninstaller removes the program's own files and
   keeps every file of the reader's.
@@ -104,6 +105,40 @@ Want 'the Startup entry starts the notebook without opening the browser, under o
   $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $startup 'Godspeed Mission Control.lnk'))
   $lnk.Arguments.Contains('start-full-alpha.ps1" -NoBrowser') -and -not (Test-Path (Join-Path $startup 'Godspeed Mission Control Full Alpha.lnk'))
 }
+# "Open my notebook" was the bare address until 26 October 2026, an "Open my notebook.url" that the
+# previous release still makes; after the update only the new entry carries that name.
+$group = Join-Path ([Environment]::GetFolderPath('Programs')) 'Godspeed Mission Control'
+Want 'the Start menu has Open my notebook once, and it runs open-notebook.ps1 hidden' {
+  $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $group 'Open my notebook.lnk'))
+  (Test-Path (Join-Path $group 'Open my notebook.lnk')) -and -not (Test-Path (Join-Path $group 'Open my notebook.url')) -and
+    $lnk.TargetPath -like '*\WindowsPowerShell\v1.0\powershell.exe' -and
+    $lnk.Arguments.Contains('-WindowStyle Hidden -File "' + (Join-Path $app 'open-notebook.ps1') + '"')
+}
+# Windows' Start search offers a shortcut to a program as an app, and an Internet shortcut (.url)
+# not at all: on a PC with the old entry, typing "Open my notebook" found only a web search. Start
+# lists the old kind under its address and the new kind as an app of its own, as it lists "Update
+# my mission control" (Get-StartApps, Windows PowerShell's own command).
+$listApps = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes('$ProgressPreference = "SilentlyContinue"; Get-StartApps | ForEach-Object { $_.Name + "|" + $_.AppID }'))
+$startApps = @(& (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -NoProfile -EncodedCommand $listApps)
+if (@($startApps | Where-Object { $_ -like 'Uninstall Godspeed Mission Control|*' }).Count) {
+  Want 'Start search offers Open my notebook as an app, once, and not as a web address' {
+    $mine = @($startApps | Where-Object { $_ -like 'Open my notebook|*' })
+    Write-Host "   $($mine -join '; ')"
+    $mine.Count -eq 1 -and -not ($mine[0] -match '\|https?:')
+  }
+} else {
+  Write-Host "skip  this machine's Start lists no Godspeed entry at all ($($startApps.Count) apps), so Start search could not be looked at"
+}
+Want 'Open my notebook opens the running notebook at once and starts nothing' {
+  $report = Join-Path $Evidence "open-notebook-$Mode.txt"
+  $before = (Get-Content (Join-Path $state 'process.json') -Raw | ConvertFrom-Json).pid
+  $p = Start-Process (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + (Join-Path $app 'open-notebook.ps1') + '"'), '-Report', ('"' + $report + '"')) -WindowStyle Hidden -PassThru
+  if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force; throw 'open-notebook.ps1 did not return within two minutes' }
+  $lines = @(Get-Content $report)
+  Write-Host "   $($lines -join ' | ')"
+  ($lines -contains 'opened: http://127.0.0.1:47831/') -and -not ($lines -match '^said: ') -and
+    (Get-Content (Join-Path $state 'process.json') -Raw | ConvertFrom-Json).pid -eq $before
+}
 $apps = @(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | Get-ItemProperty | Where-Object { $_.DisplayName -like 'Godspeed*' })
 $apps | Select-Object DisplayName, DisplayVersion, Publisher | Format-Table | Out-String
 Want "the Apps list shows one Godspeed Mission Control, version $($built.version), no alpha" {
@@ -137,10 +172,17 @@ Want 'and changed nothing: the same program, the same notebook, still running' {
 }
 Want 'and says why in setup-result.txt' { (Get-Content (Join-Path $env:LOCALAPPDATA 'Godspeed\setup-result.txt') -Raw) -match '^refused: this installer is older' }
 
-# 3. "Update my mission control" looks for a newer release (this build is newer than any published one).
+# 3. "Update my mission control" reads the newest release and does not take this PC back. This
+# build is never older than the newest published release: either it is newer (its notebook commit
+# is not released yet) or it is exactly it (the release was cut from that same commit, as on
+# 27 October 2026). Both answers are right, and neither downloads anything; test-windows.ps1
+# checks each answer on its own against a made-up release.
 $check = & (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -NoProfile -ExecutionPolicy Bypass -File (Join-Path $app 'update-godspeed.ps1') -CheckOnly -NoPause | Out-String
 $check
-Want 'Update my mission control reads the newest release and does not take this PC back' { $check.Contains('newer than the newest release') -and $check.Contains('CHECK: would bring this PC up to date') }
+Want 'Update my mission control reads the newest release and does not take this PC back' {
+  ($check.Contains('You have the newest version already.') -or $check.Contains('newer than the newest release')) -and
+    $check.Contains('CHECK: would bring this PC up to date') -and -not $check.Contains('would download')
+}
 
 # 4. Nothing a silent run shows.
 $shown = @(Receive-Job $watch -Keep | Sort-Object -Unique)
@@ -162,6 +204,10 @@ Want 'uninstall: no daily job, no Startup entry, no program folder, no Hermes pr
   -not (Get-ScheduledTask -TaskName 'Godspeed prompt archive' -ErrorAction SilentlyContinue) -and
     -not (Test-Path (Join-Path $startup 'Godspeed Mission Control.lnk')) -and -not (Test-Path $app) -and
     -not (Test-Path (Join-Path $state 'hermes-runtime'))
+}
+Want 'uninstall: no Start menu entry is left' {
+  -not (Test-Path (Join-Path $group 'Open my notebook.lnk')) -and -not (Test-Path (Join-Path $group 'Open my notebook.url')) -and
+    -not (Test-Path (Join-Path $group 'Update my mission control.lnk'))
 }
 Want 'uninstall: the commands folder left PATH if nothing else is in it' {
   (Test-Path $bin) -or -not (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -contains $bin)

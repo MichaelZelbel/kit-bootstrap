@@ -3913,7 +3913,8 @@ Check "the Menerio step still asks, in words that name no author" {
 }
 Check "nothing a person reads in the install code names the maintainer (the LICENSE and the publisher credit stay)" {
     $hits = foreach ($f in @('..\join.ps1', 'setup-godspeed.ps1', 'godspeed-setup.iss', 'setup-full-alpha.ps1', 'start-full-alpha.ps1',
-                             'stop-full-alpha.ps1', 'ensure-hermes-full-alpha.ps1', 'update-godspeed.ps1', 'uninstall-godspeed.ps1')) {
+                             'stop-full-alpha.ps1', 'ensure-hermes-full-alpha.ps1', 'update-godspeed.ps1', 'uninstall-godspeed.ps1',
+                             'open-notebook.ps1')) {
         Select-String -LiteralPath (Join-Path $BetaWin $f) -Pattern 'Michael' -CaseSensitive |
             Where-Object { $_.Line -notmatch 'MichaelZelbel' -and $_.Line -notmatch '^#define AppPublisher' }
     }
@@ -4096,6 +4097,29 @@ Check "the Startup entry passes -NoBrowser, has one plain name, and removes the 
 Check "the Start menu's update entry runs the updater, which fetches the newest installer" {
     $iss = Get-Content (Join-Path $BetaWin 'godspeed-setup.iss') -Raw
     $iss.Contains('{app}\update-godspeed.ps1"" -KbBranch')
+}
+
+# 8. "Open my notebook" starts a notebook that is not running (26 October 2026). It was the bare
+#    address, which showed "This site can't be reached" until the notebook answered; what the
+#    script does is windows/test-open-notebook.ps1.
+Check "the Start menu's Open my notebook runs open-notebook.ps1 hidden, under exactly that name, and is no address any more" {
+    $iss = Get-Content (Join-Path $BetaWin 'godspeed-setup.iss') -Raw
+    $entries = @([regex]::Matches($iss, '(?m)^Name: "\{group\}\\Open my notebook";[^\n]*\n[^\n]*\n[^\n]*\n[^\n]*') | ForEach-Object { $_.Value })
+    ($entries.Count -eq 2) -and @($entries | Where-Object {
+        $_.Contains('Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"') -and
+            $_.Contains('-WindowStyle Hidden -File ""{app}\open-notebook.ps1""') -and $_.Contains('Flags: runminimized')
+    }).Count -eq 2 -and
+        -not ($iss -match '(?m)^Name: "\{group\}\\Open my notebook"; Filename: "http') -and
+        $iss.Contains('Source: "open-notebook.ps1"; DestDir: "{app}"')
+}
+Check "an update removes the old Open my notebook.url, so the Start menu shows the entry once" {
+    $iss = Get-Content (Join-Path $BetaWin 'godspeed-setup.iss') -Raw
+    $iss -match '(?m)^\[InstallDelete\]\r?\nType: files; Name: "\{group\}\\Open my notebook\.url"'
+}
+Check "a click while the notebook is starting waits for that start, never a second one" {
+    $s = Get-Content (Join-Path $BetaWin 'start-full-alpha.ps1') -Raw
+    $s.Contains('if($owned){$process=Get-RunningSupervisor}') -and $s.Contains('if($owned -and -not $process){') -and
+        $s.Contains("'Local\GodspeedMissionControlNotebookStart-'+`$expectedInstance")
 }
 $rb = New-TestDir 'release'
 $rs = Join-Path $rb 'state'; New-Item -ItemType Directory -Force $rs | Out-Null
