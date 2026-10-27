@@ -7,11 +7,11 @@
     "folders": ["windows/setup-full-alpha.ps1"],
     "install-linux": ["lib.sh"],
     "install-mac": ["lib.sh"],
-    "install-windows": ["join.ps1", "windows/detect-godspeed.ps1", "windows/godspeed-setup.iss", "windows/setup-full-alpha.ps1", "windows/setup-godspeed.ps1"],
+    "install-windows": ["join.ps1", "windows/detect-godspeed.ps1", "windows/godspeed-setup.iss", "windows/open-notebook.ps1", "windows/setup-full-alpha.ps1", "windows/setup-godspeed.ps1"],
     "move": ["setup-godspeed.sh"],
     "switch-ai": ["windows/ensure-hermes-full-alpha.ps1"],
     "terminal-commands": ["windows/ensure-hermes-full-alpha.ps1"],
-    "troubleshooting": ["windows/start-full-alpha.ps1"],
+    "troubleshooting": ["windows/open-notebook.ps1", "windows/start-full-alpha.ps1"],
     "troubleshooting-install": ["join.ps1", "lib.sh", "setup-godspeed.sh"],
     "uninstall": ["windows/godspeed-setup.iss", "windows/setup-godspeed.ps1", "windows/uninstall-godspeed.ps1"],
     "update": ["windows/detect-godspeed.ps1", "windows/setup-godspeed.ps1", "windows/update-godspeed.ps1"]
