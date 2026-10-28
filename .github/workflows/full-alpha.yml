@@ -33,7 +33,7 @@ jobs:
       - shell: pwsh
         run: |
           if (-not (Test-Path 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe')) { choco install innosetup --no-progress -y }
-          ./windows/build-full-alpha.ps1 -KitCheckout "$pwd/product"
+          ./windows/build-godspeed-setup.ps1 -KitCheckout "$pwd/product"
       - shell: pwsh
         run: Write-Output 'The previous candidate is downloaded for a real version upgrade check.'
       - uses: actions/download-artifact@v4
@@ -49,7 +49,7 @@ jobs:
         with:
           name: GodspeedSetup-Full-Alpha
           path: |
-            windows/dist/GodspeedSetup-Full-Alpha.exe
+            windows/dist/GodspeedSetup.exe
             windows/dist/candidate-manifest.json
             windows/dist/clean-install-evidence.json
             windows/dist/installer-test.log

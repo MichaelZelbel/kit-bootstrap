@@ -26,9 +26,10 @@ permissions:
 env:
   KIT: https://github.com/MichaelZelbel/godspeed-mission-control
   PRODUCT_BRANCH: ${{ inputs.product_branch || 'main' }}
-  # The newest published release: where the update starts from.
-  PREVIOUS_RELEASE: godspeed-v2-integrated-2026-10-19-1
-  PREVIOUS_SETUP_SHA256: deec71b3a2a2b6d313e8dcd7be54acc2f0a10c6aba54463dafa9117520a778ec
+  # The newest published release: where the update starts from. 2.0.0-beta.10, built with this
+  # repository's main at 8ac85e0, so its install is under the names before 2.0.0-beta.11 ("Full Alpha").
+  PREVIOUS_RELEASE: candidate/2.0.0-beta.10
+  PREVIOUS_SETUP_SHA256: e8d82ca0ffd95d8d46608d581ae0a201179703d200686dd659e118076c1b8d26
   # The notebook of that release, built a second time with this branch's installer code: an
   # older installer that has the refusal, so the refusal itself can be seen.
   OLDER_PRODUCT: a621d5f2649f3931943634b86101ba8134e672fc
@@ -64,12 +65,12 @@ jobs:
       - name: Build the older installer, then this one
         shell: pwsh
         run: |
-          ./windows/build-full-alpha.ps1 -KitCheckout "$pwd/product-older"
+          ./windows/build-godspeed-setup.ps1 -KitCheckout "$pwd/product-older"
           New-Item -ItemType Directory -Force built/older, built/new | Out-Null
-          Move-Item windows/dist/GodspeedSetup-Full-Alpha.exe built/older/GodspeedSetup.exe
+          Move-Item windows/dist/GodspeedSetup.exe built/older/GodspeedSetup.exe
           Move-Item windows/dist/candidate-manifest.json built/older/candidate-manifest.json
-          ./windows/build-full-alpha.ps1 -KitCheckout "$pwd/product"
-          Move-Item windows/dist/GodspeedSetup-Full-Alpha.exe built/new/GodspeedSetup.exe
+          ./windows/build-godspeed-setup.ps1 -KitCheckout "$pwd/product"
+          Move-Item windows/dist/GodspeedSetup.exe built/new/GodspeedSetup.exe
           Move-Item windows/dist/candidate-manifest.json built/new/candidate-manifest.json
           Get-ChildItem built -Recurse -File | ForEach-Object { "$((Get-FileHash $_.FullName).Hash.ToLower())  $($_.FullName.Substring($pwd.Path.Length + 1))" }
           (Get-Item built/new/GodspeedSetup.exe).VersionInfo | Format-List ProductName, ProductVersion, FileVersion
@@ -160,7 +161,7 @@ jobs:
           $env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')
           & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File windows/test-windows.ps1
           if ($LASTEXITCODE) { exit 1 }
-          foreach ($t in 'test-starter-ref.ps1', 'test-full-alpha-native.ps1', 'test-full-alpha-native-errors.ps1', 'test-full-alpha-backup-root.ps1', 'test-full-alpha-start-wait.ps1', 'test-open-notebook.ps1') {
+          foreach ($t in 'test-starter-ref.ps1', 'test-notebook-native.ps1', 'test-notebook-native-errors.ps1', 'test-notebook-backup-root.ps1', 'test-notebook-start-wait.ps1', 'test-open-notebook.ps1') {
             & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "windows/$t"
             if ($LASTEXITCODE) { "FAIL $t"; exit 1 }
           }
