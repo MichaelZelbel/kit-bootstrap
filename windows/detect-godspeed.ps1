@@ -19,6 +19,9 @@
 #   worksfrom=<folder>    the mission control this PC works from, when that is another one
 #   installed=<commit>    the notebook version on this PC, empty when there is none
 #   newer=1|0             1 when the notebook on this PC is newer than -Mine
+#   oldprogram=<folder>   the program folder under its name from before 2.0.0-beta.11, when it is here
+#   move=1|0              1 when an install under the names from before 2.0.0-beta.11 is here, which
+#                         the wizard moves (move-to-new-folders.ps1) before it copies anything
 # =============================================================================
 param(
     [Parameter(Mandatory)][string]$Join,
@@ -30,7 +33,12 @@ param(
 )
 $ErrorActionPreference = 'Continue'
 . $Join -AsLibrary
-if (-not $State) { . (Join-Path $PSScriptRoot 'godspeed-folders.ps1'); $State = Get-GodspeedStateFolder }
+. (Join-Path $PSScriptRoot 'godspeed-folders.ps1')
+if (-not $State) { $State = Get-GodspeedStateFolder }
+$names = Get-GodspeedFolderNames
+$oldProgram = Join-Path $env:LOCALAPPDATA $names.OldProgram
+if (-not (Test-Path -LiteralPath $oldProgram)) { $oldProgram = '' }
+$move = if ($oldProgram -or (Get-GodspeedRecordKind (Join-Path $env:LOCALAPPDATA $names.OldState)) -eq 'install') { '1' } else { '0' }
 
 $workspace = $null
 $installed = ''
@@ -61,5 +69,7 @@ Set-Content -LiteralPath $Out -Encoding UTF8 -Value @(
     "notebook=$(if ($workspace) { '1' } else { '0' })",
     "worksfrom=$worksFrom",
     "installed=$installed",
-    "newer=$newer"
+    "newer=$newer",
+    "oldprogram=$oldProgram",
+    "move=$move"
 )
