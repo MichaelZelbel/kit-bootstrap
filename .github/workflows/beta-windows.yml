@@ -3,9 +3,11 @@ name: Windows installer on fresh machines
 # on fresh GitHub Windows machines the way a beta tester runs it (18 October 2026):
 #
 #   install   silent, as a first installation and as the update over the newest published
-#             release with nothing chosen; then an older installer refused before it touches
-#             anything, "Update my mission control" asked for a newer release, and the uninstaller
-#             (windows/test-beta-install.ps1)
+#             release with nothing chosen, which moves it to the folders without "Full Alpha"; that
+#             update made by the release's own "Update my mission control", made after an
+#             uninstall, and made to fail (the move halfway, the setup after the move) before it
+#             works; then an older installer refused before it touches anything, "Update my mission
+#             control" asked for a newer release, and the uninstaller (windows/test-beta-install.ps1)
 #   wizard    the same two with the wizard on screen, Next on every page, and its last page read
 #             (windows/test-finish-page.ps1)
 #   suites    windows/test-windows.ps1 under Windows PowerShell 5.1, which the installer runs, and
@@ -21,6 +23,11 @@ on:
       product_branch:
         description: The product branch whose notebook the installer carries
         default: main
+      scope:
+        description: all, or only the suites (minutes instead of hours, while a change is being made)
+        type: choice
+        options: [all, suites]
+        default: all
 permissions:
   contents: read
 env:
@@ -35,6 +42,7 @@ env:
   OLDER_PRODUCT: a621d5f2649f3931943634b86101ba8134e672fc
 jobs:
   build:
+    if: inputs.scope != 'suites'
     runs-on: windows-2025
     timeout-minutes: 45
     steps:
@@ -85,9 +93,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [fresh, update]
+        mode: [fresh, update, updater, reinstall, fail]
     runs-on: windows-2025
-    timeout-minutes: 150
+    # An update from the release before installs the assistant's program again in its new folder,
+    # and the run that makes it fail does so twice before the update that works.
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
         with:
@@ -118,7 +128,7 @@ jobs:
       matrix:
         mode: [fresh, update]
     runs-on: windows-2025
-    timeout-minutes: 150
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
         with:
