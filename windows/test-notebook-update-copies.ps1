@@ -1,6 +1,6 @@
 param([Parameter(Mandatory)][string]$KitCheckout)
 $ErrorActionPreference='Stop'
-. (Join-Path $PSScriptRoot 'invoke-full-alpha-node.ps1')
+. (Join-Path $PSScriptRoot 'invoke-notebook-node.ps1')
 # The copies an update makes before it changes anything: until 15 October 2026 none was ever removed,
 # and until 21 October 2026 each was a whole copy of every durable folder (8.33 GB on one PC).
 # KitCheckout is a checkout of godspeed-mission-control whose notebook has both rules
@@ -16,7 +16,7 @@ function New-TaskCopy([string]$Folder,[string]$Name){
 }
 function Get-TaskNames([string]$Folder){@(Get-ChildItem -LiteralPath $Folder -Force|ForEach-Object {$_.Name}|Sort-Object)}
 function Invoke-TaskGit([string]$Folder,[string[]]$Arguments){
- $taskOutput=Invoke-FullAlphaNative -Command git -Arguments (@('-C',$Folder)+$Arguments)
+ $taskOutput=Invoke-NotebookNative -Command git -Arguments (@('-C',$Folder)+$Arguments)
  if($taskOutput.Code -ne 0){throw ('git '+($Arguments -join ' ')+' failed in the test fixture')}
  return $taskOutput.Output
 }
@@ -26,7 +26,7 @@ try {
  $taskOlder=foreach($taskDay in 1..5){New-TaskCopy $taskBackups ('2026100'+$taskDay+'-090000-00'+$taskDay)}
  New-Item -ItemType Directory -Force -Path (Join-Path $taskBackups 'my own folder'),(Join-Path $taskBackups '1760000000000')|Out-Null
  $taskMade=Join-Path $taskBackups (New-TaskCopy $taskBackups '20261015-101010-123')
- $taskSaid=@(Invoke-FullAlphaPruneUpdateCopies -Node $taskNode -Kit $taskKit -BackupRoot $taskBackups -Made $taskMade)
+ $taskSaid=@(Invoke-NotebookPruneUpdateCopies -Node $taskNode -Kit $taskKit -BackupRoot $taskBackups -Made $taskMade)
  if($taskSaid.Count){throw ('An update that worked said: '+($taskSaid -join ' '))}
  $taskWant=@('20261015-101010-123','1760000000000','my own folder')|Sort-Object
  if(((Get-TaskNames $taskBackups) -join '|') -ne ($taskWant -join '|')){throw ('After an update that worked the backups are: '+((Get-TaskNames $taskBackups) -join ', '))}
@@ -38,14 +38,14 @@ try {
  Set-Content -LiteralPath (Join-Path $taskOld 'notebook\bin\godspeed.mjs') -Value 'process.exit(9)'
  foreach($taskDay in 6..9){New-TaskCopy $taskBackups ('2026100'+$taskDay+'-090000-00'+$taskDay)|Out-Null}
  $taskBefore=(Get-TaskNames $taskBackups) -join '|'
- $taskSaid=@(Invoke-FullAlphaPruneUpdateCopies -Node $taskNode -Kit $taskOld -BackupRoot $taskBackups -Made $taskMade)
+ $taskSaid=@(Invoke-NotebookPruneUpdateCopies -Node $taskNode -Kit $taskOld -BackupRoot $taskBackups -Made $taskMade)
  if($taskSaid.Count -or ((Get-TaskNames $taskBackups) -join '|') -ne $taskBefore){throw 'A notebook without the rule removed or said something'}
  Write-Output 'A notebook version without the rule removes nothing.'
 
  # A command that fails is said once, never thrown, and removes nothing.
  New-Item -ItemType Directory -Force -Path (Join-Path $taskOld 'notebook\core')|Out-Null
  Set-Content -LiteralPath (Join-Path $taskOld 'notebook\core\upgrade-copies.mjs') -Value ''
- $taskSaid=@(Invoke-FullAlphaPruneUpdateCopies -Node $taskNode -Kit $taskOld -BackupRoot $taskBackups -Made $taskMade)
+ $taskSaid=@(Invoke-NotebookPruneUpdateCopies -Node $taskNode -Kit $taskOld -BackupRoot $taskBackups -Made $taskMade)
  if($taskSaid.Count -ne 1 -or $taskSaid[0] -notmatch 'could not all be removed'){throw ('A failed removal said: '+($taskSaid -join ' '))}
  if(((Get-TaskNames $taskBackups) -join '|') -ne $taskBefore){throw 'A failed removal changed the backups'}
  Write-Output 'A removal that fails is said once and never fails the update.'
@@ -66,7 +66,7 @@ try {
  New-TaskCopy $taskCopies '20261001-090000-001'|Out-Null
  $taskCopy=Join-Path $taskCopies (Get-Date -Format 'yyyyMMdd-HHmmss-fff')
  $env:GODSPEED_WORKSPACE=$taskWorkspace;$env:GODSPEED_MEDIA_ROOT=(Join-Path $taskFixture 'media')
- Invoke-FullAlphaNode -Node $taskNode -Arguments @((Join-Path $taskKit 'notebook\bin\godspeed.mjs'),'backup',$taskCopy,'--before-update') -Step 'Saving a copy of your notebook before the update'
+ Invoke-NotebookNode -Node $taskNode -Arguments @((Join-Path $taskKit 'notebook\bin\godspeed.mjs'),'backup',$taskCopy,'--before-update') -Step 'Saving a copy of your notebook before the update'
  $taskManifest=Get-Content -LiteralPath (Join-Path $taskCopy 'backup.json') -Raw|ConvertFrom-Json
  $taskSaved=@($taskManifest.files|ForEach-Object {$_.path})
  if($taskManifest.format -ne 2 -or $taskManifest.kind -ne 'update-copy'){throw 'The copy made before the update is not the copy of what an update can change'}
@@ -80,8 +80,8 @@ try {
  # whole copy an earlier version made.
  Start-Sleep -Milliseconds 20
  $taskNext=Join-Path $taskCopies (Get-Date -Format 'yyyyMMdd-HHmmss-fff')
- Invoke-FullAlphaNode -Node $taskNode -Arguments @((Join-Path $taskKit 'notebook\bin\godspeed.mjs'),'backup',$taskNext,'--before-update') -Step 'Saving a copy of your notebook before the update'
- $taskSaid=@(Invoke-FullAlphaPruneUpdateCopies -Node $taskNode -Kit $taskKit -BackupRoot $taskCopies -Made $taskNext)
+ Invoke-NotebookNode -Node $taskNode -Arguments @((Join-Path $taskKit 'notebook\bin\godspeed.mjs'),'backup',$taskNext,'--before-update') -Step 'Saving a copy of your notebook before the update'
+ $taskSaid=@(Invoke-NotebookPruneUpdateCopies -Node $taskNode -Kit $taskKit -BackupRoot $taskCopies -Made $taskNext)
  if($taskSaid.Count){throw ('An update that worked said: '+($taskSaid -join ' '))}
  if(((Get-TaskNames $taskCopies) -join '|') -ne (Split-Path -Leaf $taskNext)){throw ('After the next update the copies are: '+((Get-TaskNames $taskCopies) -join ', '))}
  $taskRefs=@((Invoke-TaskGit $taskWorkspace @('for-each-ref','--format=%(refname)','refs/godspeed/')) -split "`n"|Where-Object {$_})
@@ -94,10 +94,10 @@ try {
  }
 }
 # Only after every step of an update: the call comes after the notebook was started and answered
-# (start-full-alpha.ps1 throws when it does not), and only when this setup made a copy.
-$taskSetup=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'setup-full-alpha.ps1')
-$taskStart=($taskSetup|Select-String -SimpleMatch "start-full-alpha.ps1') -NoBrowser").LineNumber
-$taskPrune=@($taskSetup|Select-String -Pattern '^\s*[^#\s].*Invoke-FullAlphaPruneUpdateCopies')
+# (start-notebook.ps1 throws when it does not), and only when this setup made a copy.
+$taskSetup=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'setup-notebook.ps1')
+$taskStart=($taskSetup|Select-String -SimpleMatch "start-notebook.ps1') -NoBrowser").LineNumber
+$taskPrune=@($taskSetup|Select-String -Pattern '^\s*[^#\s].*Invoke-NotebookPruneUpdateCopies')
 if($taskPrune.Count -ne 1 -or $taskPrune[0].LineNumber -le $taskStart -or $taskPrune[0].Line -notmatch '^if\(\$backup -and \$answered\)'){throw 'The setup removes copies somewhere other than after the notebook answered'}
 Write-Output 'The setup removes older copies only after the notebook answered, and only when it made one.'
 # And the copy it makes is the copy of what an update can change.

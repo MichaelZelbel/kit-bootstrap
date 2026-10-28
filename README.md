@@ -1,8 +1,8 @@
 ## The Windows installer of Godspeed Mission Control version 2
 
-`windows/build-full-alpha.ps1 -KitCheckout <clean product checkout>` builds the `GodspeedSetup.exe`
-that the product's releases publish (as `dist\GodspeedSetup-Full-Alpha.exe`; the release renames
-it), after the product's notebook pages are built. It is `windows/godspeed-setup.iss` compiled with
+`windows/build-godspeed-setup.ps1 -KitCheckout <clean product checkout>` builds the
+`dist\GodspeedSetup.exe` that the product's releases publish, after the product's notebook pages
+are built. It is `windows/godspeed-setup.iss` compiled with
 the notebook inside: the product at one exact commit, a pinned Node.js, and the file hashes of
 both. The version it shows in Windows' Apps list and in its file properties is the product's own
 (`notebook/package.json`), never an alpha.
@@ -23,10 +23,13 @@ What it does on a PC, and what it leaves alone:
   and the Hermes program (`windows/uninstall-godspeed.ps1`). The mission control folder, the
   notebook's notes and files and the assistant's conversations stay.
 
-The words "full alpha" survive only in names existing installs depend on: the application ID,
-`%LOCALAPPDATA%\Godspeed Mission Control Full Alpha` (the program),
-`%LOCALAPPDATA%\Godspeed Mission Control Full Alpha State` (the notebook's data) and the script
-names the notebook calls. Renaming them would strand every PC that has it.
+A new install keeps the program in `%LOCALAPPDATA%\Godspeed Mission Control` and the notebook's
+data in `%LOCALAPPDATA%\Godspeed Mission Control State`. `windows/godspeed-folders.ps1` is the one
+place that names them; every script asks it, and the build hands the program folder's name to the
+wizard. Until 2.0.0-beta.11 both names ended in "Full Alpha". An install made before keeps those
+names until an update moves it, and is found under them meanwhile: the state folder is looked for
+under the new name first and the old one second, and an update goes into the program folder that
+Windows' Apps entry names.
 
 `.github/workflows/beta-windows.yml` builds it from a branch and runs it on fresh GitHub Windows
 machines: silent and with the wizard on screen, as a first install and as the update over the

@@ -25,7 +25,7 @@
 #else
 ; THE VERSION PEOPLE SEE, in Windows' Apps list, in the file's properties and on the wizard. Until
 ; 18 October 2026 the setup with the notebook still said 2.18.0, the first edition's installer
-; number, while the product it installs is version 2. build-full-alpha.ps1 passes the product's own
+; number, while the product it installs is version 2. build-godspeed-setup.ps1 passes the product's own
 ; version; these are what a build without it says. Never an "alpha".
 #ifndef AppVersion
 #define AppVersion     "2.0.0-beta.1"
@@ -71,8 +71,17 @@ VersionInfoProductName={#AppName}
 VersionInfoProductTextVersion={#AppVersion}
 VersionInfoDescription=Sets up Godspeed Mission Control on this PC
 #ifdef IntegratedNotebook
-DefaultDirName={localappdata}\Godspeed Mission Control Full Alpha
-OutputBaseFilename=GodspeedSetup-Full-Alpha
+; The program folder's name comes from godspeed-folders.ps1, the one place that names the setup's
+; folders; build-godspeed-setup.ps1 passes it. Until 2.0.0-beta.11 it was "... Full Alpha".
+#ifndef ProgramFolder
+#error Build with build-godspeed-setup.ps1: it passes ProgramFolder, the program folder's name, from godspeed-folders.ps1.
+#endif
+DefaultDirName={localappdata}\{#ProgramFolder}
+; An update goes into the folder the Apps entry names (Windows' record of this AppId), never into
+; DefaultDirName: an install made before 2.0.0-beta.11 is updated where it is, under its old name,
+; and no second, empty one is made beside it.
+UsePreviousAppDir=yes
+OutputBaseFilename=GodspeedSetup
 #else
 DefaultDirName={localappdata}\Godspeed\installer
 OutputBaseFilename=GodspeedSetup
@@ -109,19 +118,23 @@ Source: "..\join.ps1";   DestDir: "{app}"; Flags: ignoreversion
 Source: "..\join.ps1";   DestDir: "{tmp}";  Flags: dontcopy
 #ifdef IntegratedNotebook
 Source: "{#PayloadRoot}\*"; DestDir: "{app}\payload"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "setup-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
-Source: "invoke-full-alpha-node.ps1"; DestDir: "{app}"; Flags: ignoreversion
-Source: "start-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
+; Until 2.0.0-beta.11 the scripts below were named ...-full-alpha.ps1; setup-notebook.ps1 removes those
+; from an install made before, once nothing points at them.
+Source: "godspeed-folders.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "setup-notebook.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "invoke-notebook-node.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "start-notebook.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "open-notebook.ps1"; DestDir: "{app}"; Flags: ignoreversion
-Source: "stop-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
-Source: "ensure-hermes-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
-Source: "open-hermes-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
-Source: "computer-full-alpha.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "stop-notebook.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "ensure-hermes.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "open-hermes.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "computer-helper.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "update-godspeed.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "uninstall-godspeed.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "detect-godspeed.ps1"; DestDir: "{app}"; Flags: ignoreversion
 ; Needed before the wizard starts as well: which mission control, and is the notebook here newer.
 Source: "detect-godspeed.ps1"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "godspeed-folders.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "vendor\*"; DestDir: "{app}\vendor"; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
 
@@ -181,7 +194,7 @@ Filename: "{code:GetGodspeedDir}"; Description: "Open my mission control folder"
 #ifdef IntegratedNotebook
 ; The notebook kept running from a half-deleted folder, and its login entry failed at every start.
 [UninstallRun]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\stop-full-alpha.ps1"" -Uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "StopNotebook"
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\stop-notebook.ps1"" -Uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "StopNotebook"
 ; The program's own files that the setup put elsewhere: the helper commands, the daily job, the
 ; Startup entry and the Hermes program. Never the mission control or the notebook's data.
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\uninstall-godspeed.ps1"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveProgramFiles"
@@ -321,6 +334,7 @@ begin
     folder it keeps is the one to update, and a notebook newer than this installer's is refused
     before anything is touched (InitializeSetup). }
   ExtractTemporaryFile('detect-godspeed.ps1');
+  ExtractTemporaryFile('godspeed-folders.ps1');
   OutFile := ExpandConstant('{tmp}\mc-detect.txt');
   Cmd := '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{tmp}\detect-godspeed.ps1')
        + '" -Join "' + PsFile + '" -Out "' + OutFile + '"';
@@ -872,12 +886,16 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Code: Integer;
+  StopScript: String;
 begin
   Result := '';
   { A notebook that could not be stopped keeps its files locked; replacing them anyway ended in
-    "file in use" or a silent roll-back that never said why. stop-full-alpha.ps1 says why. }
-  if FileExists(ExpandConstant('{app}\stop-full-alpha.ps1')) then
-    if not Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\stop-full-alpha.ps1') + '"',
+    "file in use" or a silent roll-back that never said why. stop-notebook.ps1 says why. An install
+    made before 2.0.0-beta.11 has it under its old name until this update puts the new one in place. }
+  StopScript := ExpandConstant('{app}\stop-notebook.ps1');
+  if not FileExists(StopScript) then StopScript := ExpandConstant('{app}\stop-full-alpha.ps1');
+  if FileExists(StopScript) then
+    if not Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + StopScript + '"',
       '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
       Result := 'The notebook that is running now could not be stopped, so nothing was changed. If it was started with administrator rights, restart the computer and run this installer again.';
 end;
@@ -954,7 +972,7 @@ begin
     if GetRepoUrl('') <> '' then
       Result := Result + 'It will be fetched from:' + NewLine + Space + GetRepoUrl('') + NewLine + NewLine;
 #ifdef IntegratedNotebook
-    { This setup brings its own Hermes (setup-full-alpha.ps1 runs ensure-hermes-full-alpha.ps1
+    { This setup brings its own Hermes (setup-notebook.ps1 runs ensure-hermes.ps1
       -Provision). Until 8 October 2026 this page still said Hermes was a separate download. }
     Result := Result + 'I will also install anything missing that it needs: Git and Node.js. Windows may ask your permission for those, which is normal. I also set up Hermes, the chat program you talk to your mission control in, and install it if this PC does not have it yet.';
 #else

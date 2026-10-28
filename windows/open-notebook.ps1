@@ -13,7 +13,7 @@ param([int]$WaitSeconds=900,[string]$Report)
 #
 #   running         the notebook opens in the browser at once, and nothing is started
 #   starting        the start under way is waited for, never a second one; a short note says so
-#   stopped         it is started (start-full-alpha.ps1), waited for, then opened
+#   stopped         it is started (start-notebook.ps1), waited for, then opened
 #   cannot start    a plain message says so and what to do; nothing is left half open
 #
 # A second click while the first still waits says the notebook is starting and opens nothing, so
@@ -23,7 +23,8 @@ param([int]$WaitSeconds=900,[string]$Report)
 #   -Report <file>  for the tests: what would be shown or opened is written to this file instead.
 # =============================================================================
 $ErrorActionPreference='Stop'
-$state=Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
+. (Join-Path $PSScriptRoot 'godspeed-folders.ps1')
+$state=Get-GodspeedStateFolder
 $title='Godspeed Mission Control'
 $guide='https://godspeedmissioncontrol.com/guide/troubleshooting-install#the-notebook-did-not-start'
 
@@ -81,7 +82,7 @@ try{
   $up=$false
   try{$health=Invoke-RestMethod -Uri ($address+'health') -TimeoutSec 2;$up=[bool]$health.ok}catch{}
   if(-not $up){Show-Words $starting 64}
-  $answered=(@(& (Join-Path $PSScriptRoot 'start-full-alpha.ps1') -NoBrowser -PassThru -WaitSeconds $WaitSeconds 6>$null)|Select-Object -Last 1) -eq $true
+  $answered=(@(& (Join-Path $PSScriptRoot 'start-notebook.ps1') -NoBrowser -PassThru -WaitSeconds $WaitSeconds 6>$null)|Select-Object -Last 1) -eq $true
 }catch{
   # The script's own sentences are plain already (a throw of words has them as its id); anything
   # else Windows said is kept, after a plain first line.

@@ -1,5 +1,5 @@
 $ErrorActionPreference='Stop'
-. (Join-Path $PSScriptRoot 'invoke-full-alpha-node.ps1')
+. (Join-Path $PSScriptRoot 'invoke-notebook-node.ps1')
 $taskFixture=Join-Path $env:TEMP ('Godspeed-backup-root-'+[guid]::NewGuid().ToString('N'))
 $taskState=Join-Path $taskFixture 'state'
 $taskRetained=Join-Path $taskFixture 'retained'
@@ -10,10 +10,10 @@ $taskLink=Join-Path $taskState 'backups'
 Add-Type -Namespace KbTest -Name LongPath -MemberDefinition '[DllImport("kernel32.dll", CharSet=CharSet.Unicode)] public static extern uint GetLongPathName(string s, System.Text.StringBuilder l, uint n);'
 function Get-TaskLongPath([string]$Path){$taskBuffer=New-Object System.Text.StringBuilder 1024;if([KbTest.LongPath]::GetLongPathName($Path,$taskBuffer,1024) -gt 0){return $taskBuffer.ToString().TrimEnd('\')};return $Path.TrimEnd('\')}
 try {
- if((Get-TaskLongPath (Get-FullAlphaBackupRoot -State $taskState)) -ne (Get-TaskLongPath $taskLink)){throw 'Ordinary backup location changed'}
+ if((Get-TaskLongPath (Get-NotebookBackupRoot -State $taskState)) -ne (Get-TaskLongPath $taskLink)){throw 'Ordinary backup location changed'}
  Set-Content -LiteralPath (Join-Path $taskRetained 'retained.txt') -Value 'Fictional retained recovery data'
  New-Item -ItemType Junction -Path $taskLink -Target $taskRetained|Out-Null
- if((Get-TaskLongPath (Get-FullAlphaBackupRoot -State $taskState)) -ne (Get-TaskLongPath $taskRetained)){throw 'Linked backup destination was not resolved'}
+ if((Get-TaskLongPath (Get-NotebookBackupRoot -State $taskState)) -ne (Get-TaskLongPath $taskRetained)){throw 'Linked backup destination was not resolved'}
  if((Get-Content -LiteralPath (Join-Path $taskRetained 'retained.txt')) -ne 'Fictional retained recovery data'){throw 'Retained recovery data changed'}
  Write-Output 'Ordinary and linked backup locations resolved; retained content unchanged.'
 } finally {

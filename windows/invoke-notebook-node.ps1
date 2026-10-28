@@ -1,4 +1,4 @@
-function Get-FullAlphaBackupRoot {
+function Get-NotebookBackupRoot {
  param([Parameter(Mandatory)][string]$State)
  $taskRoot=Join-Path $State 'backups'
  if(Test-Path -LiteralPath $taskRoot){
@@ -17,7 +17,7 @@ function Get-FullAlphaBackupRoot {
 # A native command whose failure is an answer, not an error: git asked for a remote that a new
 # mission control does not have yet. Under Stop, Windows PowerShell 5.1 turns its stderr into a
 # terminating error, which until 6 October 2026 ended every first install at the repository step.
-function Invoke-FullAlphaNative {
+function Invoke-NotebookNative {
  param([Parameter(Mandatory)][string]$Command,[string[]]$Arguments=@())
  # A missing program leaves $LASTEXITCODE at whatever ran before, which may read as success.
  if(-not(Get-Command $Command -ErrorAction SilentlyContinue)){return [pscustomobject]@{Code=127;Output=''}}
@@ -29,7 +29,7 @@ function Invoke-FullAlphaNative {
  } finally {$ErrorActionPreference=$taskPreviousPreference}
  [pscustomobject]@{Code=$taskCode;Output=(($taskOutput|ForEach-Object {[string]$_}) -join "`n").Trim()}
 }
-function Invoke-FullAlphaNode {
+function Invoke-NotebookNode {
  param([Parameter(Mandatory)][string]$Node,[Parameter(Mandatory)][string[]]$Arguments,[Parameter(Mandatory)][string]$Step)
  # Windows PowerShell 5.1 turns native stderr into ErrorRecord objects. Stop
  # would abort at the first stack line before the process exit can be checked.
@@ -50,9 +50,9 @@ function Invoke-FullAlphaNode {
 # every update added one and none was removed; one PC had nine, 36 GB. A notebook version without
 # that rule removes nothing, and a copy that cannot be removed is said once and never fails the
 # update that worked.
-function Invoke-FullAlphaPruneUpdateCopies {
+function Invoke-NotebookPruneUpdateCopies {
  param([Parameter(Mandatory)][string]$Node,[Parameter(Mandatory)][string]$Kit,[Parameter(Mandatory)][string]$BackupRoot,[Parameter(Mandatory)][string]$Made)
  if(-not(Test-Path -LiteralPath (Join-Path $Kit 'notebook\core\upgrade-copies.mjs'))){return}
- $taskPrune=Invoke-FullAlphaNative -Command $Node -Arguments @((Join-Path $Kit 'notebook\bin\godspeed.mjs'),'prune-backups',$BackupRoot,'--made',$Made)
+ $taskPrune=Invoke-NotebookNative -Command $Node -Arguments @((Join-Path $Kit 'notebook\bin\godspeed.mjs'),'prune-backups',$BackupRoot,'--made',$Made)
  if($taskPrune.Code -ne 0){Write-Output ('Older backups made before updates could not all be removed. They are in '+$BackupRoot)}
 }

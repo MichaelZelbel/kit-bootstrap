@@ -1,6 +1,7 @@
 param([ValidateSet('pair','run','pause','resume','off','status','pages')][string]$Action='status',[string]$Code)
 $ErrorActionPreference='Stop'
-$state=Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
+. (Join-Path $PSScriptRoot 'godspeed-folders.ps1')
+$state=Get-GodspeedStateFolder
 $config=Get-Content -LiteralPath (Join-Path $state 'installation.json') -Raw|ConvertFrom-Json
 if($config.channel -ne 'full-alpha'){throw 'The notebook record on this PC is not one this setup made.'}
 $env:GODSPEED_COMPUTER_HOME=Join-Path $state 'computer'

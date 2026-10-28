@@ -70,8 +70,16 @@ public static class W {
   while ($true) { foreach ($w in [W]::Visible()) { if ($w -match '^(#32770|TWizardForm|TSetupForm)\|') { $w } }; Start-Sleep -Milliseconds 500 }
 }
 
-$state = Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
-$app = Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha'
+# A first installation uses the names of godspeed-folders.ps1, without "Full Alpha" (2.0.0-beta.11).
+# The newest published release was made before, under the old names, and an update keeps it there
+# until an update moves it (ticket 05 of 2.0.0-beta.11).
+. (Join-Path $PSScriptRoot 'godspeed-folders.ps1')
+$names = Get-GodspeedFolderNames
+if ($Mode -eq 'update') {
+  $state = Join-Path $env:LOCALAPPDATA $names.OldState; $app = Join-Path $env:LOCALAPPDATA $names.OldProgram
+} else {
+  $state = Join-Path $env:LOCALAPPDATA $names.State; $app = Join-Path $env:LOCALAPPDATA $names.Program
+}
 $mc = Join-Path $HOME 'godspeed-v2'
 $built = Get-Content $Manifest -Raw | ConvertFrom-Json
 $setupLog = Join-Path $env:LOCALAPPDATA 'Godspeed\setup-log.txt'
@@ -103,7 +111,7 @@ Want 'it names no person, and asks nothing about an install count' { -not (($log
 $startup = [Environment]::GetFolderPath('Startup')
 Want 'the Startup entry starts the notebook without opening the browser, under one plain name' {
   $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $startup 'Godspeed Mission Control.lnk'))
-  $lnk.Arguments.Contains('start-full-alpha.ps1" -NoBrowser') -and -not (Test-Path (Join-Path $startup 'Godspeed Mission Control Full Alpha.lnk'))
+  $lnk.Arguments.Contains('-File "' + (Join-Path $app 'start-notebook.ps1') + '" -NoBrowser') -and -not (Test-Path (Join-Path $startup 'Godspeed Mission Control Full Alpha.lnk'))
 }
 # "Open my notebook" was the bare address until 26 October 2026, an "Open my notebook.url" that the
 # previous release still makes; after the update only the new entry carries that name.
@@ -151,7 +159,35 @@ Want "the installer's file properties say Godspeed Mission Control $($built.vers
   $v.ProductVersion.Trim() -eq $built.version -and $v.ProductName.Trim() -eq 'Godspeed Mission Control' -and -not ($v.ProductVersion -match 'alpha')
 }
 Want 'the commands it put on this PC are recorded for the uninstaller' { @(Get-Content (Join-Path $HOME '.godspeed\installed-commands.txt')).Count -ge 5 }
+# What a person sees of the install, named: its folders, every file in the program folder, the
+# Start menu and Startup entries with what they run, the daily jobs and the Apps entry.
+$shell = New-Object -ComObject WScript.Shell
+$seen = @(Get-ChildItem $env:LOCALAPPDATA -Directory -Force | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem $app -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem $group, $startup -Force -ErrorAction SilentlyContinue | ForEach-Object {
+      $_.FullName; if ($_.Extension -eq '.lnk') { $l = $shell.CreateShortcut($_.FullName); "$($l.TargetPath) $($l.Arguments) $($l.WorkingDirectory)" } }) +
+  @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -like 'Godspeed*' } | ForEach-Object {
+      $_.TaskName; foreach ($x in $_.Actions) { "$($x.Execute) $($x.Arguments) $($x.WorkingDirectory)" } }) +
+  @($apps | ForEach-Object { $_.DisplayName, $_.InstallLocation, $_.UninstallString, $_.DisplayIcon })
+Set-Content -Path (Join-Path $Evidence "names-$Mode.txt") -Value $seen -Encoding utf8
+if ($Mode -eq 'fresh') {
+  Want 'a new install names nothing "Full Alpha": no folder, program file, Start menu or Startup entry, daily job or Apps entry' {
+    $alpha = @($seen | Where-Object { $_ -match 'full.?alpha' })
+    if ($alpha) { Write-Host "   $($alpha -join '; ')" }
+    $alpha.Count -eq 0 -and $seen.Count -gt 100 -and (Test-Path (Join-Path $state 'installation.json')) -and (Test-Path (Join-Path $app 'unins000.exe')) -and
+      ($apps[0].InstallLocation.TrimEnd('\') -eq $app)
+  }
+}
 if ($Mode -eq 'update') {
+  Want 'the update kept the install under its old names, where it was, and made no second one under the new names' {
+    -not (Test-Path (Join-Path $env:LOCALAPPDATA $names.State)) -and -not (Test-Path (Join-Path $env:LOCALAPPDATA $names.Program)) -and
+      ([IO.Path]::GetFullPath($i.appRoot).TrimEnd('\') -eq $app) -and ($apps[0].InstallLocation.TrimEnd('\') -eq $app)
+  }
+  Want 'its scripts carry the new names, and the old ones are gone from the program folder' {
+    $old = @(Get-ChildItem $app -Filter '*-full-alpha*.ps1' | ForEach-Object { $_.Name })
+    if ($old) { Write-Host "   still there: $($old -join ', ')" }
+    $old.Count -eq 0 -and (Test-Path (Join-Path $app 'start-notebook.ps1')) -and (Test-Path (Join-Path $app 'godspeed-folders.ps1'))
+  }
   Want 'the update went into the mission control that was there, and made no second one' { -not (Test-Path (Join-Path $HOME 'godspeed')) -and @(Get-ChildItem $HOME -Directory -Filter 'godspeed*').Count -eq 1 }
   Want 'it saved a copy of the notebook first' { @(Get-ChildItem (Join-Path $state 'backups') -Directory -ErrorAction SilentlyContinue).Count -ge 1 }
   Want "the reader's own file is untouched" { (Get-Content (Join-Path $mc 'my-own-notes.md') -Raw).Contains('Written by the reader before the update.') }

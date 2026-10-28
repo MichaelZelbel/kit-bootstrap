@@ -1,5 +1,5 @@
 $ErrorActionPreference='Stop'
-# How start-full-alpha.ps1 waits for the notebook (21 October 2026). It waited about a minute; a
+# How start-notebook.ps1 waits for the notebook (21 October 2026). It waited about a minute; a
 # notebook that needed 2 minutes 15 seconds after an update was reported as "did not start", the
 # update counted as failed, and the notebook came up a minute later. Now it waits while the
 # process it started is alive and its supervisor has not given up. Each case runs the real script
@@ -9,9 +9,12 @@ $taskNode=(Get-Command node -ErrorAction Stop).Source
 $taskFixture=Join-Path $env:TEMP ('Godspeed-start-wait-'+[guid]::NewGuid().ToString('N'))
 $taskPs=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 function Get-TaskPort{$l=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0);$l.Start();$p=$l.LocalEndpoint.Port;$l.Stop();return $p}
-function Invoke-TaskStart([string]$Mode,[string[]]$Arguments){
+. (Join-Path $PSScriptRoot 'godspeed-folders.ps1')
+$taskNames=Get-GodspeedFolderNames
+# -OldNames: the state folder of an install made before 2.0.0-beta.11.
+function Invoke-TaskStart([string]$Mode,[string[]]$Arguments,[switch]$OldNames){
  $local=Join-Path $taskFixture ('local-'+[guid]::NewGuid().ToString('N').Substring(0,8))
- $state=Join-Path $local 'Godspeed Mission Control Full Alpha State'
+ $state=Join-Path $local $(if($OldNames){$taskNames.OldState}else{$taskNames.State})
  $workspace=Join-Path $local 'mission control'
  New-Item -ItemType Directory -Force -Path $state,(Join-Path $workspace '.godspeed')|Out-Null
  $config=[pscustomobject]@{channel='full-alpha';workspace=$workspace;media=(Join-Path $state 'media');port=(Get-TaskPort);appRoot=$taskApp;dataFormat=1}
@@ -20,19 +23,19 @@ function Invoke-TaskStart([string]$Mode,[string[]]$Arguments){
  # The script's words go to a file, not a pipe: the notebook it starts would inherit a pipe and hold
  # it open, and the wait for its end would never end (the setup itself reads no pipe).
  $log=Join-Path $local 'start.log'
- $command="try{& '"+(Join-Path $PSScriptRoot 'start-full-alpha.ps1')+"' "+($Arguments -join ' ')+" *> '"+$log+"'}catch{Add-Content -LiteralPath '"+$log+"' -Value `$_.Exception.Message;exit 1};exit 0"
+ $command="try{& '"+(Join-Path $PSScriptRoot 'start-notebook.ps1')+"' "+($Arguments -join ' ')+" *> '"+$log+"'}catch{Add-Content -LiteralPath '"+$log+"' -Value `$_.Exception.Message;exit 1};exit 0"
  $previous=$env:LOCALAPPDATA
  try{
   $env:LOCALAPPDATA=$local
   $at=Get-Date
   $child=Start-Process -FilePath $taskPs -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-Command',('"'+$command.Replace('"','\"')+'"')) -WindowStyle Hidden -PassThru
-  if(-not $child.WaitForExit(120000)){Stop-Process -Id $child.Id -Force;throw 'start-full-alpha.ps1 did not return within two minutes'}
+  if(-not $child.WaitForExit(120000)){Stop-Process -Id $child.Id -Force;throw 'start-notebook.ps1 did not return within two minutes'}
   $code=$child.ExitCode;$seconds=((Get-Date)-$at).TotalSeconds
  }finally{$env:LOCALAPPDATA=$previous}
  # The stand-in stays running where the script left it; it goes now.
  try{$saved=Get-Content -LiteralPath (Join-Path $state 'process.json') -Raw|ConvertFrom-Json;Stop-Process -Id ([int]$saved.pid) -Force -ErrorAction SilentlyContinue}catch{}
  $out=if(Test-Path -LiteralPath $log){(Get-Content -LiteralPath $log|ForEach-Object {([string]$_).Trim()}) -join "`n"}else{''}
- return [pscustomobject]@{Code=$code;Output=$out;Seconds=$seconds}
+ return [pscustomobject]@{Code=$code;Output=$out;Seconds=$seconds;Local=$local;State=$state}
 }
 try{
  # The app folder: this PC's node.exe and a stand-in supervisor, which answers /health as the
@@ -74,14 +77,20 @@ else setTimeout(()=>{http.createServer((q,r)=>{r.setHeader('content-type','appli
  $still=Invoke-TaskStart 'never' @('-NoBrowser','-PassThru','-WaitSeconds','6')
  if($still.Code -ne 0 -or $still.Output -match 'did not start' -or $still.Output -notmatch 'still starting' -or $still.Output -notmatch '(^|\n)False$'){throw ('A notebook still starting was reported as: exit '+$still.Code+': '+$still.Output)}
  Write-Output 'A notebook still starting after the wait is said to be starting, not to have failed.'
+
+ # An install made before 2.0.0-beta.11 keeps its state under the old name until an update moves it:
+ # it is found and started there, and no second state folder is made under the new name.
+ $old=Invoke-TaskStart 'slow:0' @('-NoBrowser','-PassThru') -OldNames
+ if($old.Code -ne 0 -or $old.Output -notmatch '(^|\n)True$' -or -not(Test-Path -LiteralPath (Join-Path $old.State 'process.json')) -or (Test-Path -LiteralPath (Join-Path $old.Local $taskNames.State))){throw ('A notebook under the old names was not started where it is: exit '+$old.Code+': '+$old.Output)}
+ Write-Output 'A notebook kept under the old names is started from there, and nothing is made under the new ones.'
 } finally {
  if([IO.Path]::GetFullPath($taskFixture).StartsWith([IO.Path]::GetFullPath($env:TEMP)+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $taskFixture)){
   Start-Sleep -Milliseconds 300
   Remove-Item -LiteralPath $taskFixture -Recurse -Force -ErrorAction SilentlyContinue
  }
 }
-# The setup connects the assistant once (ensure-hermes-full-alpha.ps1), and removes older copies
+# The setup connects the assistant once (ensure-hermes.ps1), and removes older copies
 # only when the notebook answered.
-$taskSetup=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'setup-full-alpha.ps1') -Raw
-if(-not $taskSetup.Contains("start-full-alpha.ps1') -NoBrowser -Wired:(-not `$SkipHermes) -PassThru")){throw 'The setup connects the assistant a second time when it starts the notebook'}
+$taskSetup=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'setup-notebook.ps1') -Raw
+if(-not $taskSetup.Contains("start-notebook.ps1') -NoBrowser -Wired:(-not `$SkipHermes) -PassThru")){throw 'The setup connects the assistant a second time when it starts the notebook'}
 Write-Output 'The setup connects the assistant once.'

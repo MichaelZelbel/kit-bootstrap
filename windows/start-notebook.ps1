@@ -1,11 +1,12 @@
 param([switch]$NoBrowser,[switch]$Wired,[switch]$PassThru,[int]$WaitSeconds=900)
-# -Wired: the setup has just connected the assistant (ensure-hermes-full-alpha.ps1), so it is not done a
+# -Wired: the setup has just connected the assistant (ensure-hermes.ps1), so it is not done a
 #   second time here. Until 21 October 2026 an update did it twice, minutes apart.
 # -PassThru: says $true when the notebook answered, $false when it is still starting.
 # -WaitSeconds: how long a notebook that is still starting is waited for.
 $ErrorActionPreference='Stop'
 $env:GODSPEED_ORIGINAL_RUNTIME='on'
-$state=Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
+. (Join-Path $PSScriptRoot 'godspeed-folders.ps1')
+$state=Get-GodspeedStateFolder
 $config=Get-Content -LiteralPath (Join-Path $state 'installation.json') -Raw|ConvertFrom-Json
 if($config.channel -ne 'full-alpha'){throw 'The notebook record on this PC is not one this setup made, so it was not started.'}
 $node=Join-Path $config.appRoot 'payload\runtime\node.exe'

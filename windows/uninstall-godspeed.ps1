@@ -2,7 +2,7 @@
 # kit-bootstrap / windows / uninstall-godspeed.ps1
 #
 # What the uninstaller removes besides its own folder: the program's own files that the setup put
-# elsewhere on this PC. Run by the uninstaller after the notebook has stopped (stop-full-alpha.ps1).
+# elsewhere on this PC. Run by the uninstaller after the notebook has stopped (stop-notebook.ps1).
 #
 # Until 18 October 2026 the uninstaller removed only its own folder, and about twenty helper
 # programs stayed in ~\.local\bin, with that folder on PATH, beside the daily job, the Startup entry
@@ -21,7 +21,8 @@
 # =============================================================================
 param(
     [string]$AppRoot = $PSScriptRoot,
-    [string]$State = (Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'),
+    # The notebook's state folder; by default the one godspeed-folders.ps1 finds (new name first).
+    [string]$State,
     [string]$UserHome = [Environment]::GetFolderPath('UserProfile'),
     # Where Windows lists the first edition's setup. A test points this at a key of its own.
     [string]$FirstEditionKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{7B3C1E64-9A55-4E1D-9D6C-2F0B8A4C51D7}_is1',
@@ -31,6 +32,7 @@ param(
     [switch]$KeepUserEnvironment
 )
 $ErrorActionPreference = 'Continue'
+if (-not $State) { . (Join-Path $PSScriptRoot 'godspeed-folders.ps1'); $State = Get-GodspeedStateFolder }
 $log = Join-Path $env:LOCALAPPDATA 'Godspeed\uninstall-log.txt'
 New-Item -ItemType Directory -Force -Path (Split-Path $log) -ErrorAction SilentlyContinue | Out-Null
 function Say([string]$Message) {

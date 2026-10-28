@@ -25,10 +25,12 @@ param(
     [Parameter(Mandatory)][string]$Out,
     # When the notebook this installer carries was made (git's committer date, ISO 8601).
     [string]$Mine,
-    [string]$State = (Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State')
+    # The notebook's state folder; by default the one godspeed-folders.ps1 finds (new name first).
+    [string]$State
 )
 $ErrorActionPreference = 'Continue'
 . $Join -AsLibrary
+if (-not $State) { . (Join-Path $PSScriptRoot 'godspeed-folders.ps1'); $State = Get-GodspeedStateFolder }
 
 $workspace = $null
 $installed = ''

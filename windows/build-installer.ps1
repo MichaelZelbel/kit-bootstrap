@@ -10,7 +10,8 @@
 # installers are built with.
 # =============================================================================
 param(
-    [switch]$FullAlpha,
+    # The setup with the notebook (build-godspeed-setup.ps1), which the product's releases publish.
+    [switch]$Notebook,
     [string]$KitCheckout,
     [switch]$SkipCompilerInstall,
     # Build anyway with a pin that is not a tag at this commit. For trying something
@@ -20,7 +21,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-if($FullAlpha){& (Join-Path $PSScriptRoot 'build-full-alpha.ps1') -KitCheckout $KitCheckout -SkipCompilerInstall:$SkipCompilerInstall;return}
+if($Notebook){& (Join-Path $PSScriptRoot 'build-godspeed-setup.ps1') -KitCheckout $KitCheckout -SkipCompilerInstall:$SkipCompilerInstall;return}
 Set-Location $PSScriptRoot
 
 function Find-Iscc {

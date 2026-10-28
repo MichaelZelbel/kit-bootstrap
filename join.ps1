@@ -1261,19 +1261,18 @@ function Confirm-KitHermes {
 
 function Test-KitOwnHermes {
     <#  Does this setup bring its own Hermes? setup-godspeed.ps1 -IntegratedNotebook says so with
-        KB_OWN_HERMES=1: its Hermes is installed by ensure-hermes-full-alpha.ps1 into the notebook's
-        state folder, and the steps below that talk to a Hermes on PATH have nothing to say then. #>
+        KB_OWN_HERMES=1: its Hermes is installed by ensure-hermes.ps1 into the notebook's state
+        folder, and the steps below that talk to a Hermes on PATH have nothing to say then. #>
     return ($env:KB_OWN_HERMES -eq '1')
 }
 
 function Get-KitOwnHermes {
     <#  The program of the Hermes that came with the notebook, or $null while there is none yet.
-        assistant.json is what ensure-hermes-full-alpha.ps1 writes once that Hermes works. #>
+        assistant.json is what ensure-hermes.ps1 writes once that Hermes works, in the notebook's
+        state folder; setup-godspeed.ps1 names it in KB_OWN_HERMES_RECORD, because only
+        windows/godspeed-folders.ps1 knows which folder that is (2.0.0-beta.11 renamed it). #>
     $file = $env:KB_OWN_HERMES_RECORD
-    if (-not $file) {
-        if (-not $env:LOCALAPPDATA) { return $null }
-        $file = Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State\assistant.json'
-    }
+    if (-not $file) { return $null }
     try {
         $a = Get-Content -LiteralPath $file -Raw -ErrorAction Stop | ConvertFrom-Json
         if ($a.verified -and $a.executable -and (Test-Path -LiteralPath $a.executable)) { return [string]$a.executable }

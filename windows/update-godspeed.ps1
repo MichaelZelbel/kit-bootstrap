@@ -19,12 +19,14 @@ param(
     # Where the newest release is read from: a web address, or a folder holding the same three
     # files (the tests use a folder).
     [string]$ReleaseBase = 'https://github.com/MichaelZelbel/godspeed-mission-control/releases/latest/download',
-    [string]$State = (Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'),
+    # The notebook's state folder; by default the one godspeed-folders.ps1 finds (new name first).
+    [string]$State,
     # Look and say, change nothing. For the tests.
     [switch]$CheckOnly,
     [switch]$NoPause
 )
 $ErrorActionPreference = 'Stop'
+if (-not $State) { . (Join-Path $PSScriptRoot 'godspeed-folders.ps1'); $State = Get-GodspeedStateFolder }
 # Windows PowerShell 5.1 asks for TLS below 1.2 unless told, and GitHub refuses that.
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
 

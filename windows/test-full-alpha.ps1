@@ -19,8 +19,8 @@ New-Item -ItemType Directory -Force -Path $output|Out-Null
 if($FreshInstaller){
   if($env:CI -ne 'true'){throw 'Fresh executable installation is restricted to an ephemeral CI account.'}
   $app=Join-Path $testRoot 'application'
-  $installer=Join-Path $output 'GodspeedSetup-Full-Alpha.exe'
-  $state=Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
+  $installer=Join-Path $output 'GodspeedSetup.exe'
+  . (Join-Path $PSScriptRoot 'godspeed-folders.ps1');$state=Get-GodspeedStateFolder
   $p=Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="'+$app+'"'),('/LOG="'+(Join-Path $output 'installer-test.log')+'"')) -WindowStyle Hidden -PassThru
   $deadline=[DateTime]::UtcNow.AddMinutes(30)
   while(-not $p.WaitForExit(10000)){
@@ -31,7 +31,7 @@ if($FreshInstaller){
   if($p.ExitCode -ne 0){Get-ChildItem $state -Filter '*.log' -ErrorAction SilentlyContinue|Copy-Item -Destination $output;throw ('Fresh installer exited '+$p.ExitCode)}
   $evidence.checks+='fresh installer including isolated Hermes desktop'
   Write-Output 'Fresh executable installation completed.'
-  $state=Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
+  . (Join-Path $PSScriptRoot 'godspeed-folders.ps1');$state=Get-GodspeedStateFolder
   $settings=Get-Content (Join-Path $state 'installation.json') -Raw|ConvertFrom-Json
   $node=Join-Path $app 'payload/runtime/node.exe'
   $cli=Join-Path $app 'payload/kit/notebook/bin/godspeed.mjs'
@@ -41,14 +41,14 @@ if($FreshInstaller){
   @{id='offline-test';title='Offline candidate test';content='Created without a VPS connection.'}|ConvertTo-Json|Set-Content $record
   & $node $cli record save notes $record|Out-Null
   if($LASTEXITCODE -ne 0){throw 'Offline save failed'}
-  & (Join-Path $app 'stop-full-alpha.ps1')
-  & (Join-Path $app 'start-full-alpha.ps1') -NoBrowser
+  & (Join-Path $app 'stop-notebook.ps1')
+  & (Join-Path $app 'start-notebook.ps1') -NoBrowser
   $health=Invoke-RestMethod ('http://127.0.0.1:'+$settings.port+'/health')
   if(-not $health.ok){throw 'Restart health failed'}
   $evidence.checks+='restart and offline file retention'
   Write-Output 'Restart and offline retention completed.'
   $assistant=Get-Content (Join-Path $state 'assistant.json') -Raw|ConvertFrom-Json
-  & (Join-Path $app 'open-hermes-full-alpha.ps1')
+  & (Join-Path $app 'open-hermes.ps1')
   $desktopDeadline=[DateTime]::UtcNow.AddSeconds(120)
   $nativeFiles=$null
   while([DateTime]::UtcNow -lt $desktopDeadline){
@@ -90,10 +90,10 @@ if($FreshInstaller){
   $assistant=Get-Content (Join-Path $state 'assistant.json') -Raw|ConvertFrom-Json
   if(-not $assistant.verified -or -not(Test-Path $assistant.desktop)){throw 'Hermes desktop missing'}
   $evidence.checks+='upgrade, integrity backup and Hermes desktop'
-  & (Join-Path $app 'stop-full-alpha.ps1')
+  & (Join-Path $app 'stop-notebook.ps1')
   Invoke-InstallerParent (Join-Path $app 'unins000.exe') @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART')
   if(-not(Test-Path (Join-Path $settings.workspace 'records/notes/offline-test.md'))){throw 'Uninstall did not preserve user records'}
   $evidence.checks+='uninstall preserves knowledge'
 }
 $evidence|ConvertTo-Json -Depth 8|Set-Content (Join-Path $output 'clean-install-evidence.json')
-(Get-FileHash (Join-Path $output 'GodspeedSetup-Full-Alpha.exe')).Hash.ToLowerInvariant()+'  GodspeedSetup-Full-Alpha.exe'|Set-Content (Join-Path $output 'SHA256SUMS')
+(Get-FileHash (Join-Path $output 'GodspeedSetup.exe')).Hash.ToLowerInvariant()+'  GodspeedSetup.exe'|Set-Content (Join-Path $output 'SHA256SUMS')
