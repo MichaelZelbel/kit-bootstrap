@@ -4488,7 +4488,7 @@ Check "the setup tidies up after the move once the notebook works, and the updat
     $u = Get-Content (Join-Path $BetaWin 'update-godspeed.ps1') -Raw
     $s.IndexOf("'setup-notebook.ps1'") -lt $s.IndexOf("'move-to-new-folders.ps1') -Action Finish") -and
         $s.IndexOf("'move-to-new-folders.ps1') -Action Finish") -lt $s.IndexOf("Set-SetupResult 'ok'") -and
-        $u.IndexOf('if (-not $StateGiven) { $State = Get-GodspeedStateFolder }') -gt $u.IndexOf('$setup.WaitForExit()')
+        $u.LastIndexOf('if (-not $StateGiven) { $State = Get-GodspeedStateFolder }') -gt $u.IndexOf('$setup.WaitForExit()')
 }
 Get-ChildItem 'HKCU:\Software\GodspeedKbTest' -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like 'move-*' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force 'HKCU:\Software\GodspeedKbTest\first-edition' -ErrorAction SilentlyContinue
