@@ -19,7 +19,7 @@ elseif($productVersion){Write-Warning ('The product still says '+$productVersion
 if(-not($version -match '^(\d+)\.(\d+)\.(\d+)')){throw ('Not a version: '+$version)}
 $numericVersion=$Matches[1]+'.'+$Matches[2]+'.'+$Matches[3]+'.0'
 Write-Output ('version: '+$version)
-$payload=Join-Path $PSScriptRoot 'full-alpha-payload'
+$payload=Join-Path $PSScriptRoot 'setup-payload'
 New-Item -ItemType Directory -Force -Path $payload|Out-Null
 # Version-specific output directory prevents an older build from contaminating a new one.
 $payload=Join-Path $payload ($kitCommit.Substring(0,12)+'-'+$bootstrapCommit.Substring(0,12))
@@ -48,14 +48,18 @@ if(-not $unpacked.StartsWith($payload+[IO.Path]::DirectorySeparatorChar,[StringC
 Remove-Item -LiteralPath $unpacked -Recurse -Force
 Remove-Item -LiteralPath $download
 $files=@(Get-ChildItem -LiteralPath (Join-Path $payload 'kit'),(Join-Path $payload 'runtime') -Recurse -File|ForEach-Object {[pscustomobject]@{path=$_.FullName.Substring($payload.Length+1).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}})
+# 'full-alpha' is the format's name, read by setup-notebook.ps1 and by installed notebooks, never shown.
 $manifest=[pscustomobject]@{channel='full-alpha';version=$version;kitCommit=$kitCommit;kitCommittedAt=$kitCommittedAt;bootstrapCommit=$bootstrapCommit;nodeVersion=$nodeVersion;nodeArchiveSha256=$checksum;dataFormat=1;files=$files}
 $manifest|ConvertTo-Json -Depth 10|Set-Content -LiteralPath (Join-Path $payload 'candidate-manifest.json') -Encoding UTF8
 $compiler=Get-Command iscc -ErrorAction SilentlyContinue
 if($compiler){$iscc=$compiler.Source}else{$iscc=Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'}
 if(-not(Test-Path -LiteralPath $iscc)){$iscc=Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'}
 if(-not(Test-Path -LiteralPath $iscc)){throw 'Inno Setup compiler is required.'}
+# The program folder's name, from the one place that names the setup's folders.
+. (Join-Path $PSScriptRoot 'godspeed-folders.ps1')
+$programFolder=(Get-GodspeedFolderNames).Program
 Push-Location $PSScriptRoot
-try{& $iscc /Qp ("/DPayloadRoot="+$payload) ("/DKbPin="+$bootstrapCommit) '/DIntegratedNotebook' ("/DAppVersion="+$version) ("/DNumericVersion="+$numericVersion) ("/DKitCommittedAt="+$kitCommittedAt) 'godspeed-setup.iss';if($LASTEXITCODE -ne 0){throw 'Integrated compilation failed.'}}finally{Pop-Location}
-$exe=Join-Path $PSScriptRoot 'dist\GodspeedSetup-Full-Alpha.exe'
+try{& $iscc /Qp ("/DPayloadRoot="+$payload) ("/DProgramFolder="+$programFolder) ("/DKbPin="+$bootstrapCommit) '/DIntegratedNotebook' ("/DAppVersion="+$version) ("/DNumericVersion="+$numericVersion) ("/DKitCommittedAt="+$kitCommittedAt) 'godspeed-setup.iss';if($LASTEXITCODE -ne 0){throw 'Integrated compilation failed.'}}finally{Pop-Location}
+$exe=Join-Path $PSScriptRoot 'dist\GodspeedSetup.exe'
 Get-FileHash -LiteralPath $exe -Algorithm SHA256|Format-List
 Copy-Item -LiteralPath (Join-Path $payload 'candidate-manifest.json') -Destination (Join-Path $PSScriptRoot 'dist\candidate-manifest.json') -Force

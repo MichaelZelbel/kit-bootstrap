@@ -1,10 +1,12 @@
 $ErrorActionPreference='Stop'
-$state=Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
+. (Join-Path $PSScriptRoot 'godspeed-folders.ps1')
+$state=Get-GodspeedStateFolder
 $assistant=Get-Content -LiteralPath (Join-Path $state 'assistant.json') -Raw|ConvertFrom-Json
 if(-not $assistant.verified){throw 'Hermes is not installed for this notebook yet. Run Update my mission control from the Start menu.'}
 $env:HERMES_HOME=$assistant.home
 $env:HERMES_DESKTOP_USER_DATA_DIR=Join-Path $state 'hermes-desktop-data'
-$env:HERMES_DESKTOP_APP_NAME='Godspeed Mission Control Full Alpha Assistant'
+# The window's name, the same the notebook's Open the Windows assistant gives it.
+$env:HERMES_DESKTOP_APP_NAME='Godspeed Mission Control Assistant'
 $env:HERMES_DESKTOP_HERMES_ROOT=$assistant.sourceRoot
 $env:HERMES_DESKTOP_CWD=$assistant.workspace
 $env:GODSPEED_WORKSPACE=$assistant.workspace

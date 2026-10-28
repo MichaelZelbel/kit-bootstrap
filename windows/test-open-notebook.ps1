@@ -2,7 +2,7 @@ $ErrorActionPreference='Stop'
 # What the Start menu's "Open my notebook" does (26 October 2026). It was the notebook's address
 # alone, so it showed "This site can't be reached" while the notebook was not running: on one laptop
 # for eight minutes after the computer started. Each case runs the real open-notebook.ps1 (and the
-# real start-full-alpha.ps1 beside it) in its own Windows PowerShell with LOCALAPPDATA pointed at a
+# real start-notebook.ps1 beside it) in its own Windows PowerShell with LOCALAPPDATA pointed at a
 # fixture, against a stand-in for supervise.mjs, so nothing of this PC's own notebook is read or
 # touched. -Report makes the script write what it would show or open, instead of showing it.
 $taskNode=(Get-Command node -ErrorAction Stop).Source
@@ -13,10 +13,13 @@ function Want([string]$What,[bool]$Ok,[string]$Seen){
  if($Ok){Write-Output ('ok    '+$What)}else{Write-Output ('FAIL  '+$What+': '+$Seen);$script:failures++}
 }
 function Get-TaskPort{$l=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0);$l.Start();$p=$l.LocalEndpoint.Port;$l.Stop();return $p}
-# A PC of its own: the notebook's record, its mission control and the stand-in's mode.
-function New-TaskPc([string]$Mode,[switch]$NotInstalled){
+. (Join-Path $PSScriptRoot 'godspeed-folders.ps1')
+$taskNames=Get-GodspeedFolderNames
+# A PC of its own: the notebook's record, its mission control and the stand-in's mode. -OldNames: the
+# state folder of an install made before 2.0.0-beta.11.
+function New-TaskPc([string]$Mode,[switch]$NotInstalled,[switch]$OldNames){
  $local=Join-Path $taskFixture ('local-'+[guid]::NewGuid().ToString('N').Substring(0,8))
- $state=Join-Path $local 'Godspeed Mission Control Full Alpha State'
+ $state=Join-Path $local $(if($OldNames){$taskNames.OldState}else{$taskNames.State})
  $workspace=Join-Path $local 'mission control'
  New-Item -ItemType Directory -Force -Path $state,(Join-Path $workspace '.godspeed')|Out-Null
  $port=Get-TaskPort
@@ -77,7 +80,7 @@ else setTimeout(()=>{http.createServer((q,r)=>{r.setHeader('content-type','appli
 
  # 1. Running: it opens at once, and nothing is started.
  $pc=New-TaskPc 'slow:0';$pcs+=$pc
- [void](Wait-Task (Start-Task $pc 'start-full-alpha.ps1' @('-NoBrowser')))
+ [void](Wait-Task (Start-Task $pc 'start-notebook.ps1' @('-NoBrowser')))
  $r=Open-Notebook $pc 'running'
  Want 'a running notebook opens at once' ((Test-Opened $r $pc) -and $r.Code -eq 0 -and $r.Seconds -lt 20) ($r.Text+' after '+[int]$r.Seconds+' s')
  Want 'a running notebook is not started again, and no note is shown' ((Get-Starts $pc).Count -eq 1 -and -not (Test-Said $r '')) ('starts '+(Get-Starts $pc).Count+': '+$r.Text)
@@ -86,7 +89,7 @@ else setTimeout(()=>{http.createServer((q,r)=>{r.setHeader('content-type','appli
  # 2. Starting: the Startup entry started it at sign-in and it does not answer yet. Waited for,
  #    opened when it answers, and never a second notebook beside it.
  $pc=New-TaskPc 'slow:15000';$pcs+=$pc
- $signIn=Start-Task $pc 'start-full-alpha.ps1' @('-NoBrowser')
+ $signIn=Start-Task $pc 'start-notebook.ps1' @('-NoBrowser')
  Wait-Starts $pc 1
  $r=Open-Notebook $pc 'starting'
  [void](Wait-Task $signIn)
@@ -134,6 +137,14 @@ else setTimeout(()=>{http.createServer((q,r)=>{r.setHeader('content-type','appli
  $pc=New-TaskPc 'slow:0' -NotInstalled;$pcs+=$pc
  $r=Open-Notebook $pc 'none'
  Want 'a PC without the notebook is told to run the setup again' ((Test-Said $r 'Your notebook is not set up on this PC. Run GodspeedSetup.exe again.') -and $r.Code -ne 0 -and (Get-Starts $pc).Count -eq 0) $r.Text
+
+ # 8. An install made before 2.0.0-beta.11, whose state folder still has the old name: found there,
+ #    started and opened, and nothing is made under the new name.
+ $pc=New-TaskPc 'slow:0' -OldNames;$pcs+=$pc
+ $r=Open-Notebook $pc 'old-names'
+ Want 'a notebook kept under the old names is started and opened from there' ((Test-Opened $r $pc) -and $r.Code -eq 0 -and (Get-Starts $pc).Count -eq 1 -and (Test-Path -LiteralPath (Join-Path $pc.State 'process.json'))) $r.Text
+ Want 'and no state folder is made under the new name' (-not (Test-Path -LiteralPath (Join-Path $pc.Local $taskNames.State))) $pc.Local
+ Stop-Pc $pc
 } finally {
  foreach($pc in $pcs){Stop-Pc $pc}
  if([IO.Path]::GetFullPath($taskFixture).StartsWith([IO.Path]::GetFullPath($env:TEMP)+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $taskFixture)){

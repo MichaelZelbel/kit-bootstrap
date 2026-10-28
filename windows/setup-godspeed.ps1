@@ -132,10 +132,13 @@ function Set-GodspeedBundledStarterRef {
 if ($IntegratedNotebook) {
     try { Set-GodspeedBundledStarterRef -AppRoot $PSScriptRoot }
     catch { Stop-Setup ('The notebook starter could not be selected: ' + $_.Exception.Message) }
-    # This setup brings its own Hermes (ensure-hermes-full-alpha.ps1, run by setup-full-alpha.ps1
-    # below), kept beside the notebook and never on PATH. Told to the install code, so it does not
-    # report Hermes as missing (Test-KitOwnHermes in join.ps1).
+    # This setup brings its own Hermes (ensure-hermes.ps1, run by setup-notebook.ps1 below), kept
+    # beside the notebook and never on PATH. Told to the install code, so it does not report Hermes
+    # as missing (Test-KitOwnHermes in join.ps1), with the record that names it in the notebook's
+    # state folder, which only godspeed-folders.ps1 names (Get-KitOwnHermes).
     $env:KB_OWN_HERMES = '1'
+    . (Join-Path $PSScriptRoot 'godspeed-folders.ps1')
+    $env:KB_OWN_HERMES_RECORD = Join-Path (Get-GodspeedStateFolder) 'assistant.json'
 }
 
 # -----------------------------------------------------------------------------
@@ -482,7 +485,7 @@ if ($missing.Count -gt 0) {
 Write-Host ""
 Write-Host "  A record of this run is at $LogFile"
 if($IntegratedNotebook){
-    try { & (Join-Path $PSScriptRoot 'setup-full-alpha.ps1') -AppRoot $PSScriptRoot -Workspace $Godspeed -OriginalStarter }
+    try { & (Join-Path $PSScriptRoot 'setup-notebook.ps1') -AppRoot $PSScriptRoot -Workspace $Godspeed -OriginalStarter }
     catch { Stop-Setup ("the notebook could not be set up: " + $_.Exception.Message) }
 }
 Set-SetupResult 'ok'

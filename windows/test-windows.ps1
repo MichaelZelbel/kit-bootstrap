@@ -3892,9 +3892,9 @@ Check "the Menerio step still asks, in words that name no author" {
     }
 }
 Check "nothing a person reads in the install code names the maintainer (the LICENSE and the publisher credit stay)" {
-    $hits = foreach ($f in @('..\join.ps1', 'setup-godspeed.ps1', 'godspeed-setup.iss', 'setup-full-alpha.ps1', 'start-full-alpha.ps1',
-                             'stop-full-alpha.ps1', 'ensure-hermes-full-alpha.ps1', 'update-godspeed.ps1', 'uninstall-godspeed.ps1',
-                             'open-notebook.ps1')) {
+    $hits = foreach ($f in @('..\join.ps1', 'setup-godspeed.ps1', 'godspeed-setup.iss', 'setup-notebook.ps1', 'start-notebook.ps1',
+                             'stop-notebook.ps1', 'ensure-hermes.ps1', 'update-godspeed.ps1', 'uninstall-godspeed.ps1',
+                             'open-notebook.ps1', 'godspeed-folders.ps1')) {
         Select-String -LiteralPath (Join-Path $BetaWin $f) -Pattern 'Michael' -CaseSensitive |
             Where-Object { $_.Line -notmatch 'MichaelZelbel' -and $_.Line -notmatch '^#define AppPublisher' }
     }
@@ -4008,7 +4008,8 @@ Check "uninstall: a folder left empty leaves PATH too" {
 }
 Check "the uninstaller runs the removal after stopping the notebook, and says what stays" {
     $iss = Get-Content (Join-Path $BetaWin 'godspeed-setup.iss') -Raw
-    ($iss.IndexOf('stop-full-alpha.ps1"" -Uninstall') -lt $iss.IndexOf('uninstall-godspeed.ps1""')) -and
+    ($iss.IndexOf('stop-notebook.ps1"" -Uninstall') -gt 0) -and
+    ($iss.IndexOf('stop-notebook.ps1"" -Uninstall') -lt $iss.IndexOf('uninstall-godspeed.ps1""')) -and
         $iss.Contains('RunOnceId: "RemoveProgramFiles"') -and $iss.Contains('Your mission control folder, your notebook''s notes, photos and files')
 }
 
@@ -4068,8 +4069,8 @@ Check "the Ready page says SECOND, not UPDATE, when a second mission control is 
 
 # 6. The Startup entry starts the notebook without opening the browser.
 Check "the Startup entry passes -NoBrowser, has one plain name, and removes the old one" {
-    $s = Get-Content (Join-Path $BetaWin 'setup-full-alpha.ps1') -Raw
-    $s.Contains("start-full-alpha.ps1')+'`" -NoBrowser'") -and $s.Contains("'Godspeed Mission Control.lnk'") -and
+    $s = Get-Content (Join-Path $BetaWin 'setup-notebook.ps1') -Raw
+    $s.Contains("start-notebook.ps1')+'`" -NoBrowser'") -and $s.Contains("'Godspeed Mission Control.lnk'") -and
         $s.Contains("Remove-Item -LiteralPath `$oldShortcut")
 }
 
@@ -4097,7 +4098,7 @@ Check "an update removes the old Open my notebook.url, so the Start menu shows t
     $iss -match '(?m)^\[InstallDelete\]\r?\nType: files; Name: "\{group\}\\Open my notebook\.url"'
 }
 Check "a click while the notebook is starting waits for that start, never a second one" {
-    $s = Get-Content (Join-Path $BetaWin 'start-full-alpha.ps1') -Raw
+    $s = Get-Content (Join-Path $BetaWin 'start-notebook.ps1') -Raw
     $s.Contains('if($owned){$process=Get-RunningSupervisor}') -and $s.Contains('if($owned -and -not $process){') -and
         $s.Contains("'Local\GodspeedMissionControlNotebookStart-'+`$expectedInstance")
 }
@@ -4137,20 +4138,112 @@ Check "the installer's version is the beta's, in the Apps list and the file's pr
     $iss = Get-Content (Join-Path $BetaWin 'godspeed-setup.iss') -Raw
     $iss.Contains('#define AppVersion     "2.0.0-beta.1"') -and $iss.Contains('VersionInfoVersion={#NumericVersion}') -and
         $iss.Contains('VersionInfoProductTextVersion={#AppVersion}') -and
-        ((Get-Content (Join-Path $BetaWin 'build-full-alpha.ps1') -Raw).Contains('("/DAppVersion="+$version)'))
+        ((Get-Content (Join-Path $BetaWin 'build-godspeed-setup.ps1') -Raw).Contains('("/DAppVersion="+$version)'))
 }
 Check "no message the Windows scripts show says alpha or candidate" {
     $hits = foreach ($f in Get-ChildItem $BetaWin -Filter '*.ps1' | Where-Object { $_.Name -notlike 'test-*' -and $_.Name -notlike 'build-*' }) {
-        Select-String -LiteralPath $f.FullName -Pattern "(throw|Write-Host|Write-KbOk|Write-KbWarn|Write-Warning|Say)\s*\(?\s*['""][^'""]*(alpha|candidate)" |
-            Where-Object { $_.Line -notmatch 'Full Alpha State' }
+        Select-String -LiteralPath $f.FullName -Pattern "(throw|Write-Host|Write-KbOk|Write-KbWarn|Write-Warning|Say)\s*\(?\s*['""][^'""]*(alpha|candidate)"
     }
     @($hits).Count -eq 0
 }
-Check "the state and program folders existing installs depend on are unchanged" {
+
+# 9. No "Full Alpha" in a new install's names (2.0.0-beta.11, product issue #6), and an install made
+#    before is found under its old names until an update moves it. godspeed-folders.ps1 names both.
+. (Join-Path $BetaWin 'godspeed-folders.ps1')
+$fn = Get-GodspeedFolderNames
+Check "a new install's program and state folders say Godspeed Mission Control and no alpha" {
+    $fn.Program -eq 'Godspeed Mission Control' -and $fn.State -eq 'Godspeed Mission Control State' -and
+        -not ($fn.Program -match 'alpha') -and -not ($fn.State -match 'alpha') -and
+        $fn.OldProgram -eq 'Godspeed Mission Control Full Alpha' -and $fn.OldState -eq 'Godspeed Mission Control Full Alpha State'
+}
+Check "the setup's program folder comes from godspeed-folders.ps1, and the application ID is the one installs have" {
     $iss = Get-Content (Join-Path $BetaWin 'godspeed-setup.iss') -Raw
-    $iss.Contains('AppId={{9929B7B4-B588-46D2-AC79-01F7EBD7FA92}') -and
-        $iss.Contains('DefaultDirName={localappdata}\Godspeed Mission Control Full Alpha') -and
-        ((Get-Content (Join-Path $BetaWin 'setup-full-alpha.ps1') -Raw).Contains("'Godspeed Mission Control Full Alpha State'"))
+    $build = Get-Content (Join-Path $BetaWin 'build-godspeed-setup.ps1') -Raw
+    $iss.Contains('AppId={{9929B7B4-B588-46D2-AC79-01F7EBD7FA92}') -and $iss.Contains('DefaultDirName={localappdata}\{#ProgramFolder}') -and
+        $iss.Contains('UsePreviousAppDir=yes') -and $iss.Contains('OutputBaseFilename=GodspeedSetup') -and
+        $build.Contains('$programFolder=(Get-GodspeedFolderNames).Program') -and $build.Contains('("/DProgramFolder="+$programFolder)')
+}
+Check "no file the setup puts in the program folder is named full alpha" {
+    $iss = Get-Content (Join-Path $BetaWin 'godspeed-setup.iss') -Raw
+    $sources = @([regex]::Matches($iss, '(?m)^Source: "([^"]+)"') | ForEach-Object { $_.Groups[1].Value })
+    ($sources -contains 'godspeed-folders.ps1') -and ($sources -contains 'start-notebook.ps1') -and
+        @($sources | Where-Object { $_ -match 'alpha' }).Count -eq 0 -and
+        @($sources | Where-Object { $_ -like '*.ps1' -and -not (Test-Path (Join-Path $BetaWin $_)) }).Count -eq 0
+}
+Check "only godspeed-folders.ps1 names the state folder, under either name" {
+    $files = @(Get-ChildItem $BetaWin -File | Where-Object { ($_.Extension -in '.ps1', '.iss') -and $_.Name -notlike 'test-*' -and $_.Name -ne 'godspeed-folders.ps1' }) +
+             @(Get-Item (Join-Path $BetaWin '..\join.ps1'))
+    $hits = @($files | Select-String -Pattern 'Mission Control( Full Alpha)? State|Mission Control Full Alpha(?!\.lnk)' | ForEach-Object { "$($_.Filename):$($_.LineNumber)" })
+    if ($hits) { Write-Host "   named in: $($hits -join ', ')" }
+    $hits.Count -eq 0
+}
+Check "the state folder: the new name on a PC without one, an install under the old name kept there, the new name first" {
+    $la = New-TestDir 'folders-la'
+    $fresh = Get-GodspeedStateFolder -LocalAppData $la
+    New-Item -ItemType Directory -Force (Join-Path $la $fn.OldState) | Out-Null
+    $emptyOld = Get-GodspeedStateFolder -LocalAppData $la
+    Set-Content (Join-Path $la "$($fn.OldState)\installation.json") '{}'
+    $old = Get-GodspeedStateFolder -LocalAppData $la
+    New-Item -ItemType Directory -Force (Join-Path $la $fn.State) | Out-Null
+    $emptyNew = Get-GodspeedStateFolder -LocalAppData $la
+    Set-Content (Join-Path $la "$($fn.State)\installation.json") '{}'
+    $both = Get-GodspeedStateFolder -LocalAppData $la
+    ($fresh -eq (Join-Path $la $fn.State)) -and ($emptyOld -eq (Join-Path $la $fn.State)) -and ($old -eq (Join-Path $la $fn.OldState)) -and
+        ($emptyNew -eq (Join-Path $la $fn.OldState)) -and ($both -eq (Join-Path $la $fn.State))
+}
+# An install made before 2.0.0-beta.11: its state under the old name, nothing under the new one.
+$ola = New-TestDir 'old-names-la'
+$ostate = Join-Path $ola $fn.OldState
+New-Item -ItemType Directory -Force (Join-Path $ostate 'hermes-runtime\bin'), (Join-Path $ostate 'hermes-profile') | Out-Null
+(@{ channel = 'full-alpha'; workspace = $dws; kitCommit = ('a' * 40); kitCommittedAt = '2026-10-18T10:00:00+02:00' } | ConvertTo-Json) |
+    Set-Content (Join-Path $ostate 'installation.json') -Encoding UTF8
+Set-Content (Join-Path $ostate 'hermes-runtime\bin\hermes.exe') 'program'
+Set-Content (Join-Path $ostate 'hermes-profile\state.db') 'the conversations'
+Check "detect: an install under the old names is found and updated, not taken for a new PC" {
+    $outFile = Join-Path $dl 'answers-old-names.txt'
+    $la0 = $env:LOCALAPPDATA; $g0 = $env:GODSPEED_DIR
+    try {
+        $env:LOCALAPPDATA = $ola; $env:GODSPEED_DIR = $dws
+        & $BetaPs -NoProfile -ExecutionPolicy Bypass -File (Join-Path $BetaWin 'detect-godspeed.ps1') -Join (Join-Path $BetaWin '..\join.ps1') `
+            -Out $outFile -Mine '2026-10-19T10:00:00+02:00' | Out-Null
+    } finally { $env:LOCALAPPDATA = $la0; $env:GODSPEED_DIR = $g0 }
+    $a = Get-BetaAnswers $outFile
+    (Test-KitSamePath $a['found'] $dws) -and ($a['notebook'] -eq '1') -and ($a['installed'] -eq ('a' * 40)) -and ($a['newer'] -eq '0') -and
+        -not (Test-Path (Join-Path $ola $fn.State))
+}
+Check "update: an install under the old names is read where it is" {
+    $base = Join-Path $rb ('r-old-' + [guid]::NewGuid().ToString('N').Substring(0, 6)); New-Item -ItemType Directory -Force $base | Out-Null
+    (@{ channel = 'full-alpha'; version = '2.0.0-beta.2'; kitCommit = ('a' * 40); kitCommittedAt = '2026-10-18T10:00:00+02:00' } | ConvertTo-Json) | Set-Content (Join-Path $base 'windows-manifest.json')
+    $la0 = $env:LOCALAPPDATA
+    try {
+        $env:LOCALAPPDATA = $ola
+        $o = & $BetaPs -NoProfile -ExecutionPolicy Bypass -File (Join-Path $BetaWin 'update-godspeed.ps1') -ReleaseBase $base -CheckOnly -NoPause | Out-String -Width 4096
+    } finally { $env:LOCALAPPDATA = $la0 }
+    $o.Contains('You have the newest version already.') -and -not (Test-Path (Join-Path $ola $fn.State))
+}
+Check "uninstall: the Hermes program of an install under the old names goes, its conversations stay" {
+    $ub = New-TestDir 'uninst-old-names'
+    $la0 = $env:LOCALAPPDATA
+    try {
+        $env:LOCALAPPDATA = $ola
+        $out = & (Join-Path $BetaWin 'uninstall-godspeed.ps1') -AppRoot (Join-Path $ub 'app') -UserHome (Join-Path $ub 'home') `
+            -FirstEditionKey 'HKCU:\Software\GodspeedKbTest\no-first-edition' -StartupFolder (Join-Path $ub 'startup') -TaskNames @('KbTestBetaNone') -KeepUserEnvironment | Out-String -Width 4096
+    } finally { $env:LOCALAPPDATA = $la0 }
+    -not (Test-Path (Join-Path $ostate 'hermes-runtime')) -and (Test-Path (Join-Path $ostate 'hermes-profile\state.db')) -and
+        (Test-Path (Join-Path $ostate 'installation.json')) -and -not (Test-Path (Join-Path $ola $fn.State))
+}
+Check "the setup with the notebook names its own Hermes's record in the state folder, and join.ps1 names no folder" {
+    $s = Get-Content (Join-Path $BetaWin 'setup-godspeed.ps1') -Raw
+    $j = Get-Content (Join-Path $BetaWin '..\join.ps1') -Raw
+    $s.Contains("`$env:KB_OWN_HERMES_RECORD = Join-Path (Get-GodspeedStateFolder) 'assistant.json'") -and
+        $j.Contains("if (-not `$file) { return `$null }")
+}
+Check "an update of an install made before stops its notebook with the stop script it has, and removes the old scripts afterwards" {
+    $iss = Get-Content (Join-Path $BetaWin 'godspeed-setup.iss') -Raw
+    $s = Get-Content (Join-Path $BetaWin 'setup-notebook.ps1') -Raw
+    ($iss -match "StopScript := ExpandConstant\('\{app\}\\stop-notebook\.ps1'\);\s+if not FileExists\(StopScript\) then StopScript := ExpandConstant\('\{app\}\\stop-full-alpha\.ps1'\);") -and
+        ($s.IndexOf('$shortcut.WindowStyle=7;$shortcut.Save()') -lt $s.IndexOf("foreach(`$oldScript in 'setup-full-alpha.ps1'")) -and
+        $s.Contains("'start-full-alpha.ps1','stop-full-alpha.ps1'")
 }
 Remove-Item -Recurse -Force 'HKCU:\Software\GodspeedKbTest\first-edition' -ErrorAction SilentlyContinue
 

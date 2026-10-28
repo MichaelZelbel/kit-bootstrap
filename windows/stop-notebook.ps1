@@ -1,6 +1,7 @@
 param([switch]$Uninstall)
 $ErrorActionPreference='Stop'
-$state=Join-Path $env:LOCALAPPDATA 'Godspeed Mission Control Full Alpha State'
+. (Join-Path $PSScriptRoot 'godspeed-folders.ps1')
+$state=Get-GodspeedStateFolder
 $pidFile=Join-Path $state 'process.json'
 if(Test-Path -LiteralPath $pidFile){
   # A damaged record names no process; the installer must not be refused over it.
