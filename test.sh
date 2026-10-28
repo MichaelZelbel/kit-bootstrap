@@ -44,7 +44,7 @@ for f in log warn die ok say sudo_cmd kb_is_root kb_apt_package_for need_tools \
          kb_enabled_sources kb_write_prompt_sources kb_sync_report \
          kb_age kb_age_keygen kb_have_age kb_godspeed_key_path kb_notebook_state \
          kb_unseal_godspeed_key kb_seal_godspeed_key kb_store_notebook_token kb_write_mcp_config \
-         kb_install_notebook_sync kb_persist_notebook_env kb_connect_notebook \
+         kb_install_notebook_sync kb_persist_notebook_env kb_has_notebook kb_connect_notebook \
          kb_ensure_age kb_connect_assistants kb_only_menerio \
          kb_offer_gmail kb_gmail_retired kb_only_gmail \
          kb_device_env_set kb_notebook_mirror kb_notebook_runner_asks kb_notebook_job_is_here \
@@ -2432,12 +2432,29 @@ t "the answer is still no unless the reader says yes" \
   "$(grep -c 'ask_yes "Connect Menerio now?" "n"' lib.sh)" "1"
 # AN INSTALL NO LONGER ASKS (18 October 2026). Version 2 brings its own notebook, so Menerio is
 # offered as an import into it, in one line, and connected only by the Menerio step.
-_mi="$(mktemp -d)"; mkdir -p "$_mi/godspeed" "$_mi/home"
+_mi="$(mktemp -d)"; mkdir -p "$_mi/godspeed/.godspeed/integrated-runtime" "$_mi/v1/.godspeed" "$_mi/home"
 out="$( ( HOME="$_mi/home"; kb_notebook_state() { printf none; }; have_tty() { return 0; }
-          ask_yes() { echo ASKED; return 1; }; KB_NOTEBOOK= KB_NOTEBOOK_TOKEN= KB_ONLY_MENERIO= kb_connect_notebook "$_mi/godspeed" ) 2>&1 )"
+          ask_yes() { echo ASKED; return 1; }; KB_NOTEBOOK= KB_NOTEBOOK_TOKEN= KB_ONLY_MENERIO= GODSPEED_PRODUCT_REF= kb_connect_notebook "$_mi/godspeed" ) 2>&1 )"
 t "an install at a keyboard is asked nothing about Menerio" "$(printf '%s' "$out" | grep -c ASKED)" "0"
-t "and is offered the import into the notebook in one line" \
+t "and, with the notebook on the computer, is offered the import into it in one line" \
   "$(printf '%s' "$out" | grep -c 'Settings, Import from Menerio')" "1"
+# ONLY WHERE THAT NOTEBOOK IS (28 October 2026, product pull request #88). A version 1 server
+# (server/install.sh, its Docker image) has no notebook and so no Settings page to send anyone
+# to: it hears nothing about Menerio. A first version 2 install runs this before the notebook is
+# installed, and is told by GODSPEED_PRODUCT_REF, which the product's install-godspeed.sh exports.
+for _tty in 0 1; do
+  out="$( ( HOME="$_mi/home"; kb_notebook_state() { printf none; }; have_tty() { return "$_tty"; }
+            ask_yes() { echo ASKED; return 1; }; KB_NOTEBOOK= KB_NOTEBOOK_TOKEN= KB_ONLY_MENERIO= GODSPEED_PRODUCT_REF= kb_connect_notebook "$_mi/v1"; echo "rc=$?" ) 2>&1 )"
+  t "without the notebook ($([ "$_tty" = 0 ] && echo at a keyboard || echo with no terminal)) nothing is said about Menerio, nothing asked, and the step ends cleanly" \
+    "$(printf '%s' "$out" | grep -c -i 'menerio'):$(printf '%s' "$out" | grep -c ASKED):$(printf '%s' "$out" | grep -c '^rc=0$')" "0:0:1"
+done
+out="$( ( HOME="$_mi/home"; kb_notebook_state() { printf none; }; have_tty() { return 1; }
+          KB_NOTEBOOK= KB_NOTEBOOK_TOKEN= KB_ONLY_MENERIO= GODSPEED_PRODUCT_REF=0123456789abcdef0123456789abcdef01234567 kb_connect_notebook "$_mi/v1" ) 2>&1 )"
+t "a first version 2 install, before its notebook is in place, is offered the import" \
+  "$(printf '%s' "$out" | grep -c 'Settings, Import from Menerio')" "1"
+t "kb_has_notebook: the notebook's folder, or the version 2 installer, and nothing else" \
+  "$( ( GODSPEED_PRODUCT_REF=; kb_has_notebook "$_mi/godspeed" && printf y || printf n; kb_has_notebook "$_mi/v1" && printf y || printf n
+        kb_has_notebook "" && printf y || printf n; GODSPEED_PRODUCT_REF=abc kb_has_notebook "$_mi/v1" && printf y || printf n ) )" "ynny"
 out="$( ( HOME="$_mi/home"; kb_notebook_state() { printf none; }; have_tty() { return 0; }
           ask_yes() { echo ASKED; return 1; }; KB_NOTEBOOK= KB_NOTEBOOK_TOKEN= KB_ONLY_MENERIO=1 kb_connect_notebook "$_mi/godspeed" ) 2>&1 )"
 t "the Menerio step still asks" "$(printf '%s' "$out" | grep -c ASKED)" "1"
