@@ -3709,6 +3709,17 @@ kb_install_notebook_sync() {
   fi
 }
 
+# kb_has_notebook <mission control>
+# Whether this computer has the Godspeed notebook (version 2), or is being given it by this very
+# run. Installed, it lives inside the mission control, in .godspeed/integrated-runtime (the
+# product's notebook/scripts/install-native-notebook.sh). On a first install it is not there yet:
+# the product's install-godspeed.sh exports GODSPEED_PRODUCT_REF, runs setup-godspeed.sh, and
+# only then installs the notebook. Neither is true on a version 1 server or a joined computer.
+kb_has_notebook() {
+  [ -n "${GODSPEED_PRODUCT_REF:-}" ] && return 0
+  [ -n "${1:-}" ] && [ -d "$1/.godspeed/integrated-runtime" ]
+}
+
 # kb_connect_notebook <mission control>
 # The whole credential step, as one moment in the install rather than a checklist.
 # KB_NOTEBOOK_TOKEN answers the question without asking, for a one-line install.
@@ -3739,8 +3750,15 @@ kb_connect_notebook() {
         # second notebook they had never heard of. Menerio is offered once, plainly, as an import
         # into the notebook. Connecting it is still there for whoever asks for it by name: the
         # Menerio step (--only menerio), which sets KB_ONLY_MENERIO. The twin is Connect-KitNotebook.
+        # ONLY WHERE THAT NOTEBOOK IS (28 October 2026). The line sends the person to a Settings
+        # page of the version 2 notebook. A version 1 server (the product's server/install.sh and
+        # its Docker image) and a computer joined with join.sh have no such notebook, and were
+        # sent to a page that is not there (product pull request #88). There an install says nothing
+        # about Menerio, and the Menerio step still connects it. kb_has_notebook says which is which.
         if [ "${KB_ONLY_MENERIO:-0}" != "1" ]; then
-          ok "Menerio: kept notes in Menerio before? Bring them in whenever you like: in your notebook, Settings, Import from Menerio."
+          if kb_has_notebook "$godspeed"; then
+            ok "Menerio: kept notes in Menerio before? Bring them in whenever you like: in your notebook, Settings, Import from Menerio."
+          fi
           return 0
         fi
         have_tty || return 0        # a one-line install stays a one-line install
