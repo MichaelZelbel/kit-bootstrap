@@ -487,6 +487,11 @@ Write-Host "  A record of this run is at $LogFile"
 if($IntegratedNotebook){
     try { & (Join-Path $PSScriptRoot 'setup-notebook.ps1') -AppRoot $PSScriptRoot -Workspace $Godspeed -OriginalStarter }
     catch { Stop-Setup ("the notebook could not be set up: " + $_.Exception.Message) }
+    # An install made before 2.0.0-beta.11 was moved to the new names by the wizard before it copied
+    # anything (move-to-new-folders.ps1 -Action Move). Now that it works there, the old program
+    # folder and the old copy of the assistant's program go. Never stops the setup.
+    try { & (Join-Path $PSScriptRoot 'move-to-new-folders.ps1') -Action Finish }
+    catch { Write-Warning ("tidying up after the move to the new folders did not finish: " + $_.Exception.Message) }
 }
 Set-SetupResult 'ok'
 try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }

@@ -26,14 +26,22 @@ What it does on a PC, and what it leaves alone:
 A new install keeps the program in `%LOCALAPPDATA%\Godspeed Mission Control` and the notebook's
 data in `%LOCALAPPDATA%\Godspeed Mission Control State`. `windows/godspeed-folders.ps1` is the one
 place that names them; every script asks it, and the build hands the program folder's name to the
-wizard. Until 2.0.0-beta.11 both names ended in "Full Alpha". An install made before keeps those
-names until an update moves it, and is found under them meanwhile: the state folder is looked for
-under the new name first and the old one second, and an update goes into the program folder that
-Windows' Apps entry names.
+wizard. Until 2.0.0-beta.11 both names ended in "Full Alpha". The first update of an install made
+before moves it (`windows/move-to-new-folders.ps1`): before the wizard copies anything it stops
+the notebook, the assistant and the Godspeed jobs, renames the state folder, installs the
+assistant's program again in its new place (it records the folder it was installed in), and points
+the records, setting files, shortcuts, the user's environment and scheduled tasks at the new
+names. The wizard then installs the program into the new program folder, and once the notebook
+works there the old program folder goes. A step that fails puts all of it back, and so does a
+setup that ends without installing the program; the install then keeps working under the old
+names, the update log says why in one line, and the next update tries again. An updater of
+2.0.0-beta.10, which looks for its result only under the old name, finds a record there until it
+has ended.
 
 `.github/workflows/beta-windows.yml` builds it from a branch and runs it on fresh GitHub Windows
 machines: silent and with the wizard on screen, as a first install and as the update over the
-newest published release, then the refusal, the update entry and the uninstaller.
+newest published release (directly, through that release's own updater, after an uninstall, and
+made to fail first), then the refusal, the update entry and the uninstaller.
 
 The bootstrap documentation below describes the shared floor and the first edition's installer.
 # kit-bootstrap

@@ -4245,6 +4245,252 @@ Check "an update of an install made before stops its notebook with the stop scri
         ($s.IndexOf('$shortcut.WindowStyle=7;$shortcut.Save()') -lt $s.IndexOf("foreach(`$oldScript in 'setup-full-alpha.ps1'")) -and
         $s.Contains("'start-full-alpha.ps1','stop-full-alpha.ps1'")
 }
+# 10. The first update moves an install made before 2.0.0-beta.11 to the new names, with everything
+#     that points into its folders, and puts all of it back when a step fails (ticket 05 of
+#     2.0.0-beta.11). move-to-new-folders.ps1 runs in a Windows PowerShell of its own, with
+#     LOCALAPPDATA in this run's folder; the shortcuts, the environment, the task names and the Apps
+#     entry it may touch are test ones, and the assistant's program is "installed" by a stand-in.
+$MoveScript = Join-Path $BetaWin 'move-to-new-folders.ps1'
+$MoveBuilder = Join-Path (New-TestDir 'move-builder') 'build-runtime.ps1'
+Set-Content -LiteralPath $MoveBuilder -Encoding UTF8 -Value @'
+param([string]$State, [string]$Workspace, [int]$Port, [switch]$Provision, [switch]$ForceIsolatedInstall, [switch]$RuntimeOnly)
+Add-Content -LiteralPath (Join-Path $env:KB_TEST_MOVE_HOME 'builder-calls.txt') -Value "$State|$Workspace|$Port|$Provision|$ForceIsolatedInstall|$RuntimeOnly"
+if ($env:KB_TEST_BUILDER_FAIL) { exit 1 }
+New-Item -ItemType Directory -Force -Path (Join-Path $State 'hermes-runtime\bin') | Out-Null
+Set-Content -LiteralPath (Join-Path $State 'hermes-runtime\bin\hermes.exe') -Value 'the program, built for this folder'
+'@
+function New-OldNamesInstall([string]$Name, [switch]$NoProgram, [switch]$NoRuntime) {
+    $la = New-TestDir $Name
+    $os = Join-Path $la $fn.OldState; $op = Join-Path $la $fn.OldProgram
+    $ws = New-BetaGodspeed "$Name-mc"
+    foreach ($d in 'media', 'backups\20261020-101010-000', 'hermes-profile\memories', 'hermes-runtime\bin', 'hermes-runtime\uv-cache', 'hermes-runtime\npm-cache', 'hermes-runtime\browser-cache') {
+        New-Item -ItemType Directory -Force (Join-Path $os $d) | Out-Null
+    }
+    # As setup-notebook.ps1 and ensure-hermes.ps1 write them: ConvertTo-Json, UTF-8 with its mark.
+    [pscustomobject]@{ channel = 'full-alpha'; workspace = $ws; media = (Join-Path $os 'media'); port = 47831; owner = 'local'; appRoot = $op; dataFormat = 1; kitCommit = ('a' * 40); kitCommittedAt = '2026-10-18T10:00:00+02:00' } |
+        ConvertTo-Json | Set-Content (Join-Path $os 'installation.json') -Encoding UTF8
+    [pscustomobject]@{ verified = $true; kind = 'hermes'; executable = (Join-Path $os 'hermes-runtime\bin\hermes.exe'); desktop = (Join-Path $os 'hermes-runtime\hermes-agent\apps\desktop\release\win-unpacked\Hermes.exe')
+        sourceRoot = (Join-Path $os 'hermes-runtime\hermes-agent'); home = (Join-Path $os 'hermes-profile'); workspace = $ws } | ConvertTo-Json | Set-Content (Join-Path $os 'assistant.json') -Encoding UTF8
+    Set-Content (Join-Path $os 'hermes-profile\config.yaml') -Encoding UTF8 -Value @('terminal:', "  cwd: $(ConvertTo-Json $ws -Compress)", 'quick_commands:', "  backup: $(ConvertTo-Json (Join-Path $op 'payload\runtime\node.exe') -Compress)")
+    Set-Content (Join-Path $os 'hermes-profile\memories\MEMORY.md') 'The owner likes short answers. They keep notes in C:\notes.'
+    Set-Content (Join-Path $os 'media\photo.jpg') 'a photo'
+    Set-Content (Join-Path $os 'backups\20261020-101010-000\copy.txt') 'a copy made before an update'
+    if ($NoRuntime) { Remove-Item -Recurse -Force (Join-Path $os 'hermes-runtime') }
+    else {
+        Set-Content (Join-Path $os 'hermes-runtime\bin\hermes.exe') 'the program, built for the old folder'
+        Set-Content (Join-Path $os 'hermes-runtime\uv-cache\a.whl') 'a download'
+        Set-Content (Join-Path $os 'hermes-runtime\npm-cache\b.tgz') 'a download'
+    }
+    New-Item -ItemType Directory -Force (Join-Path $ws '.vscode') | Out-Null
+    (@{ 'terminal.integrated.env.windows' = @{ HERMES_HOME = (Join-Path $os 'hermes-profile'); PATH = ((Join-Path $os 'hermes-profile\bin') + ';' + (Join-Path $op 'payload\runtime') + ';${env:PATH}') } } | ConvertTo-Json -Depth 4) |
+        Set-Content (Join-Path $ws '.vscode\settings.json') -Encoding UTF8
+    $startup = New-TestDir "$Name-startup"
+    if (-not $NoProgram) {
+        New-Item -ItemType Directory -Force (Join-Path $op 'payload') | Out-Null
+        Set-Content (Join-Path $op 'unins000.exe') 'the old uninstaller'
+        # The start script of 2.0.0-beta.10, standing in: it says it was started.
+        Set-Content (Join-Path $op 'start-full-alpha.ps1') ("Set-Content -LiteralPath '" + (Join-Path $la 'started.txt') + "' -Value 'started'")
+        $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $startup 'Godspeed Mission Control.lnk'))
+        $lnk.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $lnk.Arguments = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $op 'start-full-alpha.ps1') + '" -NoBrowser'
+        $lnk.Save()
+        $other = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $startup 'Something else.lnk'))
+        $other.TargetPath = Join-Path $env:SystemRoot 'notepad.exe'; $other.Save()
+    }
+    $key = "HKCU:\Software\GodspeedKbTest\move-env-$Name"
+    New-Item -Path $key -Force | Out-Null
+    New-ItemProperty -Path $key -Name 'GODSPEED_MEDIA_HINT' -Value (Join-Path $os 'media') -PropertyType String | Out-Null
+    New-ItemProperty -Path $key -Name 'Path' -Value ("C:\Tools;%LOCALAPPDATA%\$($fn.OldState)\hermes-runtime\bin") -PropertyType ExpandString | Out-Null
+    New-ItemProperty -Path $key -Name 'OTHER' -Value 'C:\Something' -PropertyType String | Out-Null
+    New-Item -Path "HKCU:\Software\GodspeedKbTest\move-apps-$Name" -Force | Out-Null
+    return [pscustomobject]@{ La = $la; OldState = $os; OldProgram = $op; State = (Join-Path $la $fn.State); Program = (Join-Path $la $fn.Program); Ws = $ws; Startup = $startup; EnvKey = $key; AppsKey = "HKCU:\Software\GodspeedKbTest\move-apps-$Name" }
+}
+function Invoke-Move($t, [string]$Action, [hashtable]$Env = @{}, [int]$OldUpdater = 0) {
+    $la0 = $env:LOCALAPPDATA; $saved = @{}
+    try {
+        $env:LOCALAPPDATA = $t.La; $env:KB_TEST_MOVE_HOME = $t.La
+        foreach ($k in $Env.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k); Set-Item "env:$k" $Env[$k] }
+        $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $MoveScript, '-Action', $Action, '-Run', 'test-run', '-ShortcutFolders', $t.Startup,
+               '-EnvironmentKey', $t.EnvKey, '-TaskNames', 'KbTestMoveNone', '-AppsKey', $t.AppsKey, '-RuntimeBuilder', $MoveBuilder)
+        if ($OldUpdater) { $a += @('-OldUpdater', $OldUpdater) }
+        $out = & $BetaPs @a 2>&1 | Out-String -Width 4096
+        return [pscustomobject]@{ Code = $LASTEXITCODE; Out = $out }
+    } finally {
+        $env:LOCALAPPDATA = $la0; Remove-Item env:KB_TEST_MOVE_HOME -ErrorAction SilentlyContinue
+        foreach ($k in $Env.Keys) { if ($null -eq $saved[$k]) { Remove-Item "env:$k" -ErrorAction SilentlyContinue } else { Set-Item "env:$k" $saved[$k] } }
+    }
+}
+# Every byte of the old install, to compare after a move was put back.
+function Get-Bytes($t) {
+    $files = @(Get-ChildItem $t.OldState, $t.OldProgram, $t.Startup, (Join-Path $t.Ws '.vscode') -Recurse -File -Force -ErrorAction SilentlyContinue | Sort-Object FullName)
+    $sums = $files | ForEach-Object { $_.FullName.Substring($t.La.Length) + ' ' + (Get-FileHash -LiteralPath $_.FullName).Hash }
+    $envs = (Get-Item $t.EnvKey).GetValueNames() | Sort-Object | ForEach-Object { $_ + '=' + (Get-Item $t.EnvKey).GetValue($_, $null, 'DoNotExpandEnvironmentNames') + ':' + (Get-Item $t.EnvKey).GetValueKind($_) }
+    return (@($sums) + @($envs)) -join "`n"
+}
+function Test-PutBack($t, [string]$Before) {
+    $after = Get-Bytes $t
+    if ($after -ne $Before) { Write-Host "   not as before:"; Compare-Object ($Before -split "`n") ($after -split "`n") | ForEach-Object { Write-Host "   $($_.SideIndicator) $($_.InputObject)" } }
+    ($after -eq $Before) -and -not (Test-Path $t.State) -and -not (Test-Path (Join-Path $t.La 'Godspeed\folder-move'))
+}
+
+$mv = New-OldNamesInstall 'move-a'
+$mvBefore = Get-Bytes $mv
+$mvPhoto = (Get-FileHash (Join-Path $mv.OldState 'media\photo.jpg')).Hash
+$r = Invoke-Move $mv 'Move'
+Check "move: the state folder goes to the new name with every file of the person's unchanged, and the old one is gone" {
+    if ($r.Code -ne 0) { Write-Host $r.Out }
+    $r.Code -eq 0 -and -not (Test-Path $mv.OldState) -and
+        (Get-FileHash (Join-Path $mv.State 'media\photo.jpg')).Hash -eq $mvPhoto -and
+        (Get-Content (Join-Path $mv.State 'hermes-profile\memories\MEMORY.md') -Raw).Contains('C:\notes') -and
+        (Test-Path (Join-Path $mv.State 'backups\20261020-101010-000\copy.txt'))
+}
+Check "move: the notebook's records point into the new folders, and keep their byte-order mark" {
+    $i = Get-Content (Join-Path $mv.State 'installation.json') -Raw | ConvertFrom-Json
+    $a = Get-Content (Join-Path $mv.State 'assistant.json') -Raw | ConvertFrom-Json
+    $b = [IO.File]::ReadAllBytes((Join-Path $mv.State 'installation.json'))
+    $i.media -eq (Join-Path $mv.State 'media') -and $i.appRoot -eq $mv.Program -and $i.workspace -eq $mv.Ws -and
+        $a.executable -eq (Join-Path $mv.State 'hermes-runtime\bin\hermes.exe') -and $a.home -eq (Join-Path $mv.State 'hermes-profile') -and
+        $a.sourceRoot -eq (Join-Path $mv.State 'hermes-runtime\hermes-agent') -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB
+}
+Check "move: the assistant's settings and the folder's editor settings point into the new folders" {
+    $y = Get-Content (Join-Path $mv.State 'hermes-profile\config.yaml') -Raw
+    $v = Get-Content (Join-Path $mv.Ws '.vscode\settings.json') -Raw | ConvertFrom-Json
+    $e = $v.'terminal.integrated.env.windows'
+    $y.Contains((ConvertTo-Json (Join-Path $mv.Program 'payload\runtime\node.exe') -Compress)) -and $y.Contains((ConvertTo-Json $mv.Ws -Compress)) -and
+        $e.HERMES_HOME -eq (Join-Path $mv.State 'hermes-profile') -and
+        $e.PATH -eq ((Join-Path $mv.State 'hermes-profile\bin') + ';' + (Join-Path $mv.Program 'payload\runtime') + ';${env:PATH}')
+}
+Check "move: the Startup entry runs the new start script in the new program folder; another shortcut is left alone" {
+    $sh = New-Object -ComObject WScript.Shell
+    $lnk = $sh.CreateShortcut((Join-Path $mv.Startup 'Godspeed Mission Control.lnk'))
+    $lnk.Arguments.Contains('-File "' + (Join-Path $mv.Program 'start-notebook.ps1') + '" -NoBrowser') -and -not ($lnk.Arguments -match 'alpha') -and
+        $sh.CreateShortcut((Join-Path $mv.Startup 'Something else.lnk')).TargetPath -like '*notepad.exe'
+}
+Check "move: the user's environment names the new folders, PATH keeps its %LOCALAPPDATA% form and its kind, and nothing else changes" {
+    $k = Get-Item $mv.EnvKey
+    $k.GetValue('GODSPEED_MEDIA_HINT') -eq (Join-Path $mv.State 'media') -and
+        $k.GetValue('Path', $null, 'DoNotExpandEnvironmentNames') -eq "C:\Tools;%LOCALAPPDATA%\$($fn.State)\hermes-runtime\bin" -and
+        [string]$k.GetValueKind('Path') -eq 'ExpandString' -and $k.GetValue('OTHER') -eq 'C:\Something'
+}
+Check "move: the assistant's program is installed again in its new place, with the old copy's downloads, and the old copy waits beside it" {
+    $calls = @(Get-Content (Join-Path $mv.La 'builder-calls.txt'))
+    $calls.Count -eq 1 -and $calls[0] -eq "$($mv.State)|$($mv.Ws)|47831|True|True|True" -and
+        (Get-Content (Join-Path $mv.State 'hermes-runtime\bin\hermes.exe') -Raw).Contains('built for this folder') -and
+        (Test-Path (Join-Path $mv.State 'hermes-runtime\uv-cache\a.whl')) -and (Test-Path (Join-Path $mv.State 'hermes-runtime\npm-cache\b.tgz')) -and
+        (Get-Content (Join-Path $mv.State 'hermes-runtime-before-move\bin\hermes.exe') -Raw).Contains('built for the old folder')
+}
+Check "move: the old program folder is not touched, and the record says the move is done" {
+    $j = Get-Content (Join-Path $mv.La 'Godspeed\folder-move\journal.json') -Raw | ConvertFrom-Json
+    (Test-Path (Join-Path $mv.OldProgram 'unins000.exe')) -and $j.status -eq 'moved' -and $j.run -eq 'test-run'
+}
+$r = Invoke-Move $mv 'Undo'
+Check "undo (the setup ended without installing the program): every byte of the old install is back, and its notebook is started again" {
+    if ($r.Code -ne 0) { Write-Host $r.Out }
+    Start-Sleep -Seconds 3
+    $r.Code -eq 0 -and (Test-PutBack $mv $mvBefore) -and (Test-Path (Join-Path $mv.La 'started.txt')) -and
+        ((Get-Content (Join-Path $mv.La 'Godspeed\setup-result.txt') -Raw) -match '^failed: ')
+}
+
+$mf = New-OldNamesInstall 'move-fail'
+$mfBefore = Get-Bytes $mf
+$r = Invoke-Move $mf 'Move' @{ KB_TEST_MOVE_FAIL = '1' }
+Check "a move that fails at its last step puts every byte back, starts the notebook again and says so in one plain line" {
+    if ($r.Code -ne 1) { Write-Host $r.Out }
+    Start-Sleep -Seconds 3
+    $lines = @(Get-Content (Join-Path $mf.La 'Godspeed\setup-log.txt') | Where-Object { $_ -match 'stays in its old folders' })
+    $r.Code -eq 1 -and (Test-PutBack $mf $mfBefore) -and (Test-Path (Join-Path $mf.La 'started.txt')) -and $lines.Count -eq 1 -and
+        $lines[0].Contains('it was made to fail here') -and $lines[0].Contains('The next update tries again.') -and
+        ((Get-Content (Join-Path $mf.La 'Godspeed\setup-result.txt') -Raw) -match '^failed: ')
+}
+$r = Invoke-Move $mf 'Move'
+Check "and the next move succeeds" { $r.Code -eq 0 -and -not (Test-Path $mf.OldState) -and (Test-Path (Join-Path $mf.State 'installation.json')) }
+# Finish, as setup-godspeed.ps1 runs it once the new install works: the Apps entry names the new folder.
+New-ItemProperty -Path $mf.AppsKey -Name 'InstallLocation' -Value ($mf.Program + '\') -PropertyType String -Force | Out-Null
+$sleeper = Start-Process $BetaPs -ArgumentList '-NoProfile', '-Command', 'Start-Sleep -Seconds 6' -WindowStyle Hidden -PassThru
+$r = Invoke-Move $mf 'Finish' -OldUpdater $sleeper.Id
+Check "finish: the old program folder and the old copy of the assistant's program go, the person's data stays" {
+    if ($r.Code -ne 0) { Write-Host $r.Out }
+    $r.Code -eq 0 -and -not (Test-Path $mf.OldProgram) -and -not (Test-Path (Join-Path $mf.State 'hermes-runtime-before-move')) -and
+        (Test-Path (Join-Path $mf.State 'media\photo.jpg')) -and (Test-Path (Join-Path $mf.State 'hermes-runtime\bin\hermes.exe')) -and
+        -not (Test-Path (Join-Path $mf.La 'Godspeed\folder-move'))
+}
+Check "finish: an older updater still waiting finds a record of the new version under the old name, which goes once it has ended" {
+    $stub = Join-Path $mf.OldState 'installation.json'
+    $s = Get-Content $stub -Raw | ConvertFrom-Json
+    $during = $s.kitCommit -eq ('a' * 40) -and $s.movedTo -eq $mf.State -and (Get-GodspeedStateFolder -LocalAppData $mf.La) -eq $mf.State
+    $sleeper.WaitForExit(20000) | Out-Null
+    $until = (Get-Date).AddSeconds(30); while ((Test-Path $mf.OldState) -and (Get-Date) -lt $until) { Start-Sleep -Milliseconds 500 }
+    $during -and -not (Test-Path $mf.OldState)
+}
+
+$mb = New-OldNamesInstall 'move-builder-fails'
+$mbBefore = Get-Bytes $mb
+$r = Invoke-Move $mb 'Move' @{ KB_TEST_BUILDER_FAIL = '1' }
+Check "a move whose assistant's program cannot be installed again puts the old one back, with its downloads" {
+    if ($r.Code -ne 1) { Write-Host $r.Out }
+    $r.Code -eq 1 -and (Test-PutBack $mb $mbBefore) -and $r.Out.Contains("the assistant's program could not be installed in its new folder")
+}
+
+$mu = New-OldNamesInstall 'move-after-uninstall' -NoProgram -NoRuntime
+$r = Invoke-Move $mu 'Move'
+Check "after an uninstall (no program, no assistant's program): the state folder moves and nothing is installed by the move" {
+    if ($r.Code -ne 0) { Write-Host $r.Out }
+    $r.Code -eq 0 -and -not (Test-Path $mu.OldState) -and (Test-Path (Join-Path $mu.State 'hermes-profile\memories\MEMORY.md')) -and
+        -not (Test-Path (Join-Path $mu.La 'builder-calls.txt')) -and
+        ((Get-Content (Join-Path $mu.State 'installation.json') -Raw | ConvertFrom-Json).media -eq (Join-Path $mu.State 'media'))
+}
+
+$mc = New-OldNamesInstall 'move-crash'
+$mcBefore = Get-Bytes $mc
+$r = Invoke-Move $mc 'Move'
+# As if the computer had gone off in the middle: the record still says the move is under way.
+$jf = Join-Path $mc.La 'Godspeed\folder-move\journal.json'
+$j = Get-Content $jf -Raw | ConvertFrom-Json; $j.status = 'moving'; $j | ConvertTo-Json -Depth 6 | Set-Content $jf -Encoding UTF8
+$r2 = Invoke-Move $mc 'Undo'
+Check "a move a crash left half done is not taken back by a later run's undo, but put back first by the next move, which then moves again" {
+    $stillNew = Test-Path (Join-Path $mc.State 'installation.json')
+    $r3 = Invoke-Move $mc 'Move'
+    if ($r3.Code -ne 0) { Write-Host $r3.Out }
+    $stillNew -and $r3.Code -eq 0 -and $r3.Out.Contains('putting it back first') -and -not (Test-Path $mc.OldState) -and
+        (Test-Path (Join-Path $mc.State 'media\photo.jpg')) -and
+        @(Get-Content (Join-Path $mc.La 'builder-calls.txt')).Count -eq 2
+}
+
+$mn = New-TestDir 'move-nothing'
+$r = Invoke-Move ([pscustomobject]@{ La = $mn; Startup = (New-TestDir 'move-nothing-startup'); EnvKey = 'HKCU:\Software\GodspeedKbTest\move-nothing'; AppsKey = 'HKCU:\Software\GodspeedKbTest\move-nothing-apps' }) 'Move'
+Check "a PC with nothing under the old names: nothing to move, nothing made" { $r.Code -eq 3 -and @(Get-ChildItem $mn -Directory | Where-Object { $_.Name -ne 'Godspeed' }).Count -eq 0 }
+
+Check "detect: an install under the old names is reported for the move, with its program folder" {
+    $t = New-OldNamesInstall 'move-detect'
+    $outFile = Join-Path $dl 'answers-move.txt'
+    $la0 = $env:LOCALAPPDATA
+    try {
+        $env:LOCALAPPDATA = $t.La
+        & $BetaPs -NoProfile -ExecutionPolicy Bypass -File (Join-Path $BetaWin 'detect-godspeed.ps1') -Join (Join-Path $BetaWin '..\join.ps1') -Out $outFile | Out-Null
+    } finally { $env:LOCALAPPDATA = $la0 }
+    $a = Get-BetaAnswers $outFile
+    $a['move'] -eq '1' -and $a['oldprogram'] -eq $t.OldProgram
+}
+Check "the wizard installs the program into the new folder, moves the rest before it copies anything, and puts the move back when it did not install" {
+    $wizard = [regex]::Match($IssSrcC, '(?ms)^procedure InitializeWizard\(\);.*?^end;').Value
+    $prep = Get-IssFunction 'PrepareToInstall'
+    $iss = Get-Content (Join-Path $BetaWin 'godspeed-setup.iss') -Raw
+    $wizard.Contains("WizardForm.DirEdit.Text := ExpandConstant('{localappdata}\{#ProgramFolder}');") -and
+        $prep.Contains("Code := RunMove('Move');") -and $prep.Contains('if Code = 0 then MovedNow := True') -and
+        $prep.Contains("ExtractTemporaryFiles('{tmp}\vendor\*');") -and
+        ($iss -match "procedure DeinitializeSetup\(\);\s+begin\s+if MovedNow and not Installed then RunMove\('Undo'\);") -and
+        $iss.Contains('if CurStep = ssPostInstall then Installed := True;') -and
+        $iss.Contains('Source: "move-to-new-folders.ps1"; DestDir: "{tmp}"; Flags: dontcopy') -and
+        $iss.Contains('Source: "vendor\*"; DestDir: "{tmp}\vendor"; Flags: dontcopy')
+}
+Check "the setup tidies up after the move once the notebook works, and the updater reads the record where the setup left it" {
+    $s = Get-Content (Join-Path $BetaWin 'setup-godspeed.ps1') -Raw
+    $u = Get-Content (Join-Path $BetaWin 'update-godspeed.ps1') -Raw
+    $s.IndexOf("'setup-notebook.ps1'") -lt $s.IndexOf("'move-to-new-folders.ps1') -Action Finish") -and
+        $s.IndexOf("'move-to-new-folders.ps1') -Action Finish") -lt $s.IndexOf("Set-SetupResult 'ok'") -and
+        $u.LastIndexOf('if (-not $StateGiven) { $State = Get-GodspeedStateFolder }') -gt $u.IndexOf('$setup.WaitForExit()')
+}
+Get-ChildItem 'HKCU:\Software\GodspeedKbTest' -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like 'move-*' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force 'HKCU:\Software\GodspeedKbTest\first-edition' -ErrorAction SilentlyContinue
 
 # THE REAL PATH, PUT BACK ONCE MORE, AND THIS TIME LAST. The restore further up was written

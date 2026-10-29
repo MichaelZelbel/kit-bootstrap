@@ -1,4 +1,8 @@
-param([Parameter(Mandatory)][string]$State,[Parameter(Mandatory)][string]$Workspace,[int]$Port=47831,[switch]$Provision,[switch]$ForceIsolatedInstall)
+param([Parameter(Mandatory)][string]$State,[Parameter(Mandatory)][string]$Workspace,[int]$Port=47831,[switch]$Provision,[switch]$ForceIsolatedInstall,[switch]$RuntimeOnly)
+# -RuntimeOnly: install the Hermes program into $State\hermes-runtime and stop there, writing no
+#   record and connecting nothing. move-to-new-folders.ps1 uses it when it moves an install made
+#   before 2.0.0-beta.11: the program records the folder it was installed in, so it is installed
+#   again in the new one, and the setup connects it afterwards as on every update.
 $ErrorActionPreference='Stop'
 $runtimeHome=Join-Path $State 'hermes-runtime'
 $profileHome=Join-Path $State 'hermes-profile'
@@ -41,6 +45,7 @@ if(-not $desktop -or -not(Test-Path -LiteralPath $desktop)){
   [pscustomobject]@{verified=$false;reason='Hermes is not installed for this notebook yet.'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $State 'assistant.json') -Encoding UTF8
   return
 }
+if($RuntimeOnly){return}
 # Only new configuration for this notebook's Hermes is written. The installed default profile is never read or changed.
 $config=Join-Path $profileHome 'config.yaml'
 if(-not(Test-Path -LiteralPath $config)){
