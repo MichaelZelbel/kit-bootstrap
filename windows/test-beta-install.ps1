@@ -300,11 +300,15 @@ Want "$what names nothing `"Full Alpha`": no folder, program file, Start menu or
       ($apps[0].InstallLocation.TrimEnd('\') -eq $app) -and -not (Test-Path $oldState) -and -not (Test-Path $oldApp)
 }
 if ($moved) {
+  # The records' "channel" stays "full-alpha": a format value installed notebooks read, never shown
+  # (ticket 04). What must be gone is every path into the old folders.
   Want "the notebook's records point into the new folders" {
     $a = Get-Content (Join-Path $state 'assistant.json') -Raw | ConvertFrom-Json
+    $records = (Get-Content (Join-Path $state 'installation.json') -Raw) + (Get-Content (Join-Path $state 'assistant.json') -Raw)
+    $records | Set-Content (Join-Path $Evidence 'records-after-the-move.json')
     $i.appRoot.TrimEnd('\') -eq $app -and $i.media -eq (Join-Path $state 'media') -and $a.home -eq (Join-Path $state 'hermes-profile') -and
       $a.executable.StartsWith((Join-Path $state 'hermes-runtime') + '\') -and $a.desktop.StartsWith((Join-Path $state 'hermes-runtime') + '\') -and
-      -not ((Get-Content (Join-Path $state 'installation.json') -Raw) -match 'full.?alpha') -and -not ((Get-Content (Join-Path $state 'assistant.json') -Raw) -match 'full.?alpha')
+      -not ($records -match 'Full Alpha')
   }
   Want "the user's settings that named the old state folder name the new one, PATH in the form it had" {
     $p = [string](Get-Item $envKey).GetValue('Path', '', 'DoNotExpandEnvironmentNames')
