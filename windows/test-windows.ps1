@@ -4425,7 +4425,9 @@ function Get-Bytes($t) {
 function Test-PutBack($t, [string]$Before) {
     $after = Get-Bytes $t
     if ($after -ne $Before) { Write-Host "   not as before:"; Compare-Object ($Before -split "`n") ($after -split "`n") | Select-Object -First 12 | ForEach-Object { Write-Host "   $($_.SideIndicator) $($_.InputObject)" } }
-    ($after -eq $Before) -and -not (Test-Path $t.State) -and -not (Test-Path $t.Program) -and -not (Test-Path (Join-Path $t.La 'Godspeed\folder-move'))
+    $left = @($t.State, $t.Program, (Join-Path $t.La 'Godspeed\folder-move') | Where-Object { Test-Path $_ })
+    foreach ($l in $left) { Write-Host "   still there: $l ($(@(Get-ChildItem $l -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName.Substring($l.Length) }) -join ', '))" }
+    ($after -eq $Before) -and $left.Count -eq 0
 }
 function Get-LauncherText([string]$Path) { return [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($Path)) }
 # As the wizard leaves it once it has copied every file: the program in the new folder, its

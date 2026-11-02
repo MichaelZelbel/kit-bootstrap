@@ -118,10 +118,12 @@ function Step([string]$Text) {
 # at once, leaving everything as it is at that moment.
 function Test-CutOff([string]$Where) { if ($env:KB_TEST_MOVE_STOP -eq $Where) { [Environment]::Exit(9) } }
 
+# Written beside it first and then put in its place, so a record is never half written. .NET closes
+# the file even when the write fails (a full disk), so nothing keeps the folder from going later.
 function Save-Journal {
     $tmp = $journalFile + '.tmp'
-    $script:journal | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $tmp -Encoding UTF8
-    Move-Item -LiteralPath $tmp -Destination $journalFile -Force
+    [IO.File]::WriteAllText($tmp, ($script:journal | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
+    if (Test-Path -LiteralPath $journalFile) { [IO.File]::Replace($tmp, $journalFile, $null) } else { [IO.File]::Move($tmp, $journalFile) }
 }
 # A put-back must not stop because the record cannot be written (a full disk, a held file).
 function Save-JournalQuietly { try { Save-Journal } catch { } }
@@ -609,7 +611,12 @@ function Update-Tasks {
 function Start-Script([string]$Path, [string[]]$Arguments = @()) {
     Start-Process -FilePath $ps -ArgumentList (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ('"' + $Path + '"')) + $Arguments) -WindowStyle Hidden
 }
-function Set-Note([string]$Text) { try { Set-Content -LiteralPath $noteFile -Value $Text -Encoding UTF8 } catch { } }
+function Set-Note([string]$Text) { try { [IO.File]::WriteAllText($noteFile, $Text, [Text.UTF8Encoding]::new($false)) } catch { } }
+# The record first, so a folder that cannot all go at once is never taken for a move under way.
+function Remove-MoveRecord {
+    Remove-Item -LiteralPath $journalFile -Force -ErrorAction SilentlyContinue
+    if (-not (Remove-Folder $moveDir)) { Say "Some of $moveDir could not be removed; nothing in it is needed any more." }
+}
 
 # -----------------------------------------------------------------------------
 # PUT BACK. Looks at what is there, not only at the record, because a move can have been cut off
@@ -680,7 +687,7 @@ function Undo-Move($j) {
     if ($j.stopped.assistant -and $opener) { Start-Script $opener }
     foreach ($t in @($j.stopped.tasks)) { if ($t) { Start-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue } }
     if ($errors) { Say "Putting the old folders back left this undone: $($errors -join ' ')" }
-    Remove-Item -LiteralPath $moveDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-MoveRecord
     return 'back'
 }
 
@@ -744,7 +751,7 @@ function Complete-Move([switch]$Partial) {
         }
         if ($j.stopped.assistant -and (Test-Path -LiteralPath (Join-Path $newProgram 'open-hermes.ps1'))) { Start-Script (Join-Path $newProgram 'open-hermes.ps1') }
         foreach ($t in @($j.stopped.tasks)) { if ($t) { Start-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue } }
-        Remove-Item -LiteralPath $moveDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-MoveRecord
         if ($moved) { Say "Godspeed Mission Control now lives in $newProgram and keeps its notebook's data in $newState." }
     }
     # The old program folder, once Windows' Apps entry names another one. The program the wizard
@@ -927,7 +934,7 @@ try {
     Set-J 'reserveBytes' $reserveBytes
     Save-Journal
 } catch {
-    Remove-Item -LiteralPath $moveDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-MoveRecord
     Set-Postponed "the safety copies could not be made ($($_.Exception.Message))."
     exit 4
 }
