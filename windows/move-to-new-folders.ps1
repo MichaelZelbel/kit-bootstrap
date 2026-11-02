@@ -123,7 +123,7 @@ function Test-CutOff([string]$Where) { if ($env:KB_TEST_MOVE_STOP -eq $Where) { 
 function Save-Journal {
     $tmp = $journalFile + '.tmp'
     [IO.File]::WriteAllText($tmp, ($script:journal | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
-    if (Test-Path -LiteralPath $journalFile) { [IO.File]::Replace($tmp, $journalFile, $null) } else { [IO.File]::Move($tmp, $journalFile) }
+    if (Test-Path -LiteralPath $journalFile) { [IO.File]::Replace($tmp, $journalFile, [NullString]::Value) } else { [IO.File]::Move($tmp, $journalFile) }
 }
 # A put-back must not stop because the record cannot be written (a full disk, a held file).
 function Save-JournalQuietly { try { Save-Journal } catch { } }
