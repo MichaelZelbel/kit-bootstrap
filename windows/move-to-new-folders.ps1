@@ -632,16 +632,23 @@ function Undo-Move($j) {
         try {
             foreach ($c in $caches) {
                 if ((Test-Path -LiteralPath (Join-Path $runtime $c)) -and -not (Test-Path -LiteralPath (Join-Path $kept $c))) {
-                    if (-not (Move-Folder (Join-Path $runtime $c) (Join-Path $kept $c) 30)) { throw "the downloads in $runtime\$c could not be given back." }
+                    if (-not (Move-Folder (Join-Path $runtime $c) (Join-Path $kept $c) $HoldBackSeconds)) { throw "the downloads in $runtime\$c could not be given back." }
                 }
             }
             if (Test-Path -LiteralPath $runtime) {
                 $failed = Join-Path $at ('hermes-runtime-failed-' + (Get-Date -Format 'yyyyMMddHHmmss'))
-                if (-not (Move-Folder $runtime $failed 30)) { throw "$runtime could not be moved aside." }
+                if (-not (Move-Folder $runtime $failed $HoldBackSeconds)) { throw "$runtime could not be moved aside: something on this PC still uses it." }
                 [void](Remove-Folder $failed)
             }
-            if (-not (Move-Folder $kept $runtime 30)) { throw "$kept could not get its name back." }
-        } catch { $errors += $_.Exception.Message }
+            if (-not (Move-Folder $kept $runtime $HoldBackSeconds)) { throw "$kept could not get its name back." }
+        } catch {
+            # The copy installed for the new folder would not work under the old name, and the old
+            # copy is still aside: nothing more is put back now. The record stays, the Startup entry
+            # keeps running this script, and the next start (or the next setup) tries again.
+            $j.status = 'undoing'; Save-JournalQuietly
+            Say "Godspeed Mission Control could not be put back into its old folders yet ($($_.Exception.Message)). It is finished when you next sign in, or when you run the installer again."
+            return 'held'
+        }
     }
     # The state folder under its old name again: one rename, as the move was.
     if ($at -eq $newState) {

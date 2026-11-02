@@ -4636,8 +4636,16 @@ Check "an assistant's program that does not start from its new folder is install
         (Test-Path (Join-Path $mi.State 'hermes-runtime\uv-cache\a.whl')) -and (Test-Path (Join-Path $mi.State 'hermes-runtime-before-move\bin\hermes.exe')) -and
         (Get-Content (Join-Path $mi.La 'Godspeed\folder-move-note.txt') -Raw).Contains("The assistant's program had to be installed again there, because")
 }
+$held = [IO.File]::Open((Join-Path $mi.State 'hermes-runtime\bin\hermes.exe'), 'Open', 'Read', 'Read')
+try { $r = Invoke-Move $mi 'Resume' } finally { $held.Close() }
+Check "a put-back that finds the newly installed copy held stops there: the state stays with it under the new name, the record and the Startup entry wait for the next start" {
+    if ($r.Code -ne 1) { Write-Host $r.Out }
+    $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $mi.Startup 'Godspeed Mission Control.lnk'))
+    $r.Code -eq 1 -and (Test-Path (Join-Path $mi.State 'installation.json')) -and (Test-Path (Join-Path $mi.State 'hermes-runtime-before-move\bin\hermes.exe')) -and
+        (Test-Path (Join-Path $mi.La 'Godspeed\folder-move\journal.json')) -and $lnk.Arguments.Contains('-Action Resume') -and -not (Test-Path $mi.OldState)
+}
 $r = Invoke-Move $mi 'Resume'
-Check "and a put-back after that brings the old copy back, byte for byte" { if ($r.Code -ne 0) { Write-Host $r.Out }; $r.Code -eq 0 -and (Test-PutBack $mi $miBefore) }
+Check "and the next put-back brings the old copy back, byte for byte" { if ($r.Code -ne 0) { Write-Host $r.Out }; $r.Code -eq 0 -and (Test-PutBack $mi $miBefore) }
 $mx = New-OldNamesInstall 'move-reinstall-fails'
 $mxBefore = Get-Bytes $mx
 $r = Invoke-Move $mx 'Move' @{ KB_TEST_RUNTIME_CHECK_FAIL = '1'; KB_TEST_BUILDER_FAIL = '1' }
