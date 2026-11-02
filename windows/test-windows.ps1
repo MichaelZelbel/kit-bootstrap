@@ -4576,10 +4576,10 @@ $mhBefore = Get-Bytes $mh
 $held = [IO.File]::Open((Join-Path $mh.OldState 'media\photo.jpg'), 'Open', 'Read', 'Read')
 try { $r = Invoke-Move $mh 'Move' } finally { $held.Close() }
 Start-Sleep -Seconds 3
-Check "a folder held for longer than the wait: the move is put off with nothing changed, the notebook started again, one plain line" {
+Check "a folder held for longer than the wait: the move is put off with nothing changed and one plain line, and starts no notebook (the update goes on and starts it)" {
     if ($r.Code -ne 4) { Write-Host $r.Out }
     $lines = @(Get-Content (Join-Path $mh.La 'Godspeed\setup-log.txt') | Where-Object { $_ -match 'stays in its old folders' })
-    $r.Code -eq 4 -and (Test-PutBack $mh $mhBefore) -and (Test-Path (Join-Path $mh.La 'started.txt')) -and $lines.Count -eq 1 -and
+    $r.Code -eq 4 -and (Test-PutBack $mh $mhBefore) -and -not (Test-Path (Join-Path $mh.La 'started.txt')) -and $lines.Count -eq 1 -and
         $lines[0].Contains('still used it for 3 seconds') -and $lines[0].Contains('The next update tries the move again.') -and
         (Get-Content (Join-Path $mh.La 'Godspeed\folder-move-note.txt') -Raw).Contains('stays in its old folders this time')
 }
@@ -4618,11 +4618,11 @@ Check "a put-back that cannot write its record (a full disk, a held file) puts i
 $mf = New-OldNamesInstall 'move-fail'
 $mfBefore = Get-Bytes $mf
 $r = Invoke-Move $mf 'Move' @{ KB_TEST_MOVE_FAIL = '1' }
-Check "a move that fails at its last step puts every byte back, starts the notebook again and puts the move off in one plain line" {
+Check "a move that fails at its last step puts every byte back and puts the move off in one plain line, and starts no notebook (the update goes on and starts it)" {
     if ($r.Code -ne 4) { Write-Host $r.Out }
     Start-Sleep -Seconds 3
     $lines = @(Get-Content (Join-Path $mf.La 'Godspeed\setup-log.txt') | Where-Object { $_ -match 'stays in its old folders' })
-    $r.Code -eq 4 -and (Test-PutBack $mf $mfBefore) -and (Test-Path (Join-Path $mf.La 'started.txt')) -and $lines.Count -eq 1 -and
+    $r.Code -eq 4 -and (Test-PutBack $mf $mfBefore) -and -not (Test-Path (Join-Path $mf.La 'started.txt')) -and $lines.Count -eq 1 -and
         $lines[0].Contains('it was made to fail here') -and $lines[0].Contains('The next update tries the move again.')
 }
 $r = Invoke-Move $mf 'Move'

@@ -1023,6 +1023,10 @@ try {
     $why = $_.Exception.Message
 }
 Step 'The move did not finish; putting the old folders back'
+# The update goes on in the old folders (exit 4) and starts the notebook itself once its files are
+# in place. Started here it would come up while the wizard copies, hold its own files and make the
+# copy fail (the fresh-machine run of 2 November 2026, "file in use").
+$NoStart = $true
 $result = 'held'
 try { $result = Undo-Move $journal } catch { $why += " Putting it back did not finish either ($($_.Exception.Message))." }
 if ($result -eq 'back') { Set-Postponed $why; exit 4 }
