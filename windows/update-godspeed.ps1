@@ -102,6 +102,11 @@ if ($newer) {
         }
     }
     Write-Host "  Installing it. A window shows what it does; this can take a few minutes. Your notes, files and settings stay as they are."
+    # An install made before 2.0.0-beta.11 is moved to its new folders by this update first
+    # (move-to-new-folders.ps1): its state folder renamed, which takes seconds and copies nothing.
+    if ($State -ieq (Join-Path $env:LOCALAPPDATA (Get-GodspeedFolderNames).OldState)) {
+        Write-Host "  This update also moves Godspeed Mission Control to its new folders, without the words Full Alpha. Your notebook's folder is renamed: nothing in it is copied or changed."
+    }
     # WaitForExit on the setup itself, never Start-Process -Wait: -Wait also waits for everything the
     # setup starts, and the notebook it starts keeps running on purpose.
     $setup = Start-Process -FilePath (Join-Path $work 'GodspeedSetup.exe') -ArgumentList '/SILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru

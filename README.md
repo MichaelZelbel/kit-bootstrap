@@ -27,16 +27,28 @@ A new install keeps the program in `%LOCALAPPDATA%\Godspeed Mission Control` and
 data in `%LOCALAPPDATA%\Godspeed Mission Control State`. `windows/godspeed-folders.ps1` is the one
 place that names them; every script asks it, and the build hands the program folder's name to the
 wizard. Until 2.0.0-beta.11 both names ended in "Full Alpha". The first update of an install made
-before moves it (`windows/move-to-new-folders.ps1`): before the wizard copies anything it stops
-the notebook, the assistant and the Godspeed jobs, renames the state folder, installs the
-assistant's program again in its new place (it records the folder it was installed in), and points
-the records, setting files, shortcuts, the user's environment and scheduled tasks at the new
-names. The wizard then installs the program into the new program folder, and once the notebook
-works there the old program folder goes. A step that fails puts all of it back, and so does a
-setup that ends without installing the program; the install then keeps working under the old
-names, the update log says why in one line, and the next update tries again. An updater of
-2.0.0-beta.10, which looks for its result only under the old name, finds a record there until it
-has ended.
+before moves it (`windows/move-to-new-folders.ps1`), and the wizard shows each step while it does:
+
+- **Before the first change** it writes down what it will do, keeps a copy of every file it will
+  change, and points the Startup entry at itself, so a sign-out, a restart or a closed window at
+  any point is finished or put back at the next sign-in, the next start of the notebook or the
+  next setup, and never leaves half an install.
+- It stops the notebook, the assistant and the Godspeed jobs and **renames** the state folder: one
+  step on the same drive, nothing copied, so a full disk cannot break it and the person's files
+  change by no byte. A folder that something still holds (a virus scanner, a window opened there)
+  is waited for, for up to a minute.
+- It **points** what inside names the old folder at the new one: the setup's records, the
+  assistant's settings, and the assistant's program (its Python environment, its links and the
+  launchers that carry its Python's path), and starts that program once from the new place.
+  Only when that fails is the program installed again there, and the last page says why.
+- The wizard installs the program into the new program folder. Once the notebook works there, the
+  shortcuts, the user's settings and the scheduled jobs that name the old folders name the new
+  ones, and the old program folder goes. An updater of 2.0.0-beta.10, which looks for its result
+  only under the old name, finds a record there until it has ended.
+
+A move that cannot be done (a folder held for longer than the wait, any step that fails) puts all
+of it back: the install keeps working under its old names, the update is made there, the update
+log and the last page say why in one sentence, and the next update tries the move again.
 
 `.github/workflows/beta-windows.yml` builds it from a branch and runs it on fresh GitHub Windows
 machines: silent and with the wizard on screen, as a first install and as the update over the

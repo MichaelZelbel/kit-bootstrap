@@ -137,7 +137,8 @@ Source: "move-to-new-folders.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "detect-godspeed.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "godspeed-folders.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 ; And before anything is copied, on a PC with an install made before 2.0.0-beta.11: what moves it to
-; the new names, stops it first, and installs the assistant's program again in its new place.
+; the new names and stops it first, and what installs the assistant's program again, needed only
+; when that program does not start from its new folder once it is pointed there.
 Source: "move-to-new-folders.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "stop-notebook.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "ensure-hermes.ps1"; DestDir: "{tmp}"; Flags: dontcopy
@@ -259,11 +260,15 @@ var
   Detected: Boolean;
   { An install made before 2.0.0-beta.11, under the names that said "Full Alpha" (detect-godspeed.ps1):
     its program folder when it is here, whether there is anything to move, whether this run moved it,
-    and whether this run then installed the program. }
+    whether the move was put off (then this update goes into the old folders), the sentence the
+    last page says about it, and the page that shows what the move is doing while it runs. }
   OldProgram: String;
   MoveOld: Boolean;
   MovedNow: Boolean;
-  Installed: Boolean;
+  MovePostponed: Boolean;
+  MoveNote: String;
+  MovePage: TOutputProgressWizardPage;
+  MoveSteps: Integer;
 
 { setup-godspeed.ps1 writes "ok" here only when its whole run finished. A [Run] entry's exit code
   is never looked at, so until 6 October 2026 a setup that stopped halfway (a version 2 notebook
@@ -286,7 +291,6 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   { Before anything runs, so an "ok" left by an earlier run never stands for this one. }
   if CurStep = ssInstall then DeleteFile(SetupResultFile());
-  if CurStep = ssPostInstall then Installed := True;
   if CurStep = ssDone then CheckSetupResult();
 end;
 
@@ -494,6 +498,10 @@ begin
     WizardForm.DirEdit.Text := ExpandConstant('{localappdata}\{#ProgramFolder}');
     Log('The program was in ' + OldProgram + ' and is installed into ' + WizardForm.DirEdit.Text + '.');
   end;
+  { What the move is doing, step by step, while it runs: until 2.0.0-beta.15 the wizard showed
+    nothing for up to half an hour, which looked like a setup that hung. }
+  MovePage := CreateOutputProgressPage('Moving Godspeed Mission Control to its new folders',
+    'Your notes, photos, files and conversations move with it, unchanged.');
 #endif
 
   { Shown only on a PC that has a mission control and not yet the notebook. Unticked, so the
@@ -812,6 +820,9 @@ begin
     installing another Hermes, which this setup has brought already. }
   Result := Result + #13#10 + #13#10 +
     'To talk to it, open your notebook: Start menu, Godspeed Mission Control, Open my notebook. The first time, open Settings there and connect your AI account.';
+  { What the move to the new folders did, in one sentence (move-to-new-folders.ps1 writes it):
+    moved, or put off until the next update and why, and anything it had to install again. }
+  if MoveNote <> '' then Result := Result + #13#10 + #13#10 + MoveNote;
 #else
   Result := Result + #13#10 + #13#10 +
     'To talk to it, open Hermes in that folder.';
@@ -908,32 +919,54 @@ begin
 end;
 
 #ifdef IntegratedNotebook
+{ Each line move-to-new-folders.ps1 prints goes into the setup's log; a line that starts with STEP
+  is what it is doing now, and the page shows it. }
+procedure MoveLine(const S: String; const Error, FirstLine: Boolean);
+begin
+  Log('move: ' + S);
+  if (MovePage <> nil) and (Pos('STEP ', S) = 1) then
+  begin
+    MoveSteps := MoveSteps + 1;
+    if MoveSteps > 9 then MoveSteps := 9;
+    MovePage.SetText(Copy(S, 6, Length(S) - 5), '');
+    MovePage.SetProgress(MoveSteps, 10);
+  end;
+end;
+
+{ move-to-new-folders.ps1, from the setup's own temporary folder, which also names this run: a
+  Resume of this run's move is this setup itself, which no other run is. }
+function RunMove(const Action: String): Integer;
+var
+  Shown: Boolean;
+begin
+  Shown := (Action = 'Move') and not WizardSilent;
+  MoveSteps := 0;
+  if Shown then MovePage.Show;
+  try
+    if not ExecAndLogOutput('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{tmp}\move-to-new-folders.ps1')
+      + '" -Action ' + Action + ' -Run "' + ExpandConstant('{tmp}') + '"', '', SW_HIDE, ewWaitUntilTerminated, Result, @MoveLine) then
+      Result := -1;
+  finally
+    if Shown then MovePage.Hide;
+  end;
+  Log('move-to-new-folders.ps1 -Action ' + Action + ' ended with ' + IntToStr(Result) + '.');
+end;
+
 { An upgrade replaces the node.exe the running notebook uses. Restart Manager cannot close it for
   good, because the supervisor starts it again, and in a silent run Setup then aborts and rolls
   back, leaving the notebook stopped (x30, 2026-10-06). So the installed version is stopped with
   its own script first; setup-godspeed.ps1 starts the new one after the files are in place. }
-{ move-to-new-folders.ps1, from the setup's own temporary folder, which also names this run: an undo
-  only puts back a move this run made. Its window shows what it does, unless nothing may show. }
-function RunMove(const Action: String): Integer;
-var
-  Show: Integer;
-begin
-  if IsVerySilent or (Action = 'Undo') then Show := SW_HIDE else Show := SW_SHOWNORMAL;
-  if not Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{tmp}\move-to-new-folders.ps1')
-    + '" -Action ' + Action + ' -Run "' + ExpandConstant('{tmp}') + '"', '', Show, ewWaitUntilTerminated, Result) then
-    Result := -1;
-  Log('move-to-new-folders.ps1 -Action ' + Action + ' ended with ' + IntToStr(Result) + '.');
-end;
-
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Code: Integer;
-  StopScript: String;
+  StopDir, StopScript: String;
+  Note: TArrayOfString;
 begin
   Result := '';
+  StopDir := ExpandConstant('{app}');
   { AN INSTALL MADE BEFORE 2.0.0-beta.11 MOVES TO THE NEW NAMES HERE, before anything is copied, so a
-    failure can put it all back and leave it working where it was (ticket 05 of 2.0.0-beta.11). The
-    move stops the notebook, the assistant and the Godspeed jobs itself. }
+    failure can put it all back and leave it working where it was (ticket 05 of 2.0.0-beta.11,
+    finished in 2.0.0-beta.15). The move stops the notebook, the assistant and the Godspeed jobs itself. }
   if MoveOld then
   begin
     ExtractTemporaryFile('move-to-new-folders.ps1');
@@ -941,30 +974,59 @@ begin
     ExtractTemporaryFile('ensure-hermes.ps1');
     ExtractTemporaryFiles('{tmp}\vendor\*');
     Code := RunMove('Move');
-    if Code = 0 then MovedNow := True
-    else if Code <> 3 then
-      Result := 'Godspeed Mission Control could not be moved to its new folders, so nothing was changed and it keeps working where it is. What happened is written in '
-        + ExpandConstant('{localappdata}\Godspeed\setup-log.txt') + '. Running this installer again tries once more.';
-    Exit;
+    { UTF-8, read as such: the sentence names the folders, and a user name can have any letter. }
+    if LoadStringsFromFile(ExpandConstant('{localappdata}\Godspeed\folder-move-note.txt'), Note) and (GetArrayLength(Note) > 0) then
+      MoveNote := Trim(Note[0]);
+    case Code of
+      0: begin
+           { Moved: the program goes into the new, empty folder. }
+           MovedNow := True;
+           WizardForm.DirEdit.Text := ExpandConstant('{localappdata}\{#ProgramFolder}');
+           Exit;
+         end;
+      3: ;
+      4: begin
+           { Put off: nothing is moved, and this update goes into the folders the install has. }
+           MovePostponed := True;
+           if OldProgram <> '' then
+           begin
+             WizardForm.DirEdit.Text := OldProgram;
+             StopDir := OldProgram;
+           end;
+           Log('The move was put off; the program is updated in ' + WizardForm.DirEdit.Text + '.');
+         end;
+      5: begin
+           Result := 'Another setup of Godspeed Mission Control is running on this PC. Let it finish, then run this installer again.';
+           Exit;
+         end;
+    else
+      begin
+        Result := 'Godspeed Mission Control could not be moved to its new folders, and putting it back in its old ones is not finished yet. That happens by itself when you next sign in, or when you run this installer again. What happened is written in '
+          + ExpandConstant('{localappdata}\Godspeed\setup-log.txt') + '.';
+        Exit;
+      end;
+    end;
   end;
   { A notebook that could not be stopped keeps its files locked; replacing them anyway ended in
     "file in use" or a silent roll-back that never said why. stop-notebook.ps1 says why. An install
     made before 2.0.0-beta.11 has it under its old name until this update puts the new one in place. }
-  StopScript := ExpandConstant('{app}\stop-notebook.ps1');
-  if not FileExists(StopScript) then StopScript := ExpandConstant('{app}\stop-full-alpha.ps1');
+  StopScript := StopDir + '\stop-notebook.ps1';
+  if not FileExists(StopScript) then StopScript := StopDir + '\stop-full-alpha.ps1';
   if FileExists(StopScript) then
     if not Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + StopScript + '"',
       '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
       Result := 'The notebook that is running now could not be stopped, so nothing was changed. If it was started with administrator rights, restart the computer and run this installer again.';
 end;
 
-{ A setup that moved an install made before 2.0.0-beta.11 and then ended without installing the
-  program (cancelled, or a file it could not write) puts the move back: the old program, which it
-  never touched, works only with the old names. Called after the setup has taken its own files back
-  out, and before it removes its temporary folder. }
+{ A setup that moved an install made before 2.0.0-beta.11 ends: move-to-new-folders.ps1 finishes
+  the move when the program was installed completely in the new folder, and puts it back when it
+  was not (cancelled, or a file it could not write: the old program, which it never touched, works
+  only with the old names). After a setup that went through, setup-godspeed.ps1 has finished it
+  already and this does nothing. Called after the setup has taken its own files back out, and
+  before it removes its temporary folder. }
 procedure DeinitializeSetup();
 begin
-  if MovedNow and not Installed then RunMove('Undo');
+  if MovedNow then RunMove('Resume');
 end;
 #endif
 

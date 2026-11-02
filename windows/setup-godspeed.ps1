@@ -488,8 +488,10 @@ if($IntegratedNotebook){
     try { & (Join-Path $PSScriptRoot 'setup-notebook.ps1') -AppRoot $PSScriptRoot -Workspace $Godspeed -OriginalStarter }
     catch { Stop-Setup ("the notebook could not be set up: " + $_.Exception.Message) }
     # An install made before 2.0.0-beta.11 was moved to the new names by the wizard before it copied
-    # anything (move-to-new-folders.ps1 -Action Move). Now that it works there, the old program
-    # folder and the old copy of the assistant's program go. Never stops the setup.
+    # anything (move-to-new-folders.ps1 -Action Move). Now that it works there, the shortcuts, user
+    # settings and scheduled jobs that named the old folders name the new ones, the old program
+    # folder goes, and what the move stopped starts again. After an ordinary update, or a move that
+    # was put off, it changes nothing. Never stops the setup.
     try { & (Join-Path $PSScriptRoot 'move-to-new-folders.ps1') -Action Finish }
     catch { Write-Warning ("tidying up after the move to the new folders did not finish: " + $_.Exception.Message) }
 }
