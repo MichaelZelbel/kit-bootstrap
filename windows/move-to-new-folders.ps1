@@ -24,8 +24,11 @@
 #   -Action Resume   finishes or puts back a move that did not end: from the Startup entry at the
 #                    next sign-in (-Start then starts the notebook), from start-notebook.ps1, from
 #                    the next setup, and from the wizard when it ends (DeinitializeSetup). A move
-#                    whose program was installed completely is finished; any other is put back.
-#                    A move that belongs to a setup still running is left to that setup.
+#                    whose program was installed completely in the new folder is never put back:
+#                    everything is pointed at the new folders, and the old program folder and the
+#                    record stay until a setup goes through (Finish). Any other move is put back.
+#                    A move that belongs to a setup still running is left to that setup (exit 6
+#                    while that setup has not installed the program: nothing may start yet).
 #   -Action Finish   run by setup-godspeed.ps1 once the new install works: points what lies outside
 #                    the two folders at the new names (the user's settings, shortcuts, scheduled
 #                    tasks, the mission control's editor settings), removes the old program folder,
@@ -38,8 +41,9 @@
 #
 # The record (%LOCALAPPDATA%\Godspeed\folder-move\journal.json) is written before the first change.
 # Beside it are the copies, a copy of this script (the Startup entry runs it while a move is under
-# way, when neither program folder may be complete), and some reserved disk space that a put-back
-# frees first, so even a disk that filled up meanwhile can take the old files back.
+# way, when neither program folder may be complete), and disk space reserved for a put-back, as much
+# as writing every copy back can take, which the put-back frees first: even a disk that filled up
+# meanwhile can take the old files back.
 # =============================================================================
 param(
     [ValidateSet('Move', 'Resume', 'Finish')][string]$Action = 'Move',
@@ -677,7 +681,13 @@ function Undo-Move($j) {
 # old program folder goes, and what was stopped starts again. Only once the state folder is under
 # the new name: after a move that was put off, the install stays under the old names, and so do
 # the shortcuts and settings that name them.
-function Complete-Move {
+#   -Partial: the move is finished from somewhere other than a setup that went through (the wizard
+#   ending after its own setup step failed, a sign-in, the notebook's start, the next setup before
+#   its own move). The program is in the new folder and the new version may have changed the
+#   notebook's data, so it is never put back; everything is pointed at the new folders so the
+#   notebook can start from there, but the old program folder and the record stay until a setup
+#   has gone through (its Finish).
+function Complete-Move([switch]$Partial) {
     $j = Read-Journal
     $script:journal = $j
     $moved = (Get-GodspeedRecordKind $newState) -eq 'install' -and (Get-GodspeedRecordKind $oldState) -ne 'install'
@@ -707,6 +717,14 @@ function Complete-Move {
         # again when needed.
         Get-ChildItem -LiteralPath (Join-Path $newState 'hermes-runtime\uv-cache') -Directory -Filter 'interpreter-v*' -ErrorAction SilentlyContinue |
             ForEach-Object { [void](Remove-Folder $_.FullName) }
+    }
+    if ($Partial) {
+        # Never put back from here on, so its copies and reserved space are no longer needed.
+        if ($j) { $j.status = 'installed'; Save-JournalQuietly }
+        Remove-Item -LiteralPath $reserve -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $copies -Recurse -Force -ErrorAction SilentlyContinue
+        Say 'Godspeed Mission Control is in its new folders, but the update stopped before it had finished setting up the notebook there. The next update finishes that, and only then removes the old program folder.'
+        return
     }
     Remove-Item -LiteralPath (Join-Path $newProgram $marker) -Force -ErrorAction SilentlyContinue
     if ($j) {
@@ -788,10 +806,13 @@ function Resolve-Unfinished([switch]$ThenMove) {
     if (-not $j) { return 'none' }
     if ($j.run -ne $Run -and (Test-OwnerAlive $j.owner)) { return 'left' }
     if (Test-ProgramComplete) {
-        Say 'The move to the new folders was cut off after the program was installed there; finishing it.'
-        Complete-Move
+        Say 'The move to the new folders did not end, but the program was installed there; pointing everything at the new folders.'
+        Complete-Move -Partial
         return 'finished'
     }
+    # Installed once (the record says so), and its program gone since (uninstalled): the data may be
+    # the new version's, so it is never put back; the next setup installs into the new folders.
+    if ($j.status -eq 'installed') { return 'finished' }
     if ($j.run -ne $Run) { Say 'A move to the new folders was cut off before it finished; putting the old folders back first.' }
     $result = Undo-Move $j
     # Before a move of its own the setup says nothing: what it says then is about that move.
@@ -861,9 +882,17 @@ try {
     }
     Step 'Finding what in the notebook''s folder and in the assistant''s program names the old folder'
     $pointers = @(Find-RecordPointers $oldState) + @(Find-RuntimePointers $oldState)
-    $need = [long]32MB + 16MB
-    foreach ($p in $pointers) { if ($p.kind -ne 'link') { $need += (Get-Item -LiteralPath (Join-Path $oldState $p.rel) -Force).Length } }
-    if ((Get-FreeBytes) -lt $need) { throw ("drive {0} has {1:N0} MB free, and the move keeps {2:N0} MB of safety copies until it is done." -f [IO.Path]::GetPathRoot($LocalAppData), ((Get-FreeBytes) / 1MB), ($need / 1MB)) }
+    # The space a put-back may need, kept free for it from the start: every file it writes back,
+    # each as if it had to be written anew (rounded up to 64 KB), and 8 MB for Windows' own records.
+    # The move itself writes shorter paths, and its copies are counted on top.
+    $copyBytes = [long]0; $reserveBytes = [long]8MB
+    foreach ($p in $pointers) {
+        if ($p.kind -eq 'link') { continue }
+        $size = (Get-Item -LiteralPath (Join-Path $oldState $p.rel) -Force).Length
+        $copyBytes += $size; $reserveBytes += [long]([Math]::Ceiling(($size + 1) / 64KB) * 64KB)
+    }
+    $need = $copyBytes + $reserveBytes + 16MB
+    if ((Get-FreeBytes) -lt $need) { throw ("the drive of $LocalAppData has {0:N1} MB free, and the move keeps {1:N1} MB of safety copies and room to put them back until it is done." -f ((Get-FreeBytes) / 1MB), ($need / 1MB)) }
 } catch { Set-Postponed $_.Exception.Message; exit 4 }
 
 # 2. THE RECORD, BEFORE THE FIRST CHANGE: what will be done, a copy of every file that will change,
@@ -886,8 +915,9 @@ try {
     foreach ($f in 'move-to-new-folders.ps1', 'godspeed-folders.ps1', 'stop-notebook.ps1') {
         if (Test-Path -LiteralPath (Join-Path $PSScriptRoot $f)) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $f) -Destination (Join-Path $tools $f) -Force }
     }
-    # Space a put-back can always use, even on a disk that filled up meanwhile.
-    $fs = [IO.File]::Create($reserve); try { $fs.SetLength(32MB) } finally { $fs.Close() }
+    # Space a put-back can always use, even on a disk that filled up meanwhile (sized above).
+    $fs = [IO.File]::Create($reserve); try { $fs.SetLength($reserveBytes) } finally { $fs.Close() }
+    Set-J 'reserveBytes' $reserveBytes
     Save-Journal
 } catch {
     Remove-Item -LiteralPath $moveDir -Recurse -Force -ErrorAction SilentlyContinue

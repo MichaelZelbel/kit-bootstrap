@@ -4541,10 +4541,21 @@ $r = Invoke-Move $mc 'Move'
 Set-ProgramInstalled $mc
 $code = Invoke-StartupEntry $mc
 Start-Sleep -Seconds 3
-Check "a move cut off after the program was installed in the new folder is finished at sign-in, never put back, and the new notebook starts" {
-    $code -eq 0 -and (Test-Path (Join-Path $mc.State 'installation.json')) -and -not (Test-Path $mc.OldState) -and -not (Test-Path $mc.OldProgram) -and
-        -not (Test-Path (Join-Path $mc.La 'Godspeed\folder-move')) -and (Get-Content (Join-Path $mc.La 'started.txt') -Raw).Contains('started from ' + $mc.Program) -and
-        (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $mc.Startup 'Godspeed Mission Control.lnk')).Arguments.Contains((Join-Path $mc.Program 'start-notebook.ps1'))
+Check "a move cut off after the program was installed is never put back: at sign-in everything is pointed at the new folders and the new notebook starts, the old program and the record wait for a setup that goes through" {
+    $j = Get-Content (Join-Path $mc.La 'Godspeed\folder-move\journal.json') -Raw | ConvertFrom-Json
+    $code -eq 0 -and (Test-Path (Join-Path $mc.State 'installation.json')) -and -not (Test-Path $mc.OldState) -and (Test-Path $mc.OldProgram) -and
+        $j.status -eq 'installed' -and -not (Test-Path (Join-Path $mc.La 'Godspeed\folder-move\reserve.bin')) -and
+        (Get-Content (Join-Path $mc.La 'started.txt') -Raw).Contains('started from ' + $mc.Program) -and
+        (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $mc.Startup 'Godspeed Mission Control.lnk')).Arguments.Contains((Join-Path $mc.Program 'start-notebook.ps1')) -and
+        (Get-Item $mc.EnvKey).GetValue('GODSPEED_MEDIA_HINT') -eq (Join-Path $mc.State 'media')
+}
+$r = Invoke-Move $mc 'Resume'
+$r2 = Invoke-Move $mc 'Move' @{} @('-Run', 'the-next-run')
+$r3 = Invoke-Move $mc 'Finish'
+Check "and so is it by the next setup, whose own Finish then removes the old program and the record" {
+    if ($r2.Code -ne 3) { Write-Host $r2.Out }
+    $r.Code -eq 0 -and $r2.Code -eq 3 -and $r3.Code -eq 0 -and (Test-Path (Join-Path $mc.State 'installation.json')) -and -not (Test-Path $mc.OldProgram) -and
+        -not (Test-Path (Join-Path $mc.La 'Godspeed\folder-move'))
 }
 $mo = New-OldNamesInstall 'move-owner'
 $sleeper = Start-Process $BetaPs -ArgumentList '-NoProfile', '-Command', 'Start-Sleep -Seconds 60' -WindowStyle Hidden -PassThru
@@ -4696,6 +4707,9 @@ if ($env:CI -eq 'true' -and $isAdmin) {
     & diskpart.exe /s $dp | Out-Null
     try {
         $mz = New-OldNamesInstall 'move-full-disk' -At (Join-Path $mount 'la')
+        # A setting file that names the folder thousands of times: put back, it is about 55 KB
+        # longer than the moved one, so a put-back on a full disk needs the space kept for it.
+        Set-Content (Join-Path $mz.OldState 'hermes-profile\tools.json') -Encoding UTF8 -Value ('[' + ((1..5000 | ForEach-Object { ConvertTo-Json (Join-Path $mz.OldState "media\$_") -Compress }) -join ',') + ']')
         $mzBefore = Get-Bytes $mz
         $fill = Fill-Disk $mount
         $r = Invoke-Move $mz 'Move'
@@ -4705,11 +4719,14 @@ if ($env:CI -eq 'true' -and $isAdmin) {
         }
         Remove-Item $fill -Force
         $r = Invoke-Move $mz 'Move'
+        $moved = (Get-Item (Join-Path $mz.State 'hermes-profile\tools.json')).Length
         $fill = Fill-Disk $mount
         $r2 = Invoke-Move $mz 'Resume'
         Check "on a disk that filled up after the move, the put-back still puts every byte back (the move's reserved space)" {
             if ($r.Code -ne 0 -or $r2.Code -ne 0) { Write-Host $r.Out $r2.Out }
-            $r.Code -eq 0 -and $r2.Code -eq 0 -and (Test-PutBack $mz $mzBefore)
+            $grown = (Get-Item (Join-Path $mz.OldState 'hermes-profile\tools.json')).Length - $moved
+            Write-Host "   the setting file grew by $grown bytes when it was put back"
+            $r.Code -eq 0 -and $r2.Code -eq 0 -and $grown -gt 32KB -and (Test-PutBack $mz $mzBefore)
         }
         Remove-Item $fill -Force -ErrorAction SilentlyContinue
         $r = Invoke-Move $mz 'Move'
