@@ -21,7 +21,8 @@
 #   newer=1|0             1 when the notebook on this PC is newer than -Mine
 #   oldprogram=<folder>   the program folder under its name from before 2.0.0-beta.11, when it is here
 #   move=1|0              1 when an install under the names from before 2.0.0-beta.11 is here, which
-#                         the wizard moves (move-to-new-folders.ps1) before it copies anything
+#                         the wizard moves (move-to-new-folders.ps1) before it copies anything, or a
+#                         move that did not end, which that script finishes or puts back first
 # =============================================================================
 param(
     [Parameter(Mandatory)][string]$Join,
@@ -38,7 +39,10 @@ if (-not $State) { $State = Get-GodspeedStateFolder }
 $names = Get-GodspeedFolderNames
 $oldProgram = Join-Path $env:LOCALAPPDATA $names.OldProgram
 if (-not (Test-Path -LiteralPath $oldProgram)) { $oldProgram = '' }
-$move = if ($oldProgram -or (Get-GodspeedRecordKind (Join-Path $env:LOCALAPPDATA $names.OldState)) -eq 'install') { '1' } else { '0' }
+# A move that did not end (its record is there) is finished or put back by the next move, so it
+# counts as something to move too.
+$move = if ($oldProgram -or (Get-GodspeedRecordKind (Join-Path $env:LOCALAPPDATA $names.OldState)) -eq 'install' -or
+            (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Godspeed\folder-move\journal.json'))) { '1' } else { '0' }
 
 $workspace = $null
 $installed = ''
