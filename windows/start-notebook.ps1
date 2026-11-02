@@ -6,6 +6,16 @@ param([switch]$NoBrowser,[switch]$Wired,[switch]$PassThru,[int]$WaitSeconds=900)
 $ErrorActionPreference='Stop'
 $env:GODSPEED_ORIGINAL_RUNTIME='on'
 . (Join-Path $PSScriptRoot 'godspeed-folders.ps1')
+# A MOVE TO THE NEW FOLDERS THAT DID NOT END (2.0.0-beta.15): a sign-out, a restart or a closed window
+# during an update that moved an install made before 2.0.0-beta.11. It is finished, or put back,
+# before the notebook starts, so it never starts from half of each. A move whose setup still runs is
+# left to that setup, which starts the notebook itself once the program is in place (this script,
+# then); until then, and while a put-back is not finished, the notebook is not started.
+$moveScript=Join-Path $PSScriptRoot 'move-to-new-folders.ps1'
+if((Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Godspeed\folder-move\journal.json')) -and (Test-Path -LiteralPath $moveScript)){
+  & (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -NoProfile -ExecutionPolicy Bypass -File $moveScript -Action Resume -NoStart|Out-Host
+  if($LASTEXITCODE -ne 0){throw 'Godspeed Mission Control is being moved to its new folders and that is not finished yet, so the notebook was not started. It finishes by itself when you next sign in or update. Your notes are unchanged.'}
+}
 $state=Get-GodspeedStateFolder
 $config=Get-Content -LiteralPath (Join-Path $state 'installation.json') -Raw|ConvertFrom-Json
 if($config.channel -ne 'full-alpha'){throw 'The notebook record on this PC is not one this setup made, so it was not started.'}

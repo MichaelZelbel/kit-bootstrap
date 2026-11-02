@@ -26,7 +26,9 @@ param(
     [switch]$NoPause
 )
 $ErrorActionPreference = 'Stop'
-if (-not $State) { . (Join-Path $PSScriptRoot 'godspeed-folders.ps1'); $State = Get-GodspeedStateFolder }
+. (Join-Path $PSScriptRoot 'godspeed-folders.ps1')
+$StateGiven = [bool]$State
+if (-not $StateGiven) { $State = Get-GodspeedStateFolder }
 # Windows PowerShell 5.1 asks for TLS below 1.2 unless told, and GitHub refuses that.
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
 
@@ -100,11 +102,20 @@ if ($newer) {
         }
     }
     Write-Host "  Installing it. A window shows what it does; this can take a few minutes. Your notes, files and settings stay as they are."
+    # An install made before 2.0.0-beta.11 is moved to its new folders by this update first
+    # (move-to-new-folders.ps1): its state folder renamed, which takes seconds and copies nothing.
+    if ($State -ieq (Join-Path $env:LOCALAPPDATA (Get-GodspeedFolderNames).OldState)) {
+        Write-Host "  This update also moves Godspeed Mission Control to the folders it has from this version on. Your notebook's folder is renamed: nothing in it is copied or changed."
+    }
     # WaitForExit on the setup itself, never Start-Process -Wait: -Wait also waits for everything the
     # setup starts, and the notebook it starts keeps running on purpose.
     $setup = Start-Process -FilePath (Join-Path $work 'GodspeedSetup.exe') -ArgumentList '/SILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru
     $setup.WaitForExit()
     $code = $setup.ExitCode
+    # Asked again: the setup moves an install made before 2.0.0-beta.11 to the new names
+    # (move-to-new-folders.ps1), and its record with it. The updater of 2.0.0-beta.10 read only the
+    # folder it had found before, so the move leaves that one a record of its own for a while.
+    if (-not $StateGiven) { $State = Get-GodspeedStateFolder }
     $after = $null
     try { $after = Get-Content -LiteralPath (Join-Path $State 'installation.json') -Raw | ConvertFrom-Json } catch { }
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue

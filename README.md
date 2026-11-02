@@ -26,14 +26,34 @@ What it does on a PC, and what it leaves alone:
 A new install keeps the program in `%LOCALAPPDATA%\Godspeed Mission Control` and the notebook's
 data in `%LOCALAPPDATA%\Godspeed Mission Control State`. `windows/godspeed-folders.ps1` is the one
 place that names them; every script asks it, and the build hands the program folder's name to the
-wizard. Until 2.0.0-beta.11 both names ended in "Full Alpha". An install made before keeps those
-names until an update moves it, and is found under them meanwhile: the state folder is looked for
-under the new name first and the old one second, and an update goes into the program folder that
-Windows' Apps entry names.
+wizard. Until 2.0.0-beta.11 both names ended in "Full Alpha". The first update of an install made
+before moves it (`windows/move-to-new-folders.ps1`), and the wizard shows each step while it does:
+
+- **Before the first change** it writes down what it will do, keeps a copy of every file it will
+  change, and points the Startup entry at itself, so a sign-out, a restart or a closed window at
+  any point is finished or put back at the next sign-in, the next start of the notebook or the
+  next setup, and never leaves half an install.
+- It stops the notebook, the assistant and the Godspeed jobs and **renames** the state folder: one
+  step on the same drive, nothing copied, so a full disk cannot break it and the person's files
+  change by no byte. A folder that something still holds (a virus scanner, a window opened there)
+  is waited for, for up to a minute.
+- It **points** what inside names the old folder at the new one: the setup's records, the
+  assistant's settings, and the assistant's program (its Python environment, its links and the
+  launchers that carry its Python's path), and starts that program once from the new place.
+  Only when that fails is the program installed again there, and the last page says why.
+- The wizard installs the program into the new program folder. Once the notebook works there, the
+  shortcuts, the user's settings and the scheduled jobs that name the old folders name the new
+  ones, and the old program folder goes. An updater of 2.0.0-beta.10, which looks for its result
+  only under the old name, finds a record there until it has ended.
+
+A move that cannot be done (a folder held for longer than the wait, any step that fails) puts all
+of it back: the install keeps working under its old names, the update is made there, the update
+log and the last page say why in one sentence, and the next update tries the move again.
 
 `.github/workflows/beta-windows.yml` builds it from a branch and runs it on fresh GitHub Windows
 machines: silent and with the wizard on screen, as a first install and as the update over the
-newest published release, then the refusal, the update entry and the uninstaller.
+newest published release (directly, through that release's own updater, after an uninstall, and
+made to fail first), then the refusal, the update entry and the uninstaller.
 
 The bootstrap documentation below describes the shared floor and the first edition's installer.
 # kit-bootstrap
