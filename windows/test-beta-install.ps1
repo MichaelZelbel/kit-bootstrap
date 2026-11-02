@@ -11,10 +11,13 @@
                "Update my mission control", which must end saying the update worked
     reinstall  the same, uninstalled first (which keeps the notebook's data under the old name),
                then this installer, which must move that data to the new names
-    fail       the same, with the move made to fail halfway, then with the setup failing after the
-               move (a file it cannot write, near the end of its copying): both times the install
-               must be back under its old names and working, with one plain line in the update log;
-               then the next update must move it
+    fail       the same, updated five times (2.0.0-beta.15): (a) with a file in the folder held for
+               longer than the move waits, (b) with the move made to fail halfway, (c) with the move
+               cut off after the rename, as by a sign-out, and the Startup entry then run as at the
+               next sign-in, (d) with the setup failing after the move (a file it cannot write, near
+               the end of its copying). Each time the install must be under its old names and
+               working, the first two updated there, with one plain line in the update log. (e) The
+               last update, with a file held for a moment, must wait for it and then move it
 
   and on all: the run waits until it is done (the documented command), nothing asks or shows a
   box, Hermes is never called missing, nothing names a person or asks about Menerio, the Startup
@@ -130,8 +133,21 @@ if ($moved) {
   $path0 = [string]$k.GetValue('Path', '', 'DoNotExpandEnvironmentNames')
   Set-ItemProperty $envKey -Name 'Path' -Value ($path0.TrimEnd(';') + ";%LOCALAPPDATA%\$($names.OldState)\hermes-runtime\bin") -Type $pathKind
   Get-Content (Join-Path $oldState 'hermes-runtime\hermes-agent\venv\pyvenv.cfg') -ErrorAction SilentlyContinue | Set-Content (Join-Path $Evidence 'pyvenv-before.cfg')
+  # Two more things that name the old folders and must follow the move: a scheduled job of
+  # Godspeed's that runs the old program's Node.js on a file in the old state folder, and a Desktop
+  # shortcut to the old program's start script.
+  $action = New-ScheduledTaskAction -Execute (Join-Path $oldApp 'payload\runtime\node.exe') -Argument ('"' + (Join-Path $oldState 'media') + '"') -WorkingDirectory $mc
+  Register-ScheduledTask -TaskName 'Godspeed move check' -Action $action -Trigger (New-ScheduledTaskTrigger -Once -At (Get-Date).AddDays(30)) -Force | Out-Null
+  $desk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) 'Godspeed move check.lnk'))
+  $desk.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+  $desk.Arguments = '-NoProfile -File "' + (Join-Path $oldApp 'start-full-alpha.ps1') + '"'; $desk.Save()
+  # The file's number on the disk: a renamed folder keeps it, a copy would not.
+  $photoId = (& fsutil file queryfileid (Join-Path $oldState 'media\a-photo-of-the-reader.jpg')) -replace '.*:\s*', ''
+  "the reader's photo is file $photoId"
   Remove-Item $setupLog -ErrorAction SilentlyContinue
 }
+function Get-TaskLine { @((Get-ScheduledTask -TaskName 'Godspeed move check' -ErrorAction SilentlyContinue).Actions | ForEach-Object { "$($_.Execute) $($_.Arguments) $($_.WorkingDirectory)" }) -join ' ' }
+function Get-DesktopLine { (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) 'Godspeed move check.lnk')).Arguments }
 $appsKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{9929B7B4-B588-46D2-AC79-01F7EBD7FA92}_is1'
 $startup = [Environment]::GetFolderPath('Startup')
 $group = Join-Path ([Environment]::GetFolderPath('Programs')) 'Godspeed Mission Control'
@@ -142,11 +158,12 @@ function Test-OldNamesWork([string]$Label, [int]$LinesBefore) {
     $apps.Count -eq 1 -and $apps[0].InstallLocation.TrimEnd('\') -eq $oldApp -and (Test-Path (Join-Path $oldApp 'unins000.exe')) -and
       (Get-GodspeedRecordKind $oldState) -eq 'install' -and -not (Test-Path $state) -and -not (Test-Path (Join-Path $env:LOCALAPPDATA 'Godspeed\folder-move'))
   }
-  Want "${Label}: its records, its Startup entry and the user's settings name the old folders again" {
+  Want "${Label}: its records, its Startup entry, the user's settings, the scheduled job and the Desktop shortcut name the old folders" {
     $i = Get-Content (Join-Path $oldState 'installation.json') -Raw | ConvertFrom-Json
     $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $startup 'Godspeed Mission Control.lnk'))
     $i.appRoot.TrimEnd('\') -eq $oldApp -and $i.media -eq (Join-Path $oldState 'media') -and $lnk.Arguments.Contains($oldApp + '\') -and
-      [Environment]::GetEnvironmentVariable('GODSPEED_MOVE_CHECK', 'User') -eq (Join-Path $oldState 'media')
+      [Environment]::GetEnvironmentVariable('GODSPEED_MOVE_CHECK', 'User') -eq (Join-Path $oldState 'media') -and
+      (Get-TaskLine).Contains($oldApp + '\') -and (Get-DesktopLine).Contains($oldApp + '\')
   }
   Want "${Label}: the assistant's program works where it was" {
     $a = Get-Content (Join-Path $oldState 'assistant.json') -Raw | ConvertFrom-Json
@@ -158,9 +175,11 @@ function Test-OldNamesWork([string]$Label, [int]$LinesBefore) {
   Want "${Label}: the update log says why in one plain line, and that the next update tries again" {
     $lines = @(Get-Content $setupLog -ErrorAction SilentlyContinue | Where-Object { $_ -match 'stays in its old folders' })
     if ($lines) { Write-Host "   $($lines[-1])" }
-    $lines.Count -eq $LinesBefore + 1 -and $lines[-1].Contains('The next update tries again.')
+    $lines.Count -eq $LinesBefore + 1 -and $lines[-1].Contains('The next update tries the move again.')
   }
 }
+# The program the setup has under the old names: this build's after an update made there.
+function Get-OldNamesCommit { try { (Get-Content (Join-Path $oldState 'installation.json') -Raw | ConvertFrom-Json).kitCommit } catch { '' } }
 
 # 1. The installer under test, silent, nothing chosen (in updater mode: started by the old updater).
 if ($Mode -eq 'reinstall') {
@@ -172,26 +191,54 @@ if ($Mode -eq 'reinstall') {
   }
 }
 if ($Mode -eq 'fail') {
-  # a. The move fails halfway, after the state folder got its new name.
+  # a. Something holds a file in the state folder (a virus scanner, a window opened there) for
+  #    longer than the move waits: the move is put off, and the update goes into the old folders.
+  $held = [IO.File]::Open((Join-Path $oldState 'media\a-photo-of-the-reader.jpg'), 'Open', 'Read', 'Read')
+  try { $code = Invoke-Setup $Setup @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') 'setup-folder-held' } finally { $held.Close() }
+  Want 'a folder held for longer than the move waits: the move is put off, and the update is made under the old names' {
+    $code -eq 0 -and ((Get-Content (Join-Path $env:LOCALAPPDATA 'Godspeed\setup-result.txt') -Raw).Trim() -eq 'ok') -and (Get-OldNamesCommit) -eq $built.kitCommit
+  }
+  Test-OldNamesWork 'after a move put off for a held folder' 0
+  # b. The move fails halfway, after the state folder got its new name: put back, and put off.
   $env:KB_TEST_MOVE_FAIL = 'halfway'
   $code = Invoke-Setup $Setup @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') 'setup-move-fails'
   Remove-Item env:KB_TEST_MOVE_FAIL
-  Want 'a move that fails halfway ends the setup with an error code, before it copied anything' { $code -ne 0 -and -not (Test-Path (Join-Path $app 'unins000.exe')) }
-  Test-OldNamesWork 'after a move that failed halfway' 0
-  # b. The move works, then the setup cannot write a file near the end of its copying (the folder
+  Want 'a move that fails halfway is put back, and the update is made under the old names' {
+    $code -eq 0 -and -not (Test-Path (Join-Path $app 'unins000.exe')) -and (Get-OldNamesCommit) -eq $built.kitCommit
+  }
+  Test-OldNamesWork 'after a move that failed halfway' 1
+  # c. The move is cut off right after the rename, as by a sign-out or a power cut: the setup ends
+  #    saying it is not finished, and at the next sign-in the Startup entry puts it back.
+  $env:KB_TEST_MOVE_STOP = 'renamed'
+  $code = Invoke-Setup $Setup @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') 'setup-move-cut-off'
+  Remove-Item env:KB_TEST_MOVE_STOP
+  $resume = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $startup 'Godspeed Mission Control.lnk'))
+  Want 'a move cut off ends the setup with an error code, with the Startup entry finishing it at the next sign-in' {
+    Write-Host "   the Startup entry runs: $($resume.Arguments)"
+    $code -ne 0 -and (Test-Path (Join-Path $state 'installation.json')) -and $resume.Arguments.Contains('-Action Resume -Start')
+  }
+  $p = Start-Process $resume.TargetPath -ArgumentList $resume.Arguments -WindowStyle Hidden -PassThru
+  if (-not $p.WaitForExit(600000)) { 'the Startup entry did not end within ten minutes'; Stop-Process -Id $p.Id -Force }
+  Test-OldNamesWork 'after a move cut off and the next sign-in' 2
+  # d. The move works, then the setup cannot write a file near the end of its copying (the folder
   #    holding the last files it copies refuses it), so it takes its new files away again. The
-  #    move must be put back with them: the old program works only with the old names.
+  #    move must be put back with them: the program in the old folder works only with the old names.
   $deny = Join-Path $app 'vendor'
   New-Item -ItemType Directory -Force $deny | Out-Null
   $rule = New-Object Security.AccessControl.FileSystemAccessRule([Security.Principal.WindowsIdentity]::GetCurrent().Name, 'CreateFiles', 'Deny')
   $acl = Get-Acl $deny; $acl.AddAccessRule($rule); Set-Acl $deny $acl
   $code = Invoke-Setup $Setup @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') 'setup-copy-fails'
-  $acl = Get-Acl $deny; [void]$acl.RemoveAccessRule($rule); Set-Acl $deny $acl
+  # The put-back removes the new program folder this move made, the refusing folder with it.
+  if (Test-Path $deny) { $acl = Get-Acl $deny; [void]$acl.RemoveAccessRule($rule); Set-Acl $deny $acl }
   Want 'a setup that cannot write its files after the move ends with an error code and took its new files away' {
     $code -ne 0 -and -not (Test-Path (Join-Path $app 'unins000.exe')) -and -not (Test-Path (Join-Path $app 'start-notebook.ps1'))
   }
-  Test-OldNamesWork 'after a setup that failed after the move' 1
+  Test-OldNamesWork 'after a setup that failed after the move' 3
   Copy-Item $setupLog (Join-Path $Evidence 'setup-log-failures.txt') -ErrorAction SilentlyContinue
+  # e. The update that moves it, with a file held for twenty seconds from the moment the move has
+  #    written its record, so the hold meets its rename (which waits up to a minute).
+  $holder = [powershell]::Create().AddScript("`$until = (Get-Date).AddMinutes(60); while (-not (Test-Path '$(Join-Path $env:LOCALAPPDATA 'Godspeed\folder-move\journal.json')') -and (Get-Date) -lt `$until) { Start-Sleep -Milliseconds 100 }; `$f = [IO.File]::Open('$(Join-Path $oldState 'media\a-photo-of-the-reader.jpg')', 'Open', 'Read', 'Read'); Start-Sleep -Seconds 20; `$f.Close()")
+  $holding = $holder.BeginInvoke()
 }
 if ($Mode -eq 'updater') {
   # "Update my mission control" of 2.0.0-beta.10, as its Start menu entry runs it, reading this
@@ -217,7 +264,18 @@ if ($Mode -eq 'updater') {
     -not (Test-Path $oldState)
   }
 } else {
+  $started = Get-Date
   $code = Invoke-Setup $Setup @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') 'setup'
+  $minutes = ((Get-Date) - $started).TotalMinutes
+  if ($Mode -eq 'fail') {
+    $holder.EndInvoke($holding) | Out-Null; $holder.Dispose()
+    Want 'the last update waited for the held file, and then moved the install' {
+      (Get-Content $setupLog -Raw).Contains('Waiting for') -and (Test-Path (Join-Path $state 'installation.json')) -and -not (Test-Path (Join-Path $oldState 'installation.json'))
+    }
+  }
+  # Until 2.0.0-beta.15 the move installed the assistant's program again, and an update from
+  # 2.0.0-beta.10 took about half an hour where one without the move took a few minutes.
+  if ($Mode -eq 'update') { Want "the update that moved the install took $([int]$minutes) minutes, no reinstall's half hour" { $minutes -lt 15 } }
 }
 Want 'the setup finished with exit 0 and its result says ok' { $code -eq 0 -and ((Get-Content (Join-Path $env:LOCALAPPDATA 'Godspeed\setup-result.txt') -Raw).Trim() -eq 'ok') }
 $i = Get-Content (Join-Path $state 'installation.json') -Raw | ConvertFrom-Json
@@ -314,6 +372,38 @@ if ($moved) {
     $p = [string](Get-Item $envKey).GetValue('Path', '', 'DoNotExpandEnvironmentNames')
     [Environment]::GetEnvironmentVariable('GODSPEED_MOVE_CHECK', 'User') -eq (Join-Path $state 'media') -and
       $p.Contains("%LOCALAPPDATA%\$($names.State)\hermes-runtime\bin") -and -not ($p -match 'full.?alpha')
+  }
+  Want "the scheduled job and the Desktop shortcut that named the old folders name the new ones" {
+    $task = Get-TaskLine; $desk = Get-DesktopLine
+    Write-Host "   job: $task"; Write-Host "   Desktop: $desk"
+    $task.Contains((Join-Path $app 'payload\runtime\node.exe')) -and $task.Contains((Join-Path $state 'media')) -and -not ($task -match 'full.?alpha') -and
+      $desk.Contains('-File "' + (Join-Path $app 'start-notebook.ps1') + '"')
+  }
+  Want "the move renamed the notebook's folder and copied nothing: the reader's photo is the same file on the disk" {
+    $now = (& fsutil file queryfileid (Join-Path $state 'media\a-photo-of-the-reader.jpg')) -replace '.*:\s*', ''
+    Write-Host "   before $photoId, now $now"
+    $photoId -and $now -eq $photoId
+  }
+  if ($Mode -ne 'reinstall') {
+    Want "the assistant's program was pointed at its new folder, not installed again" {
+      $log = Get-Content $setupLog -Raw
+      $log.Contains('nothing had to be installed again') -and -not $log.Contains("Installing the assistant's program again")
+    }
+  }
+  # Everything of the assistant's program that could name a folder, looked through: no file of it
+  # names the old one (compiled Python, its logs and its downloads aside, which name where they were
+  # made and are never read for a path). The rest of the state folder, the reader's conversations
+  # among it, is only listed: what a person wrote is never rewritten.
+  $named = @(Get-ChildItem $state -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object {
+      $_.Length -lt 8MB -and $_.Extension -notin '.pyc', '.log' -and $_.FullName -notmatch '\\hermes-runtime\\(uv-cache|npm-cache|browser-cache)\\' } | Where-Object {
+      $b = [IO.File]::ReadAllBytes($_.FullName); [Text.Encoding]::UTF8.GetString($b).Contains($names.OldState) -or [Text.Encoding]::Unicode.GetString($b).Contains($names.OldState) } |
+      ForEach-Object { $_.FullName.Substring($state.Length + 1) })
+  Set-Content -Path (Join-Path $Evidence "still-naming-the-old-folder-$Mode.txt") -Value $named -Encoding utf8
+  Write-Host "   files in the state folder that still name the old one: $($named.Count) (evidence: still-naming-the-old-folder-$Mode.txt)"
+  Want "no file of the assistant's program names the old folder" {
+    $inRuntime = @($named | Where-Object { $_ -like 'hermes-runtime\*' })
+    if ($inRuntime) { Write-Host "   $(($inRuntime | Select-Object -First 15) -join '; ')" }
+    $inRuntime.Count -eq 0
   }
   # The assistant's program records the folder it was installed in; a renamed copy does not start.
   $a = Get-Content (Join-Path $state 'assistant.json') -Raw | ConvertFrom-Json

@@ -5,9 +5,11 @@ name: Windows installer on fresh machines
 #   install   silent, as a first installation and as the update over the newest published
 #             release with nothing chosen, which moves it to the folders without "Full Alpha"; that
 #             update made by the release's own "Update my mission control", made after an
-#             uninstall, and made to fail (the move halfway, the setup after the move) before it
-#             works; then an older installer refused before it touches anything, "Update my mission
-#             control" asked for a newer release, and the uninstaller (windows/test-beta-install.ps1)
+#             uninstall, and made not to move first (a held folder, the move failing halfway, the
+#             move cut off and finished at the next sign-in, the setup failing after the move)
+#             before it moves; then an older installer refused before it touches anything, "Update
+#             my mission control" asked for a newer release, and the uninstaller
+#             (windows/test-beta-install.ps1)
 #   wizard    the same two with the wizard on screen, Next on every page, and its last page read
 #             (windows/test-finish-page.ps1)
 #   suites    windows/test-windows.ps1 under Windows PowerShell 5.1, which the installer runs, and
