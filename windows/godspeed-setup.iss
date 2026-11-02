@@ -1025,8 +1025,18 @@ end;
   already and this does nothing. Called after the setup has taken its own files back out, and
   before it removes its temporary folder. }
 procedure DeinitializeSetup();
+var
+  Text: AnsiString;
 begin
-  if MovedNow then RunMove('Resume');
+  if MovedNow then RunMove('Resume')
+  { A move that was put off stopped the notebook and left it to this update to start the new one.
+    An update that did not go through (cancelled, a file it could not write) starts it again, under
+    the names it has; a running notebook is left as it is. }
+  else if MovePostponed then
+  begin
+    if not LoadStringFromFile(SetupResultFile(), Text) then Text := '';
+    if Trim(String(Text)) <> 'ok' then RunMove('Resume -Start');
+  end;
 end;
 #endif
 

@@ -4648,6 +4648,16 @@ Check "a put-back that finds the newly installed copy held stops there: the stat
 }
 $r = Invoke-Move $mi 'Resume'
 Check "and the next put-back brings the old copy back, byte for byte" { if ($r.Code -ne 0) { Write-Host $r.Out }; $r.Code -eq 0 -and (Test-PutBack $mi $miBefore) }
+$my = New-OldNamesInstall 'move-reinstall-finish'
+New-Item -ItemType Directory -Force (Join-Path $my.OldState 'hermes-runtime-failed-backup') | Out-Null
+Set-Content (Join-Path $my.OldState 'hermes-runtime-failed-backup\keep.txt') 'mine'
+$r = Invoke-Move $my 'Move' @{ KB_TEST_RUNTIME_CHECK_FAIL = '1' }
+Set-ProgramInstalled $my
+$r2 = Invoke-Move $my 'Finish'
+Check "a move whose program was installed again removes the old copy at Finish, and no folder of the person's named like it" {
+    $r.Code -eq 0 -and $r2.Code -eq 0 -and -not (Test-Path (Join-Path $my.State 'hermes-runtime-before-move')) -and
+        (Test-Path (Join-Path $my.State 'hermes-runtime-failed-backup\keep.txt'))
+}
 $mx = New-OldNamesInstall 'move-reinstall-fails'
 $mxBefore = Get-Bytes $mx
 $r = Invoke-Move $mx 'Move' @{ KB_TEST_RUNTIME_CHECK_FAIL = '1'; KB_TEST_BUILDER_FAIL = '1' }
@@ -4778,7 +4788,7 @@ Check "the wizard shows the move's steps, installs into the new folder when it m
         $prep.Contains('WizardForm.DirEdit.Text := OldProgram;') -and $prep.Contains('StopDir := OldProgram;') -and
         $prep.Contains("ExtractTemporaryFiles('{tmp}\vendor\*');") -and $prep.Contains("folder-move-note.txt") -and
         $iss.Contains("ExecAndLogOutput('powershell.exe'") -and $iss.Contains("if (MovePage <> nil) and (Pos('STEP ', S) = 1) then") -and
-        ($iss -match "procedure DeinitializeSetup\(\);\s+begin\s+if MovedNow then RunMove\('Resume'\);") -and
+        ($iss -match "(?s)procedure DeinitializeSetup\(\);.*?if MovedNow then RunMove\('Resume'\)\s+.*?else if MovePostponed then.*?if Trim\(String\(Text\)\) <> 'ok' then RunMove\('Resume -Start'\);") -and
         $iss.Contains('if MoveNote <> '''' then Result := Result + #13#10 + #13#10 + MoveNote;') -and
         $iss.Contains('Source: "move-to-new-folders.ps1"; DestDir: "{tmp}"; Flags: dontcopy') -and
         $iss.Contains('Source: "vendor\*"; DestDir: "{tmp}\vendor"; Flags: dontcopy')

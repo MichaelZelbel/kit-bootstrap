@@ -745,9 +745,8 @@ function Complete-Move([switch]$Partial) {
         # The old copy of the assistant's program, kept until now so a failure could go back to it.
         # Only this move's record says a folder is that copy: nothing else is ever removed by name.
         if ($j.runtime -eq 'reinstalled' -and $moved) {
-            foreach ($left in @(Get-ChildItem -LiteralPath $newState -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $aside -or $_.Name -like 'hermes-runtime-failed-*' })) {
-                if (-not (Remove-Folder $left.FullName)) { Say "The old copy of the assistant's program in $($left.FullName) could not all be removed." }
-            }
+            $left = Join-Path $newState $aside
+            if (-not (Remove-Folder $left)) { Say "The old copy of the assistant's program in $left could not all be removed." }
         }
         if ($j.stopped.assistant -and (Test-Path -LiteralPath (Join-Path $newProgram 'open-hermes.ps1'))) { Start-Script (Join-Path $newProgram 'open-hermes.ps1') }
         foreach ($t in @($j.stopped.tasks)) { if ($t) { Start-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue } }
