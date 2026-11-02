@@ -4313,8 +4313,8 @@ function New-TestLauncher([string]$Path, [string]$Python) {
     $w.Write("#!$Python`r`nimport sys`r`nfrom hermes_cli.main import main`r`nsys.exit(main())`r`n"); $w.Close(); $zip.Dispose()
     [KbTestLauncher]::Put($Path, 'UV_SCRIPT_DATA', $ms.ToArray())
 }
-function New-OldNamesInstall([string]$Name, [switch]$NoProgram, [switch]$NoRuntime) {
-    $la = New-TestDir $Name
+function New-OldNamesInstall([string]$Name, [switch]$NoProgram, [switch]$NoRuntime, [string]$At) {
+    $la = if ($At) { New-Item -ItemType Directory -Force $At | Out-Null; $At } else { New-TestDir $Name }
     $os = Join-Path $la $fn.OldState; $op = Join-Path $la $fn.OldProgram
     $ws = New-BetaGodspeed "$Name-mc"
     foreach ($d in 'media', 'backups\20261020-101010-000', 'hermes-profile\memories') { New-Item -ItemType Directory -Force (Join-Path $os $d) | Out-Null }
@@ -4553,8 +4553,8 @@ $r2 = Invoke-Move $mo 'Resume' @{} @('-Run', 'another-run')
 $left = (Test-Path (Join-Path $mo.State 'installation.json')) -and (Test-Path (Join-Path $mo.La 'Godspeed\folder-move\journal.json'))
 Stop-Process -Id $sleeper.Id -Force; Start-Sleep -Seconds 1
 $r3 = Invoke-Move $mo 'Resume' @{} @('-Run', 'another-run')
-Check "a move whose setup still runs is left to it by a resume from elsewhere, and put back once that setup has ended" {
-    $r.Code -eq 0 -and $r2.Code -eq 0 -and $left -and $r3.Code -eq 0 -and -not (Test-Path $mo.State) -and (Test-Path (Join-Path $mo.OldState 'installation.json'))
+Check "a move whose setup still runs is left to it by a resume from elsewhere (which says nothing may start yet), and put back once that setup has ended" {
+    $r.Code -eq 0 -and $r2.Code -eq 6 -and $left -and $r3.Code -eq 0 -and -not (Test-Path $mo.State) -and (Test-Path (Join-Path $mo.OldState 'installation.json'))
 }
 
 # Something holds a file in the folder (a virus scanner, a window opened there).
@@ -4647,6 +4647,81 @@ $mp = New-OldNamesInstall 'move-postponed-finish'
 $mpBefore = Get-Bytes $mp
 $r = Invoke-Move $mp 'Finish'
 Check "Finish after a move that was put off (the install still under its old names) changes nothing" { $r.Code -eq 0 -and (Get-Bytes $mp) -eq $mpBefore }
+$mq = New-OldNamesInstall 'move-lookalike' -NoProgram -NoRuntime
+$r = Invoke-Move $mq 'Move'
+Remove-Item -Recurse -Force (Join-Path $mq.La 'Godspeed\folder-move') -ErrorAction SilentlyContinue
+foreach ($d in 'hermes-runtime-before-move', 'hermes-runtime-failed-20261101') { New-Item -ItemType Directory -Force (Join-Path $mq.State "$d\mine") | Out-Null; Set-Content (Join-Path $mq.State "$d\mine\keep.txt") 'mine' }
+$r = Invoke-Move $mq 'Finish'
+Check "Finish without a move's record removes no folder, even one named like the move's own leftovers" {
+    $r.Code -eq 0 -and (Test-Path (Join-Path $mq.State 'hermes-runtime-before-move\mine\keep.txt')) -and (Test-Path (Join-Path $mq.State 'hermes-runtime-failed-20261101\mine\keep.txt'))
+}
+# The notebook's own start script, with a move that a setup still runs and that has not installed
+# the program yet: it starts nothing. (Only the test's folders are touched: the move is left alone.)
+$ms = New-OldNamesInstall 'move-start-during'
+$sleeper = Start-Process $BetaPs -ArgumentList '-NoProfile', '-Command', 'Start-Sleep -Seconds 60' -WindowStyle Hidden -PassThru
+$r = Invoke-Move $ms 'Move' @{} @('-Owner', $sleeper.Id)
+$la0 = $env:LOCALAPPDATA
+try {
+    $env:LOCALAPPDATA = $ms.La
+    $said = & $BetaPs -NoProfile -ExecutionPolicy Bypass -File (Join-Path $BetaWin 'start-notebook.ps1') -NoBrowser 2>&1 | Out-String -Width 4096
+    $code = $LASTEXITCODE
+} finally { $env:LOCALAPPDATA = $la0 }
+Stop-Process -Id $sleeper.Id -Force -ErrorAction SilentlyContinue
+Check "the notebook's start script starts nothing while a setup is moving the install and has not installed the program yet" {
+    if (-not $said.Contains('not finished yet')) { Write-Host $said }
+    $r.Code -eq 0 -and $code -ne 0 -and $said.Contains('being moved to its new folders and that is not finished yet') -and -not (Test-Path (Join-Path $ms.State 'process.json'))
+}
+
+# A FULL DISK. A small disk of its own (a virtual disk, mounted as a folder) holds the install, so
+# it can be filled to the last byte. Only on a throwaway machine, where the run has the rights for it.
+function Fill-Disk([string]$Folder) {
+    $files = @(); $i = 0
+    while ($true) {
+        $free = [long](Get-CimInstance Win32_Volume | Where-Object { $_.Name.TrimEnd('\') -eq $Folder.TrimEnd('\') }).FreeSpace
+        if ($free -le 0) { break }
+        $f = Join-Path $Folder ("filler-$i.bin"); $i++
+        try { $s = [IO.File]::Create($f); try { $s.SetLength([Math]::Max(4096, $free - 65536)) } finally { $s.Close() }; $files += $f }
+        catch {
+            try { $s = [IO.File]::Create($f); try { $b = New-Object byte[] 4096; while ($true) { $s.Write($b, 0, 4096); $s.Flush() } } finally { $s.Close() } } catch { }
+            $files += $f; break
+        }
+    }
+    return $files
+}
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if ($env:CI -eq 'true' -and $isAdmin) {
+    $vhd = Join-Path $Root 'full-disk.vhdx'; $mount = New-TestDir 'full-disk'
+    $dp = Join-Path $Root 'full-disk-make.txt'
+    Set-Content $dp -Encoding ascii -Value @("create vdisk file=`"$vhd`" maximum=96 type=expandable", "select vdisk file=`"$vhd`"", 'attach vdisk', 'create partition primary', 'format fs=ntfs quick label=kbfull', "assign mount=`"$mount`"")
+    & diskpart.exe /s $dp | Out-Null
+    try {
+        $mz = New-OldNamesInstall 'move-full-disk' -At (Join-Path $mount 'la')
+        $mzBefore = Get-Bytes $mz
+        $fill = Fill-Disk $mount
+        $r = Invoke-Move $mz 'Move'
+        Check "on a disk that is full before the move, the move is put off before it changes anything" {
+            if ($r.Code -ne 4) { Write-Host $r.Out }
+            $r.Code -eq 4 -and (Test-PutBack $mz $mzBefore)
+        }
+        Remove-Item $fill -Force
+        $r = Invoke-Move $mz 'Move'
+        $fill = Fill-Disk $mount
+        $r2 = Invoke-Move $mz 'Resume'
+        Check "on a disk that filled up after the move, the put-back still puts every byte back (the move's reserved space)" {
+            if ($r.Code -ne 0 -or $r2.Code -ne 0) { Write-Host $r.Out $r2.Out }
+            $r.Code -eq 0 -and $r2.Code -eq 0 -and (Test-PutBack $mz $mzBefore)
+        }
+        Remove-Item $fill -Force -ErrorAction SilentlyContinue
+        $r = Invoke-Move $mz 'Move'
+        Check "and on that disk, with room again, the move works" { $r.Code -eq 0 -and (Test-Path (Join-Path $mz.State 'installation.json')) }
+    } finally {
+        Set-Content $dp -Encoding ascii -Value @("select vdisk file=`"$vhd`"", 'detach vdisk')
+        & diskpart.exe /s $dp | Out-Null
+        Remove-Item $vhd -Force -ErrorAction SilentlyContinue
+    }
+} else {
+    Write-Host "  skip  a full disk: needs a throwaway machine and administrator rights (CI=$env:CI, administrator=$isAdmin)"
+}
 
 $mn = New-TestDir 'move-nothing'
 $r = Invoke-Move ([pscustomobject]@{ La = $mn; Startup = (New-TestDir 'move-nothing-startup'); EnvKey = 'HKCU:\Software\GodspeedKbTest\move-nothing'; AppsKey = 'HKCU:\Software\GodspeedKbTest\move-nothing-apps' }) 'Move'

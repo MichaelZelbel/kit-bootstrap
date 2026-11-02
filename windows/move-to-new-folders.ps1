@@ -95,7 +95,8 @@ if (-not $ShortcutFolders) {
         (Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'),
         (Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\StartMenu'))
 }
-New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+# On a full disk even this folder may not be made; nothing below needs it to start.
+try { New-Item -ItemType Directory -Force -Path $LogDir | Out-Null } catch { }
 
 # One line in the update log (setup-log.txt) for each thing that happened. Inside the setup's own
 # run the log is its transcript, which takes what is written on the screen.
@@ -216,7 +217,10 @@ function Get-FolderBytes([string]$Path, [string[]]$Skip) {
     }
     return $total
 }
-function Get-FreeBytes { return (New-Object IO.DriveInfo ([IO.Path]::GetPathRoot($LocalAppData))).AvailableFreeSpace }
+function Get-FreeBytes {
+    if ($launcherApi) { try { return [KbMoveLauncher]::FreeBytes($LocalAppData) } catch { } }
+    return (New-Object IO.DriveInfo ([IO.Path]::GetPathRoot($LocalAppData))).AvailableFreeSpace
+}
 
 # A folder renamed: one step on the same drive, nothing copied. Something may hold a file in it for
 # a while (a virus scanner checking the files, a window opened there, the search index), so it is
@@ -292,6 +296,13 @@ public static class KbMoveLauncher {
             Marshal.Copy(at, b, 0, (int)size);
             return b;
         } finally { FreeLibrary(h); }
+    }
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)] static extern bool GetDiskFreeSpaceExW(string dir, out ulong free, out ulong total, out ulong totalFree);
+    // The free space of the volume that holds this folder, also when it is mounted in a folder of another drive.
+    public static long FreeBytes(string dir) {
+        ulong free, total, totalFree;
+        if (!GetDiskFreeSpaceExW(dir, out free, out total, out totalFree)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        return (long)free;
     }
     // Several named data resources replaced in one write of the file.
     public static void Write(string file, string[] names, ushort[] langs, byte[][] data) {
@@ -613,7 +624,7 @@ function Undo-Move($j) {
     # The assistant's program, when it had to be installed again: the new copy goes, the old one
     # comes back with the downloads it lent to it.
     $runtime = Join-Path $at 'hermes-runtime'; $kept = Join-Path $at $aside
-    if (Test-Path -LiteralPath $kept) {
+    if ($j.runtime -eq 'reinstalled' -and (Test-Path -LiteralPath $kept)) {
         try {
             foreach ($c in $caches) {
                 if ((Test-Path -LiteralPath (Join-Path $runtime $c)) -and -not (Test-Path -LiteralPath (Join-Path $kept $c))) {
@@ -697,12 +708,15 @@ function Complete-Move {
         Get-ChildItem -LiteralPath (Join-Path $newState 'hermes-runtime\uv-cache') -Directory -Filter 'interpreter-v*' -ErrorAction SilentlyContinue |
             ForEach-Object { [void](Remove-Folder $_.FullName) }
     }
-    # The old copy of the assistant's program, kept until now so a failure could go back to it.
-    foreach ($left in @(Get-ChildItem -LiteralPath $newState -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $aside -or $_.Name -like 'hermes-runtime-failed-*' })) {
-        if (-not (Remove-Folder $left.FullName)) { Say "The old copy of the assistant's program in $($left.FullName) could not all be removed; the next update removes the rest." }
-    }
     Remove-Item -LiteralPath (Join-Path $newProgram $marker) -Force -ErrorAction SilentlyContinue
     if ($j) {
+        # The old copy of the assistant's program, kept until now so a failure could go back to it.
+        # Only this move's record says a folder is that copy: nothing else is ever removed by name.
+        if ($j.runtime -eq 'reinstalled' -and $moved) {
+            foreach ($left in @(Get-ChildItem -LiteralPath $newState -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $aside -or $_.Name -like 'hermes-runtime-failed-*' })) {
+                if (-not (Remove-Folder $left.FullName)) { Say "The old copy of the assistant's program in $($left.FullName) could not all be removed." }
+            }
+        }
         if ($j.stopped.assistant -and (Test-Path -LiteralPath (Join-Path $newProgram 'open-hermes.ps1'))) { Start-Script (Join-Path $newProgram 'open-hermes.ps1') }
         foreach ($t in @($j.stopped.tasks)) { if ($t) { Start-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue } }
         Remove-Item -LiteralPath $moveDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -797,6 +811,10 @@ if ($Action -eq 'Resume') {
         if ($starter) { Start-Script $starter @('-NoBrowser') }
     }
     if ($result -eq 'held') { exit 1 }
+    # Left to the setup that runs it: nothing may start from the folders until that setup has
+    # installed the program in the new one (then it starts the notebook itself, through
+    # start-notebook.ps1, which may go on).
+    if ($result -eq 'left' -and -not (Test-ProgramComplete)) { exit 6 }
     exit 0
 }
 
