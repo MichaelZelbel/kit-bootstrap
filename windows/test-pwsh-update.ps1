@@ -82,8 +82,10 @@ try {
     $want = (Get-FileHash -LiteralPath $probe -Algorithm SHA256).Hash
     $r = Start-Windows51 @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $g, $probe)
     Want 'a guarded script hashes a file in a 5.1 that inherits PowerShell 7''s module path' { $r.Code -eq 0 -and $r.Text.Contains($want) }
-    Want 'the guard leaves no PowerShell 7 folder in the path' { $r.Text -notmatch '(?i)[\\/]PowerShell[\\/](7|Modules)' }
     $clean = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')
+    Want 'the guard sets the path to the user''s Windows PowerShell modules and the machine''s own path' {
+        $r.Text.Contains((Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\Modules') + ';' + $clean)
+    }
     $r = Start-Windows51 @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $g, $probe) @{ PSModulePath = $clean }
     Want 'with the machine''s own path, the guard changes nothing' { $r.Code -eq 0 -and $r.Text.Contains($clean) -and $r.Text.Contains($want) }
 
