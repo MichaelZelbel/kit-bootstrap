@@ -19,6 +19,8 @@ param(
     # that the .exe and the code it fetches are the same code.
     [switch]$AllowUnpinnedBuild
 )
+# Started from PowerShell 7, Windows PowerShell 5.1 inherits its module path and cannot find Get-FileHash: use its own.
+if($PSVersionTable.PSEdition -eq 'Desktop' -and $env:PSModulePath -match '(?i)[\\/]PowerShell[\\/](7[^\\/;]*|Modules)([\\/;]|$)'){$env:PSModulePath=(@((Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\Modules'),$(if([Environment]::GetEnvironmentVariable('PSModulePath','Machine')){[Environment]::GetEnvironmentVariable('PSModulePath','Machine')}else{(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')+';'+(Join-Path $PSHOME 'Modules')}))|Where-Object{$_}) -join ';'}
 
 $ErrorActionPreference = 'Stop'
 if($Notebook){& (Join-Path $PSScriptRoot 'build-godspeed-setup.ps1') -KitCheckout $KitCheckout -SkipCompilerInstall:$SkipCompilerInstall;return}
