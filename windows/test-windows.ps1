@@ -3991,6 +3991,90 @@ Check "uninstall beside the first edition: the shared helpers and jobs stay, the
         $u.Out.Contains("first edition's setup is still on this PC")
 }
 $u = $null
+
+# 4b. An update over the first edition takes over its Apps entry (known issue #7). A test key
+#     stands in for the first edition; the real key of this PC is never read or written.
+function New-FirstEditionKey([string]$Name) {
+    $k = "HKCU:\Software\GodspeedKbTest\$Name"
+    New-Item -Path $k -Force | Out-Null
+    Set-ItemProperty -Path $k -Name 'DisplayName' -Value 'Godspeed Mission Control'
+    Set-ItemProperty -Path $k -Name 'DisplayVersion' -Value '2.18.0'
+    Set-ItemProperty -Path $k -Name 'UninstallString' -Value '"C:\first-edition\unins000.exe"'
+    return $k
+}
+function Invoke-TakeOver([string]$Name, [string]$Key, [string]$Result, [switch]$KeepBoth, [string]$LogFolder) {
+    $base = New-TestDir $Name
+    $rf = Join-Path $base 'setup-result.txt'
+    if ($null -ne $Result) { Set-Content -LiteralPath $rf -Value $Result }
+    if (-not $LogFolder) { $LogFolder = Join-Path $base 'log' }
+    $a = @{ SetupResultFile = $rf; Key = $Key; LogFolder = $LogFolder }
+    if ($KeepBoth) { $a.KeepBoth = $true }
+    $out = & (Join-Path $BetaWin 'take-over-first-edition-entry.ps1') @a | Out-String -Width 4096
+    [pscustomobject]@{ Out = $out; Log = $LogFolder; Copies = @(Get-ChildItem -LiteralPath $LogFolder -Filter 'first-edition-apps-entry-*.reg' -ErrorAction SilentlyContinue) }
+}
+$k = New-FirstEditionKey 'take-default'
+$t = Invoke-TakeOver 'take-default' $k 'ok'
+Check "first edition entry: a finished default update removes it and keeps a copy of its values in the log folder" {
+    (-not (Test-Path -LiteralPath $k)) -and ($t.Copies.Count -eq 1) -and
+        ((Get-Content -LiteralPath $t.Copies[0].FullName -Raw) -match '2\.18\.0') -and ((Get-Content -LiteralPath $t.Copies[0].FullName -Raw) -match 'unins000')
+}
+Check "first edition entry: the copy puts the entry back (reg import), values as they were" {
+    & reg.exe import $t.Copies[0].FullName 2>&1 | Out-Null
+    (Test-Path -LiteralPath $k) -and ((Get-ItemProperty -LiteralPath $k).DisplayVersion -eq '2.18.0')
+}
+Remove-Item -LiteralPath $k -Recurse -Force -ErrorAction SilentlyContinue
+$k = New-FirstEditionKey 'take-uninstall'
+$null = Invoke-TakeOver 'take-uninstall' $k 'ok'
+$u = Invoke-BetaUninstall 'uninst-after-takeover' $k
+Check "first edition entry: after the takeover, uninstalling the one entry removes the shared helpers and the daily job" {
+    -not (Test-Path (Join-Path $u.Bin 'prompt-harvest.js')) -and -not (Test-Path (Join-Path $u.Bin 'mc-due.cmd')) -and (-not $u.Ours) -and
+        -not $u.Out.Contains("first edition's setup is still on this PC")
+}
+Check "first edition entry: and it still leaves the mission control, notes, conversations and key alone" {
+    (Test-Path (Join-Path $u.Workspace 'AGENTS.md')) -and (Test-Path (Join-Path $u.State 'media\photo.jpg')) -and
+        (Test-Path (Join-Path $u.State 'hermes-profile\state.db')) -and (Test-Path (Join-Path $u.Home '.godspeed\age-key.txt'))
+}
+$u = $null
+$k = New-FirstEditionKey 'take-both'
+$t = Invoke-TakeOver 'take-both' $k 'ok' -KeepBoth
+Check "first edition entry: 'keep both' ticked keeps the entry and saves nothing" {
+    (Test-Path -LiteralPath $k) -and ($t.Copies.Count -eq 0) -and $t.Out.Contains('keep both')
+}
+$k = New-FirstEditionKey 'take-failed'
+$t = Invoke-TakeOver 'take-failed' $k 'refused: this installer is older than the Godspeed Mission Control on this PC, nothing was changed'
+Check "first edition entry: a result that is not ok removes nothing" {
+    (Test-Path -LiteralPath $k) -and ($t.Copies.Count -eq 0) -and $t.Out.Contains('did not finish')
+}
+$k = New-FirstEditionKey 'take-noresult'
+$t = Invoke-TakeOver 'take-noresult' $k $null
+Check "first edition entry: no result file at all (a setup that died) removes nothing" {
+    (Test-Path -LiteralPath $k) -and ($t.Copies.Count -eq 0)
+}
+$k = New-FirstEditionKey 'take-nocopy'
+$blocked = Join-Path (New-TestDir 'take-nocopy-base') 'a-file-not-a-folder'
+Set-Content -LiteralPath $blocked -Value 'x'
+$t = Invoke-TakeOver 'take-nocopy' $k 'ok' -LogFolder $blocked
+Check "first edition entry: a copy that cannot be saved leaves the entry in place" {
+    (Test-Path -LiteralPath $k) -and $t.Out.Contains('could not be saved')
+}
+$t = Invoke-TakeOver 'take-none' 'HKCU:\Software\GodspeedKbTest\take-no-first-edition' 'ok'
+Check "first edition entry: a PC without the first edition changes nothing (no output, no log folder)" {
+    ($t.Out.Trim() -eq '') -and -not (Test-Path -LiteralPath $t.Log)
+}
+Check "first edition entry: the setup runs it at the end of a finished run, and only in the setup with the notebook" {
+    $iss = Get-Content (Join-Path $BetaWin 'godspeed-setup.iss') -Raw
+    $i = $iss.IndexOf('procedure TakeOverFirstEditionEntry')
+    $j = $iss.IndexOf('procedure CurStepChanged')
+    $call = $iss.IndexOf('if not SetupFailed then TakeOverFirstEditionEntry();')
+    $body = $iss.Substring($i, $j - $i)
+    ($i -gt 0) -and ($j -gt $i) -and ($call -gt $j) -and
+        $iss.Contains('Source: "take-over-first-edition-entry.ps1"; DestDir: "{app}"') -and
+        $body.Contains("if Beside then Args := Args + ' -KeepBoth';") -and $body.Contains("if FoundGodspeed = '' then Exit;") -and
+        $body.Contains('-SetupResultFile') -and
+        ($iss.LastIndexOf('#ifdef IntegratedNotebook', $i) -gt $iss.LastIndexOf('#endif', $i)) -and
+        ($iss.LastIndexOf('#ifdef IntegratedNotebook', $call) -gt $iss.LastIndexOf('#endif', $call))
+}
+Get-ChildItem 'HKCU:\Software\GodspeedKbTest' -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like 'take-*' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 $ub = New-TestDir 'uninst-empty'
 Check "uninstall: a folder left empty leaves PATH too" {
     $uh = Join-Path $ub 'home'; $bin = Join-Path $uh '.local\bin'; New-Item -ItemType Directory -Force $bin, (Join-Path $ub 'la') | Out-Null
