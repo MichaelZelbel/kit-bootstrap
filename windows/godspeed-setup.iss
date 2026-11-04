@@ -133,6 +133,8 @@ Source: "update-godspeed.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "uninstall-godspeed.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "detect-godspeed.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "move-to-new-folders.ps1"; DestDir: "{app}"; Flags: ignoreversion
+; At the end of an update of the first edition's mission control: takes over its Apps entry.
+Source: "take-over-first-edition-entry.ps1"; DestDir: "{app}"; Flags: ignoreversion
 ; Needed before the wizard starts as well: which mission control, and is the notebook here newer.
 Source: "detect-godspeed.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "godspeed-folders.ps1"; DestDir: "{tmp}"; Flags: dontcopy
@@ -287,11 +289,48 @@ begin
   SetupFailed := Trim(String(Text)) <> 'ok';
 end;
 
+#ifdef IntegratedNotebook
+function Beside: Boolean; forward;
+
+procedure FirstEditionLine(const S: String; const Error, FirstLine: Boolean);
+begin
+  Log('first edition entry: ' + S);
+end;
+
+{ A PC that has the first edition (setup 2.18.0) lists it in Windows' Apps beside this setup, so
+  Apps shows two Godspeed Mission Control (known issue #7). When this run brought that mission
+  control up to date, which is the default, and finished, its entry goes (with a copy of it in the
+  setup log folder), so the one that is left owns the helpers, the daily job and GODSPEED_DIR and
+  uninstalling it removes them. With "keep both" ticked, a notebook that sits beside the mission control
+  this PC works from, or a run that did not finish, nothing is
+  removed; the script checks both itself. }
+procedure TakeOverFirstEditionEntry();
+var
+  Code: Integer;
+  Args: String;
+begin
+  if FoundGodspeed = '' then Exit;
+  Args := '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}	ake-over-first-edition-entry.ps1')
+    + '" -SetupResultFile "' + SetupResultFile() + '" -LogFolder "' + ExpandConstant('{localappdata}\Godspeed') + '"';
+  { Beside: a second mission control was made on request, or this PC still works from the first
+    edition's mission control with the notebook beside it. Either way that edition is in use. }
+  if Beside then Args := Args + ' -KeepBoth';
+  if not ExecAndLogOutput('powershell.exe', Args, '', SW_HIDE, ewWaitUntilTerminated, Code, @FirstEditionLine) then
+    Log('take-over-first-edition-entry.ps1 could not be started.');
+end;
+#endif
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   { Before anything runs, so an "ok" left by an earlier run never stands for this one. }
   if CurStep = ssInstall then DeleteFile(SetupResultFile());
-  if CurStep = ssDone then CheckSetupResult();
+  if CurStep = ssDone then
+  begin
+    CheckSetupResult();
+#ifdef IntegratedNotebook
+    if not SetupFailed then TakeOverFirstEditionEntry();
+#endif
+  end;
 end;
 
 { A silent run (the scheduled updates) learns of the failure from the exit code. }
