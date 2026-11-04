@@ -31,6 +31,8 @@ param(
     # Write the user's PATH and GODSPEED_DIR, or only say what would change. For the tests.
     [switch]$KeepUserEnvironment
 )
+# Started from PowerShell 7, Windows PowerShell 5.1 inherits its module path and cannot find Get-FileHash: use its own.
+if($PSVersionTable.PSEdition -eq 'Desktop' -and $env:PSModulePath -match '(?i)[\\/]PowerShell[\\/](7[^\\/;]*|Modules)([\\/;]|$)'){$env:PSModulePath=(@((Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\Modules'),$(if([Environment]::GetEnvironmentVariable('PSModulePath','Machine')){[Environment]::GetEnvironmentVariable('PSModulePath','Machine')}else{(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')+';'+(Join-Path $PSHOME 'Modules')}))|Where-Object{$_}) -join ';'}
 $ErrorActionPreference = 'Continue'
 if (-not $State) { . (Join-Path $PSScriptRoot 'godspeed-folders.ps1'); $State = Get-GodspeedStateFolder }
 $log = Join-Path $env:LOCALAPPDATA 'Godspeed\uninstall-log.txt'

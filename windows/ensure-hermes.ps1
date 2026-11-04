@@ -1,4 +1,6 @@
 param([Parameter(Mandatory)][string]$State,[Parameter(Mandatory)][string]$Workspace,[int]$Port=47831,[switch]$Provision,[switch]$ForceIsolatedInstall,[switch]$RuntimeOnly)
+# Started from PowerShell 7, Windows PowerShell 5.1 inherits its module path and cannot find Get-FileHash: use its own.
+if($PSVersionTable.PSEdition -eq 'Desktop' -and $env:PSModulePath -match '(?i)[\\/]PowerShell[\\/](7[^\\/;]*|Modules)([\\/;]|$)'){$env:PSModulePath=(@((Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\Modules'),$(if([Environment]::GetEnvironmentVariable('PSModulePath','Machine')){[Environment]::GetEnvironmentVariable('PSModulePath','Machine')}else{(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')+';'+(Join-Path $PSHOME 'Modules')}))|Where-Object{$_}) -join ';'}
 # -RuntimeOnly: install the Hermes program into $State\hermes-runtime and stop there, writing no
 #   record and connecting nothing. move-to-new-folders.ps1 uses it when it moves an install made
 #   before 2.0.0-beta.11: the program records the folder it was installed in, so it is installed

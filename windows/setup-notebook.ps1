@@ -1,4 +1,6 @@
 param([string]$AppRoot=$PSScriptRoot,[string]$Workspace,[int]$Port=47831,[switch]$NoStart,[switch]$NoStartup,[switch]$SkipHermes,[switch]$OriginalStarter)
+# Started from PowerShell 7, Windows PowerShell 5.1 inherits its module path and cannot find Get-FileHash: use its own.
+if($PSVersionTable.PSEdition -eq 'Desktop' -and $env:PSModulePath -match '(?i)[\\/]PowerShell[\\/](7[^\\/;]*|Modules)([\\/;]|$)'){$env:PSModulePath=(@((Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\Modules'),$(if([Environment]::GetEnvironmentVariable('PSModulePath','Machine')){[Environment]::GetEnvironmentVariable('PSModulePath','Machine')}else{(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')+';'+(Join-Path $PSHOME 'Modules')}))|Where-Object{$_}) -join ';'}
 $ErrorActionPreference='Stop'
 $env:GODSPEED_ORIGINAL_RUNTIME='on'
 . (Join-Path $PSScriptRoot 'invoke-notebook-node.ps1')

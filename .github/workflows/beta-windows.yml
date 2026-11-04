@@ -177,6 +177,12 @@ jobs:
             & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "windows/$t"
             if ($LASTEXITCODE) { "FAIL $t"; exit 1 }
           }
+      - name: The update started from PowerShell 7, whose module path a Windows PowerShell 5.1 inherits
+        shell: pwsh
+        run: |
+          # No PSModulePath reset here: that is the case (3 November 2026, Get-FileHash not found).
+          ./windows/test-pwsh-update.ps1
+          if ($LASTEXITCODE) { exit 1 }
 
   bash-suite:
     runs-on: ubuntu-latest
