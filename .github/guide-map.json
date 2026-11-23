@@ -12,7 +12,7 @@
     "switch-ai": ["windows/ensure-hermes.ps1"],
     "terminal-commands": ["join.ps1", "windows/ensure-hermes.ps1"],
     "troubleshooting": ["windows/open-notebook.ps1", "windows/start-notebook.ps1"],
-    "troubleshooting-install": ["join.ps1", "lib.sh", "setup-godspeed.sh"],
+    "troubleshooting-install": ["join.ps1", "lib.sh", "setup-godspeed.sh", "windows/update-godspeed.ps1"],
     "uninstall": ["windows/godspeed-setup.iss", "windows/setup-godspeed.ps1", "windows/uninstall-godspeed.ps1"],
     "update": ["windows/detect-godspeed.ps1", "windows/setup-godspeed.ps1", "windows/update-godspeed.ps1"]
   }
