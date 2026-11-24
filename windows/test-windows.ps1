@@ -4932,6 +4932,9 @@ Check "launcher: normal case, the program ran" {
 Check "launcher: unwritable log still gives exit 3, no box, no hang" {
     (Invoke-RhLauncher "`"$rhGone`" cmd.exe /c exit 0" -ProfileDir $rhOut) -eq 3
 }
+Check "launcher: unwritable log with a missing program still gives exit 4, no box, no hang" {
+    (Invoke-RhLauncher "`"$rhDir`" no-such-program-xyz.exe" -ProfileDir $rhOut) -eq 4
+}
 Check "launcher: too few arguments gives exit 2" { (Invoke-RhLauncher "`"$rhDir`"") -eq 2 }
 Check "launcher: no wscript.exe left running" {
     Start-Sleep -Milliseconds 500
