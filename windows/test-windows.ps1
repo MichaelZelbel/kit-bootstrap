@@ -4889,6 +4889,58 @@ Check "the setup finishes the move once the notebook works, the updater reads th
 Get-ChildItem 'HKCU:\Software\GodspeedKbTest' -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like 'move-*' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force 'HKCU:\Software\GodspeedKbTest\first-edition' -ErrorAction SilentlyContinue
 
+Write-Host ""
+Write-Host "-- the hidden launcher never shows an error box (run under wscript, as scheduled tasks do)"
+$rhDir = New-TestDir 'run-hidden'
+$rhVbs = Write-KitHiddenLauncher -Dir (Join-Path $rhDir 'bin')
+$rhProf = New-TestDir 'run-hidden\profile'
+$rhLog = Join-Path $rhProf '.godspeed\logs\run-hidden.log'
+$rhGone = Join-Path $rhDir 'no-such-folder'
+function Invoke-RhLauncher {
+    # Runs the written launcher under wscript with USERPROFILE pointed at a throwaway folder; a hung
+    # wscript (a box) is killed and reported as -999 so no box stays on screen.
+    param([string]$Arguments, [string]$ProfileDir = $rhProf)
+    $old = $env:USERPROFILE; $env:USERPROFILE = $ProfileDir
+    try {
+        $p = Start-Process wscript -ArgumentList "`"$rhVbs`" $Arguments" -PassThru
+        if (-not $p.WaitForExit(15000)) { try { $p.Kill() } catch { }; return -999 }
+        return $p.ExitCode
+    } finally { $env:USERPROFILE = $old }
+}
+$rhWscriptBefore = @(Get-Process wscript -ErrorAction SilentlyContinue).Count
+Check "launcher: the written file is pure ASCII and never calls WScript.Echo" {
+    $bytes = [IO.File]::ReadAllBytes($rhVbs)
+    (-not ($bytes | Where-Object { $_ -gt 127 })) -and ((Get-Content $rhVbs -Raw) -notmatch 'WScript\.Echo')
+}
+$c = Invoke-RhLauncher "`"$rhGone`" cmd.exe /c exit 0"
+Check "launcher: missing working folder gives exit 3, no box" { $c -eq 3 }
+$c = Invoke-RhLauncher "`"$rhDir`" no-such-program-xyz.exe"
+Check "launcher: missing program gives exit 4, no box" { $c -eq 4 }
+$rhLines = @(Get-Content $rhLog -ErrorAction SilentlyContinue)
+Check "launcher: both failures logged with step, folder, command and a non-zero error code" {
+    $rhLines.Count -eq 2 -and
+    $rhLines[0] -like "*set working folder failed*workdir=$rhGone*cmd=cmd.exe /c exit 0*(0x8007000*" -and $rhLines[0] -notlike '*(0x0;*' -and
+    $rhLines[1] -like "*start program failed*no-such-program-xyz.exe*(0x8007000*" -and $rhLines[1] -notlike '*(0x0;*'
+}
+$rhOut = Join-Path $rhDir 'ok.txt'
+$c = Invoke-RhLauncher "`"$rhDir`" cmd.exe /c `"echo ok > $rhOut`""
+Check "launcher: normal case gives exit 0" { $c -eq 0 }
+Check "launcher: normal case, the program ran" {
+    $t = 0; while (-not (Test-Path $rhOut) -and $t -lt 50) { Start-Sleep -Milliseconds 100; $t++ }
+    Test-Path $rhOut
+}
+Check "launcher: unwritable log still gives exit 3, no box, no hang" {
+    (Invoke-RhLauncher "`"$rhGone`" cmd.exe /c exit 0" -ProfileDir $rhOut) -eq 3
+}
+Check "launcher: unwritable log with a missing program still gives exit 4, no box, no hang" {
+    (Invoke-RhLauncher "`"$rhDir`" no-such-program-xyz.exe" -ProfileDir $rhOut) -eq 4
+}
+Check "launcher: too few arguments gives exit 2" { (Invoke-RhLauncher "`"$rhDir`"") -eq 2 }
+Check "launcher: no wscript.exe left running" {
+    Start-Sleep -Milliseconds 500
+    @(Get-Process wscript -ErrorAction SilentlyContinue).Count -le $rhWscriptBefore
+}
+
 # THE REAL PATH, PUT BACK ONCE MORE, AND THIS TIME LAST. The restore further up was written
 # when it was the end of the file. Cases were added below it afterwards, and one of them
 # (the shim case, with its own shim-home) installs the mission control commands, which prepends its bin
